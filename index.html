@@ -1009,9 +1009,11 @@
                 font-size: 13px;
                 flex: 1 1 100%;
             }
+
             .chat-input-area #char-count {
                 display: none;
             }
+
             .chat-input-area #btn-send {
                 flex: 1 1 auto;
             }
@@ -1345,7 +1347,9 @@
                         </svg>
                         关于
                     </h4>
-                    <p>此网页是开源的：<a href="https://github.com/XiaoFeng-QWQ/TuringTalk" target="_blank" style="color: var(--ink-blue); text-decoration: underline;">github.com/XiaoFeng-QWQ/TuringTalk</a></p>
+                    <p>此网页是开源的：<a href="https://github.com/XiaoFeng-QWQ/TuringTalk" target="_blank"
+                            style="color: var(--ink-blue); text-decoration: underline;">github.com/XiaoFeng-QWQ/TuringTalk</a>
+                    </p>
                     <p>此网页本质上是在模仿和学习原网页：
                         <a href="https://www.anyanygame.com/turing-test" target="_blank"
                             style="color: var(--ink-blue); text-decoration: underline;">https://www.anyanygame.com/turing-test</a>
@@ -2139,8 +2143,8 @@
         // const transport = new LocalBotTransport();
 
         // WebSocket 模式（连接后端）
-        const transport = new WebSocketTransport('ws://' + window.location.host + '/ws');
-
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        const transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws');
         const game = new GameClient(transport);
     </script>
 </body>
