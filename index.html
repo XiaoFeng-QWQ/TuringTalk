@@ -27,7 +27,6 @@
             color: var(--ink-black);
         }
 
-        /* SVG 图标通用继承类 */
         .icon {
             width: 1.25em;
             height: 1.25em;
@@ -40,7 +39,6 @@
             display: inline-block;
         }
 
-        /* 虚线网格手账本背景 */
         body {
             background-color: var(--paper-bg);
             background-image: radial-gradient(#d1d1d1 1.5px, transparent 1.5px);
@@ -50,7 +48,6 @@
             flex-direction: column;
         }
 
-        /* 不规则手绘边框基础类 */
         .doodle-border {
             border: 2px solid var(--ink-black);
             border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
@@ -58,7 +55,6 @@
             box-shadow: 4px 6px 0px rgba(0, 0, 0, 0.1);
         }
 
-        /* 涂鸦按钮 */
         .doodle-btn {
             background: transparent;
             border: 2px solid var(--ink-black);
@@ -82,7 +78,6 @@
             transform: scale(0.95);
         }
 
-        /* === 顶部导航 === */
         header {
             padding: 12px 30px;
             display: flex;
@@ -105,7 +100,6 @@
             gap: 12px;
         }
 
-        /* === 主区域 === */
         main {
             flex: 1;
             display: flex;
@@ -115,7 +109,6 @@
             padding: 20px;
         }
 
-        /* === 匹配大厅 (便利贴风格) === */
         #landing-page {
             display: flex;
             flex-direction: column;
@@ -134,7 +127,6 @@
             box-shadow: 3px 5px 10px rgba(0, 0, 0, 0.1);
         }
 
-        /* 胶带效果 */
         .sticky-hero::before {
             content: '';
             position: absolute;
@@ -242,7 +234,6 @@
             color: #666;
         }
 
-        /* === 聊天界面 (信笺纸风格) === */
         #chat-page {
             display: none;
             width: 100%;
@@ -445,7 +436,6 @@
             border-color: #f44336;
         }
 
-        /* === 侧边栏设置 (剪贴板风格) === */
         #settings-overlay {
             position: fixed;
             top: 0;
@@ -541,7 +531,6 @@
             outline: none;
         }
 
-        /* 手绘勾选框 */
         .hand-checkbox {
             display: flex;
             align-items: center;
@@ -578,7 +567,6 @@
             transform: rotate(2deg);
         }
 
-        /* === 判定结果页 === */
         #result-area {
             display: none;
             flex: 1;
@@ -675,7 +663,6 @@
             }
         }
 
-        /* === 通用动画 === */
         @keyframes slideUp {
             from {
                 opacity: 0;
@@ -758,7 +745,6 @@
             animation: fadeIn 0.4s ease-out both;
         }
 
-        /* 判定按钮就绪动画 */
         .j-btn.judgement-ready {
             animation: wiggle 0.6s ease-in-out 1;
         }
@@ -787,7 +773,6 @@
             }
         }
 
-        /* 倒计时紧迫 */
         .timer-sketch.urgent {
             color: #f44336;
             animation: pulse 1s ease-in-out infinite;
@@ -800,7 +785,6 @@
             color: #666;
         }
 
-        /* === 匹配加载页 === */
         #matching-page {
             display: none;
             flex-direction: column;
@@ -859,7 +843,6 @@
             }
         }
 
-        /* =========================== 移动端适配 =========================== */
         @media (max-width: 768px) {
             header {
                 padding: 10px 15px;
@@ -874,7 +857,6 @@
                 font-size: 14px;
             }
 
-            /* 大厅 */
             .sticky-hero {
                 padding: 25px 20px;
                 transform: rotate(-1deg);
@@ -902,7 +884,6 @@
                 width: min(200px, 80vw);
             }
 
-            /* 聊天页 */
             .notebook-container {
                 border-left-width: 20px;
                 height: 85vh;
@@ -962,7 +943,6 @@
                 font-size: 18px;
             }
 
-            /* 判定结果 */
             #result-area {
                 padding: 15px;
             }
@@ -979,7 +959,6 @@
                 font-size: 18px;
             }
 
-            /* 匹配中 */
             .matching-card {
                 padding: 25px 30px;
             }
@@ -1039,7 +1018,6 @@
                 height: calc(100vh - 20px);
             }
 
-            /* 设置页在小屏上占满 */
             #settings-overlay .clipboard-drawer {
                 width: calc(100vw - 10px);
                 right: 5px;
@@ -1742,7 +1720,6 @@
                 this._opponentName = data.opponent_name;
                 this._duration = data.duration || 600;
 
-                // 更新聊天页头部——替换默认占位符
                 const infoDiv = document.querySelector('.opponent-info > div:nth-of-type(2)');
                 if (infoDiv) {
                     infoDiv.innerHTML = `
@@ -1822,7 +1799,6 @@
             }
 
             _onJudgeNotify(data) {
-                // 对方已做出判断，显示提醒
                 const notifyDiv = document.createElement('div');
                 notifyDiv.className = 'sys-msg anim-pop-in';
                 notifyDiv.style.color = '#f44336';
@@ -1832,7 +1808,6 @@
                 chatBody.appendChild(notifyDiv);
                 chatBody.scrollTop = chatBody.scrollHeight;
 
-                // 强制启用判断按钮（不再要求对方先发消息）
                 this._judgementAllowed = true;
                 updateJudgementState(true);
             }
@@ -1847,17 +1822,14 @@
             }
 
             _onOpponentTimeout(data) {
-                // 聊天时间到：后端通知进入判定阶段，停止本地倒计时
                 if (data && data.reason === 'chat_expired') {
                     clearInterval(timerInterval);
                     timerInterval = null;
                     timerDisplay.textContent = '00:00';
                     chatInput.disabled = true;
                     btnSend.disabled = true;
-                    // 等待后端发送 judged 或 judgement_expired 事件
                     return;
                 }
-                // 判定超时或对方断开
                 if (this._waitTimer) {
                     clearInterval(this._waitTimer);
                     this._waitTimer = null;
@@ -1975,6 +1947,7 @@
         const judgementZone = document.getElementById('judgement-zone');
         const resultArea = document.getElementById('result-area');
         const chatInputArea = document.querySelector('.chat-input-area');
+
         function updateJudgementState(judgementAllowed) {
             const btnHuman = document.getElementById('btn-judge-human');
             const btnAi = document.getElementById('btn-judge-ai');
@@ -2095,7 +2068,14 @@
         }
 
         function resetState() {
-            game.reset();
+            // 检查是否在游戏对局中（聊天页面显示）
+            if (chatPage.style.display === 'flex') {
+                if (confirm('确定要离开当前对局吗？\n离开后将断开与对手的连接。')) {
+                    game.reset();
+                }
+            } else {
+                game.reset();
+            }
         }
 
         function resetGame() {
@@ -2120,7 +2100,28 @@
             charCount.style.color = len > 280 ? '#e74c3c' : len > 250 ? '#f39c12' : '#999';
         });
 
-        btnBack.addEventListener('click', resetState);
+        btnBack.addEventListener('click', function (e) {
+            if (chatPage.style.display === 'flex') {
+                if (confirm('确定要离开当前对局吗？\n离开后将断开与对手的连接。')) {
+                    resetState();
+                }
+                // 否则什么都不做（用户取消）
+            } else {
+                // 不在聊天页面时直接重置
+                resetState();
+            }
+        });
+
+        window.addEventListener('beforeunload', function (e) {
+            // 只在聊天页面激活时触发
+            if (chatPage.style.display === 'flex') {
+                // 标准方式：设置 event.returnValue
+                e.preventDefault();
+                e.returnValue = '你正在进行一局图灵测试，确定要离开吗？';
+                return e.returnValue;
+            }
+            // 不在聊天页面时，不拦截
+        });
 
         btnSettings.addEventListener('click', () => {
             settingsOverlay.style.display = 'block';
