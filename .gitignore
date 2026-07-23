@@ -1,0 +1,19 @@
+# 依赖
+vendor/
+
+# 日志和运行时文件
+Storage/Logs/*.log
+Storage/*.pid
+
+# 配置文件
+Config/App.php
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
