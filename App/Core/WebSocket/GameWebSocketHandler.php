@@ -6,11 +6,8 @@ use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 use Swoole\Timer;
 use Swoole\Coroutine;
-use Swoole\Table;
 use Swoole\Coroutine\Channel;
 use App\Core\Sanitizer;
-use App\Core\PowValidator;
-use App\Core\PowEncoder;
 use App\Services\GameService;
 use App\Services\MatchService;
 use App\Services\BotService;
@@ -21,6 +18,7 @@ use App\Controllers\GameController;
 use App\Services\BanRepository;
 use App\Services\ReportRepository;
 use App\Services\PlayerStatsRepository;
+use App\Services\AsyncDbWriter;
 
 class GameWebSocketHandler
 {
@@ -39,25 +37,31 @@ class GameWebSocketHandler
 
     /** @var array<string, int> sessionId => timerId，延迟清理定时器 */
     private array $cleanupTimers = [];
+    /** @var array<string, bool> 防重入标记 */
+    private array $cleaning = [];
     private array $mutualChatTimers = [];
 
-    /** IP 跟踪表（fd => IP + 浏览器指纹） */
-    private ?Table $ipTable = null;
+    /** IP 跟踪（fd => [ip, fingerprint]），单 Worker 用数组即可 */
+    private array $clientInfo = [];
+    /** IP → fd 反向索引，O(1) 检查 IP 重复 */
+    private array $ipToFd = [];
 
-    /** 管理员在线表（fd => present，跨 Worker 共享） */
-    private ?Table $adminTable = null;
+    /** 管理员在线 fd 集合 */
+    private array $adminFds = [];
 
-    /** 旁观记录表（sessionId => admin_fds 逗号分隔，跨 Worker 共享） */
-    private ?Table $spectatorTable = null;
+    /** 旁观记录（sessionId => [admin_fd, ...]），单 Worker 用数组即可 */
+    private array $spectatorSessions = [];
 
     /** 上榜玩家：fd => 恢复码映射 */
     private array $playerCodes = [];
 
-    /** PoW 已验证的 fd 集合（onOpen 完成前忽略 onMessage） */
-    private array $powVerifiedFds = [];
-
-    /** Bot LLM 调用并发信号量（避免大量协程同时调 LLM 耗尽连接资源） */
+    /** Bot LLM 调用并发信号量（10 槽位 + 5s 超时防死锁，超时 fallback 模板） */
     private static ?Channel $botLlmSem = null;
+    private const BOT_LLM_SLOTS = 10;
+    private const BOT_LLM_TIMEOUT = 5.0;
+
+    /** 按 sessionId 的生成锁：同一会话同时只能有一条消息在生成 */
+    private array $botGenerating = [];
 
     public function __construct()
     {
@@ -68,37 +72,6 @@ class GameWebSocketHandler
         $this->matchService->onMatch(function (array $session) {
             // 回调在 Application 中设置
         });
-    }
-
-    public function setIpTable(Table $table): void
-    {
-        $this->ipTable = $table;
-    }
-
-    public function setAdminTable(Table $table): void
-    {
-        $this->adminTable = $table;
-    }
-
-    public function setSpectatorTable(Table $table): void
-    {
-        $this->spectatorTable = $table;
-    }
-
-    /**
-     * 设置匹配定时器共享表（传递给 MatchService，跨 Worker 管理定时器生命周期）
-     */
-    public function setMatchTimerTable(Table $table): void
-    {
-        $this->matchService->setMatchTimerTable($table);
-    }
-
-    /**
-     * 设置当前 Worker ID（传递给 MatchService，用于定时器归属判断）
-     */
-    public function setWorkerId(int $workerId): void
-    {
-        $this->matchService->setWorkerId($workerId);
     }
 
     public function setMatchCallback(callable $callback): void
@@ -120,59 +93,55 @@ class GameWebSocketHandler
     {
         $fd = $request->fd;
 
-        // PoW 工作量证明校验（防重放：token 一次性 + nonce 黑名单 + IP 限流）
-        $encData = $request->get['d'] ?? '';
-        $decoded = PowEncoder::decode($encData);
-        if ($decoded === null) {
-            if ($server->isEstablished($fd)) {
-                $server->push($fd, json_encode(['type' => 'error', 'code' => 'pow_failed', 'message' => 'PoW验证失败，请刷新页面重试']));
-            }
-            $server->close($fd);
-            return;
-        }
-
-        $ip = $request->header['x-real-ip']
-            ?? (explode(',', $request->header['x-forwarded-for'] ?? '')[0] ?? '')
-            ?? $request->server['remote_addr']
-            ?? 'unknown';
-        $ip = trim($ip);
-
-        $result = PowValidator::validateConnection(
-            $decoded['challenge'],
-            $decoded['nonce'],
-            $decoded['token'],
-            $decoded['client_id'],
-            $decoded['browser_proof'] ?? '',
-            $ip
-        );
-        if (!$result['success']) {
-            Logger::debug('WS PoW failed: ' . $result['error'], ['fd' => $fd, 'ip' => $ip]);
-            if ($server->isEstablished($fd)) {
-                $server->push($fd, json_encode(['type' => 'error', 'code' => 'pow_failed', 'message' => 'PoW验证失败，请刷新页面重试']));
-            }
-            $server->close($fd);
-            return;
-        }
-
         // 优先从代理头获取真实 IP（nginx 反代场景）
         $xForwarded = $request->header['x-forwarded-for'] ?? '';
         if (!empty($xForwarded)) {
-            // X-Forwarded-For 可能包含多个 IP（逗号分隔），取第一个
             $clientIp = trim(explode(',', $xForwarded)[0]);
         } else {
             $clientIp = $request->header['x-real-ip'] ?? $request->server['remote_addr'] ?? 'unknown';
         }
 
-        // PoW 验证通过后才算在线
-        $this->powVerifiedFds[$fd] = true;
+        // 同一 IP 已有连接则拒绝（禁止单 IP 多开）
+        // O(1) 查反向索引 + 单次 isEstablished
+        $existingFd = $this->ipToFd[$clientIp] ?? null;
+        if ($existingFd !== null) {
+            if ($server->isEstablished($existingFd)) {
+                Logger::info('WS rejected: IP already connected', [
+                    'fd' => $fd,
+                    'ip' => $clientIp,
+                    'existing_fd' => $existingFd,
+                ]);
+                if ($server->isEstablished($fd)) {
+                    $server->push($fd, json_encode([
+                        'type' => 'error',
+                        'message' => '该IP已有活跃连接，请勿多开页面',
+                    ]));
+                }
+                $server->close($fd);
+                return;
+            }
+            // 旧 fd 已死 → 清理僵尸索引
+            unset($this->ipToFd[$clientIp]);
+            unset($this->clientInfo[(string)$existingFd]);
+        }
+
         $this->gameService->addOnline($fd);
 
-        $this->ipTable?->set((string)$fd, ['ip' => $clientIp, 'fingerprint' => '']);
-
+        $this->clientInfo[(string)$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
+        $this->ipToFd[$clientIp] = (int)$fd;
         Logger::info('WebSocket connection opened', [
             'fd' => $fd,
             'ip' => $clientIp,
         ]);
+
+        // 发送当前在线人数
+        $onlineCount = $this->gameService->getOnlineCount();
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'online_count',
+            'count' => $onlineCount,
+        ]);
+        // 通知所有已连接客户端在线人数变化
+        $this->broadcastOnlineCount($server, $fd);
     }
 
     public function onMessage(Server $server, Frame $frame): void
@@ -184,18 +153,6 @@ class GameWebSocketHandler
         $data = json_decode($rawData, true);
         if (!is_array($data) || !isset($data['type'])) {
             $this->sendError($server, $fd, '无效的消息格式');
-            return;
-        }
-
-        // PoW 未通过前忽略所有消息（除 ping），防止竞态脏数据
-        if (empty($this->powVerifiedFds[$fd])) {
-            if (($data['type'] ?? '') !== 'ping') {
-                Logger::warning('WS message dropped: PoW not verified', [
-                    'fd' => $fd,
-                    'type' => $data['type'] ?? 'unknown',
-                ]);
-                $this->sendError($server, $fd, '连接尚未就绪，请稍后再试');
-            }
             return;
         }
 
@@ -264,6 +221,9 @@ class GameWebSocketHandler
                 case 'save_history':
                     $this->handleSaveHistory($server, $fd, $data);
                     break;
+                case 'leave_result':
+                    $this->handleLeaveResult($server, $fd, $data);
+                    break;
                 default:
                     $this->sendError($server, $fd, '未知的消息类型: ' . $data['type']);
             }
@@ -292,22 +252,31 @@ class GameWebSocketHandler
         Logger::info('WebSocket connection closed', ['fd' => $fd]);
 
         $this->gameService->removeOnline($fd);
-        $this->ipTable?->del((string)$fd);
+        // 广播在线人数变化
+        $this->broadcastOnlineCount($server);
+        // 清理 IP 反向索引
+        $row = $this->clientInfo[(string)$fd] ?? null;
+        if ($row && ($row['ip'] ?? '')) {
+            $idxFd = $this->ipToFd[$row['ip']] ?? null;
+            if ($idxFd === $fd) {
+                unset($this->ipToFd[$row['ip']]);
+            }
+        }
+        unset($this->clientInfo[(string)$fd]);
 
         // 清理管理员追踪
         $this->removeAdminFd($fd);
 
         // 清理上榜追踪
         GameService::removePlayerCode($fd);
-        unset($this->powVerifiedFds[$fd]);
 
         // 清理旁观记录
-        foreach ($this->allSpectatorSessions() as $sessionId => $slist) {
+        foreach ($this->spectatorSessions as $sessionId => $slist) {
             $slist = array_values(array_filter($slist, fn($afd) => $afd !== $fd));
             if (empty($slist)) {
-                $this->spectatorTable->del($sessionId);
+                unset($this->spectatorSessions[$sessionId]);
             } else {
-                $this->spectatorTable->set($sessionId, ['admin_fds' => implode(',', $slist)]);
+                $this->spectatorSessions[$sessionId] = $slist;
             }
         }
 
@@ -355,12 +324,74 @@ class GameWebSocketHandler
                 'opponent_truth' => $disconnectedTruth,
                 'session_id' => $sessionId,
             ]);
+
+            $msgCount = $this->gameService->getMessageCount($sessionId);
+            // 剩余玩家记为胜
+            $this->recordLeaderboardGame($session, $opponentFd, 'opponent_disconnected', $msgCount);
+            // 断开方记为负
+            $this->recordLeaderboardGame($session, $fd, 'disconnected', $msgCount);
         }
+
+        // 转换为 finished 状态，启动标准清理流程
+        $this->gameService->transitionState($sessionId, 'finished');
+        $this->cleanupTimers[$sessionId] = \Swoole\Timer::after(5000, function () use ($sessionId) {
+            unset($this->cleanupTimers[$sessionId]);
+            $this->cleanupSessionWithReportCheck($sessionId);
+        });
 
         // 通知旁观者
         $this->notifySpectatorsEnded($server, $sessionId, '玩家断开连接');
 
-        $this->cleanupSessionWithReportCheck($sessionId);
+        // 双方确认制：标记该玩家离开，双方都离开才清理
+        $this->markAndCheckCleanup($sessionId, $fd);
+    }
+
+    /**
+     * 玩家确认离开对局结果页（btn-back / 再来一局）
+     * 不主动断开连接，仅标记离开意向
+     */
+    private function handleLeaveResult(Server $server, int $fd, array $data): void
+    {
+        $sessionId = $data['session_id'] ?? '';
+        if (!$sessionId) {
+            // 尝试从玩家绑定中获取
+            $session = $this->gameService->getSessionByPlayerFd($fd);
+            $sessionId = $session['id'] ?? '';
+        }
+        if (!$sessionId) return;
+
+        Logger::info('Player confirmed leave result', ['fd' => $fd, 'session_id' => $sessionId]);
+        $this->markAndCheckCleanup($sessionId, $fd);
+    }
+
+    /**
+     * 标记玩家离开 + 检查是否双方都已离开
+     * 双方都离开 → 立即清理；否则 → 180s 兜底
+     */
+    private function markAndCheckCleanup(string $sessionId, int $fd): void
+    {
+        $bothDone = $this->gameService->markPlayerLeft($sessionId, $fd);
+
+        if ($bothDone) {
+            Logger::info('Both players left result page, cleaning up', ['session_id' => $sessionId]);
+            // 清除已有的兜底定时器
+            if (isset($this->cleanupTimers[$sessionId])) {
+                \Swoole\Timer::clear($this->cleanupTimers[$sessionId]);
+                unset($this->cleanupTimers[$sessionId]);
+            }
+            $this->cleanupSessionWithReportCheck($sessionId);
+            return;
+        }
+
+        // 一方离开，另一方还在，启动 180s 兜底定时器（防止另一方永不离开）
+        if (!isset($this->cleanupTimers[$sessionId])) {
+            $this->cleanupTimers[$sessionId] = \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
+                unset($this->cleanupTimers[$sessionId]);
+                Logger::info('Cleanup fallback timer fired', ['session_id' => $sessionId]);
+                $this->cleanupSessionWithReportCheck($sessionId);
+            });
+            Logger::debug('Cleanup fallback timer started (180s)', ['session_id' => $sessionId]);
+        }
     }
 
     private function handleReport(Server $server, int $fd, array $data): void
@@ -395,8 +426,8 @@ class GameWebSocketHandler
         }
 
         // 获取举报者和被举报者的 IP、指纹和昵称
-        $reporterInfo = $this->ipTable?->get((string)$fd);
-        $targetInfo   = $this->ipTable?->get((string)$opponentFd);
+        $reporterInfo = $this->clientInfo[(string)$fd] ?? null;
+        $targetInfo   = $this->clientInfo[(string)$opponentFd] ?? null;
         $reporterIp           = $reporterInfo['ip'] ?? 'unknown';
         $reporterFingerprint  = $reporterInfo['fingerprint'] ?? '';
         $targetIp             = $targetInfo['ip'] ?? 'unknown';
@@ -455,7 +486,7 @@ class GameWebSocketHandler
             $opponentTruth = $session['player1_truth'] ?: null;
         }
 
-        $clientInfo = $this->ipTable?->get((string)$playerFd);
+        $clientInfo = $this->clientInfo[(string)$playerFd] ?? null;
         $ip = $clientInfo['ip'] ?? 'unknown';
         $fp = $clientInfo['fingerprint'] ?? '';
         $nickname = $isP1 ? ($session['player1_nickname'] ?? '') : ($session['player2_nickname'] ?? '');
@@ -464,7 +495,7 @@ class GameWebSocketHandler
             ? (time() - (int)$session['created_at'])
             : 0;
 
-        PlayerStatsRepository::recordGame([
+        AsyncDbWriter::pushStats($code, [
             'code' => $code,
             'nickname' => $nickname,
             'ip' => $ip,
@@ -524,6 +555,9 @@ class GameWebSocketHandler
      */
     private function cleanupSessionWithReportCheck(string $sessionId): void
     {
+        // 防重入：避免 5s 定时器和 markAndCheckCleanup 同时触发
+        if (isset($this->cleaning[$sessionId])) return;
+        $this->cleaning[$sessionId] = true;
         $hasReports = false;
         try {
             $hasReports = ReportRepository::hasReports($sessionId);
@@ -546,25 +580,18 @@ class GameWebSocketHandler
                 $player2Desc = ($session['player2_nickname'] ?? '玩家2') . ($session['player2_fd'] > 0 ? ' (玩家)' : '');
             }
 
-            // 异步写入 MySQL，完成后再清除内存
-            \Swoole\Coroutine\go(function () use ($sessionId, $messages, $player1Desc, $player2Desc, $duration) {
-                try {
-                    ReportRepository::saveChatHistory($sessionId, $messages, $player1Desc, $player2Desc, $duration);
-                } catch (\Throwable $e) {
-                    Logger::error('cleanupSessionWithReportCheck: async save failed', [
-                        'session_id' => $sessionId,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
+            // 异步写入 MySQL，由独立协程消费
+            AsyncDbWriter::pushReportChat($sessionId, $messages, [$player1Desc, $player2Desc], $duration);
 
-                // MySQL 写入完成后，清除内存缓存
+            // 延迟 180s 后清理 Redis，给另一名玩家留时间保存聊天记录
+            \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
                 $this->gameService->cleanupSession($sessionId);
-                $this->spectatorTable?->del($sessionId);
-
-                Logger::debug('Session cleaned up after async save', ['session_id' => $sessionId]);
+                unset($this->spectatorSessions[$sessionId]);
+                Logger::debug('Session cleaned up (report, delayed)', ['session_id' => $sessionId]);
             });
+            Logger::debug('Session cleanup delayed for report', ['session_id' => $sessionId]);
 
-            return; // 异步处理，直接返回
+            return;
         }
 
         // 无举报，检查是否有玩家拥有恢复码，若有则延长清理时间
@@ -576,7 +603,7 @@ class GameWebSocketHandler
                 // 玩家有恢复码，延长 180s 后再清理，给前端留时间调用保存 API
                 \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
                     $this->gameService->cleanupSession($sessionId);
-                    $this->spectatorTable?->del($sessionId);
+                    unset($this->spectatorSessions[$sessionId]);
                 });
                 Logger::debug('Session cleanup delayed for recovery code', ['session_id' => $sessionId]);
                 return;
@@ -585,7 +612,7 @@ class GameWebSocketHandler
 
         // 无举报，直接清理内存
         $this->gameService->cleanupSession($sessionId);
-        $this->spectatorTable?->del($sessionId);
+        unset($this->spectatorSessions[$sessionId]);
     }
 
     // ==================== 消息处理器 ====================
@@ -625,10 +652,10 @@ class GameWebSocketHandler
         ]);
 
         $fingerprint = Sanitizer::identifier($data['fingerprint'] ?? '');
-        if ($this->ipTable !== null) {
-            $this->ipTable->set((string)$fd, ['fingerprint' => $fingerprint]);
+        if (true) {
+            $this->clientInfo[(string)$fd]['fingerprint'] = $fingerprint;
 
-            $clientInfo = $this->ipTable->get((string)$fd);
+            $clientInfo = $this->clientInfo[(string)$fd];
             $clientIp = $clientInfo['ip'] ?? 'unknown';
 
             if (BanRepository::isBanned($clientIp, $fingerprint)) {
@@ -649,7 +676,7 @@ class GameWebSocketHandler
         }
 
         // 自动关联排行榜恢复码（通过 IP+指纹，无需额外 WS 消息）
-        $clientIp = $this->ipTable ? ($this->ipTable->get((string)$fd)['ip'] ?? '') : '';
+        $clientIp = $this->clientInfo[(string)$fd]['ip'] ?? '';
         if (!empty($clientIp) && !empty($fingerprint)) {
             $existing = PlayerStatsRepository::findByIpFingerprint($clientIp, $fingerprint);
             if ($existing) {
@@ -663,20 +690,24 @@ class GameWebSocketHandler
         $this->matchService->dequeue($fd);
         $oldSession = $this->gameService->getSessionByPlayerFd($fd);
         if ($oldSession) {
-            // 如果玩家已在对局中（chatting/judging），拒绝重复 join
+            // 如果玩家已在对局中（chatting/judging），主动离开旧会话再重新加入
             if (in_array($oldSession['state'], ['chatting', 'judging'], true)) {
-                Logger::warning('handleJoin: player already in active session, rejecting', [
+                Logger::warning('handleJoin: player in active session, force-leaving first', [
                     'fd' => $fd,
-                    'session_id' => $oldSession['id'],
+                    'old_session' => $oldSession['id'],
                     'state' => $oldSession['state'],
                 ]);
-                $this->sendError($server, $fd, '你已在对局中，请先完成当前对局');
-                return;
+                // 直接调用 handleLeave 完成标准清理流程（通知对手、记录战绩、转 finished、启动清理定时器）
+                $this->handleLeave($server, $fd);
             }
-            $this->clearSessionTimers($oldSession['id']);
-            $this->gameService->transitionState($oldSession['id'], 'finished');
-            $this->gameService->cleanupSession($oldSession['id']);
-            Logger::info('handleJoin cleaned up stale session', ['session_id' => $oldSession['id'], 'fd' => $fd]);
+            // 再次获取，确保旧会话已清理完毕
+            $oldSession = $this->gameService->getSessionByPlayerFd($fd);
+            if ($oldSession) {
+                $this->clearSessionTimers($oldSession['id']);
+                $this->gameService->transitionState($oldSession['id'], 'finished');
+                $this->gameService->cleanupSession($oldSession['id']);
+                Logger::info('handleJoin cleaned up stale session', ['session_id' => $oldSession['id'], 'fd' => $fd]);
+            }
         }
 
         $this->matchService->enqueue($fd, $nickname, $duration);
@@ -751,30 +782,82 @@ class GameWebSocketHandler
                 return;
             }
 
-            $this->botService->addToHistory('user', $text);
+            $this->botService->addToHistory($sessionId, 'user', $text);
 
             Coroutine::create(function () use ($server, $fd, $text, $sessionId) {
-                // 限制 Bot LLM 并发
+                // 限制 Bot LLM 并发（10 槽位 + 5s 超时）
                 if (self::$botLlmSem === null) {
-                    self::$botLlmSem = new Channel(3);
+                    self::$botLlmSem = new Channel(self::BOT_LLM_SLOTS);
                 }
                 $semWaitStart = microtime(true);
-                self::$botLlmSem->push(true);
+                $acquired = self::$botLlmSem->push(true, self::BOT_LLM_TIMEOUT);
                 $semWaitMs = round((microtime(true) - $semWaitStart) * 1000, 2);
                 if ($semWaitMs > 500) {
                     Logger::warning('[LLM] Bot semaphore wait slow', [
                         'session_id' => $sessionId,
                         'wait_ms' => $semWaitMs,
+                        'acquired' => $acquired,
                     ]);
                 }
+
+                // 信号量超时 → 模板兜底
+                if (!$acquired) {
+                    Logger::warning('[LLM] Bot semaphore timeout, falling back to template', [
+                        'session_id' => $sessionId,
+                    ]);
+                    if ($server->isEstablished($fd)) {
+                        $fallbackReply = $this->botService->generateTemplateReply($text);
+                        $this->botService->addToHistory($sessionId, 'assistant', $fallbackReply);
+                        if ($server->isEstablished($fd)) {
+                            $this->sendToPlayer($server, $fd, [
+                                'type' => 'message', 'text' => $fallbackReply, 'sender' => '对方',
+                            ]);
+                            GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, 'left');
+                        }
+                    }
+                    return;
+                }
+
+                // 同一会话已有消息在生成中 → 释放信号量，模板兜底，避免 AI 连发两条
+                if (!empty($this->botGenerating[$sessionId])) {
+                    self::$botLlmSem->pop();
+                    Logger::info('[LLM] Bot skip reply: already generating', ['session_id' => $sessionId]);
+                    if ($server->isEstablished($fd)) {
+                        $fallbackReply = $this->botService->generateTemplateReply($text);
+                        $this->botService->addToHistory($sessionId, 'assistant', $fallbackReply);
+                        if ($server->isEstablished($fd)) {
+                            $this->sendToPlayer($server, $fd, [
+                                'type' => 'message', 'text' => $fallbackReply, 'sender' => '对方',
+                            ]);
+                            GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, 'left');
+                        }
+                    }
+                    return;
+                }
+
+                $this->botGenerating[$sessionId] = true;
+
                 try {
                     $llmStart = microtime(true);
-                    $reply = $this->botService->generateReply($text);
+
+                    // 管线模式：generateReply 返回 {segments: [...], delays: [...]}
+                    $result = $this->botService->generateReply($sessionId, $text);
+                    $segments = $result['segments'] ?? [];
+                    $delays   = $result['delays'] ?? [];
+
+                    // 如果管线判断不应该回复，兼容旧逻辑
+                    if (empty($segments)) {
+                        $fallbackReply = $this->botService->generateTemplateReply($text);
+                        $segments = [$fallbackReply];
+                        $delays   = [$this->botService->replyDelay($fallbackReply)];
+                    }
+
                     $llmCostMs = round((microtime(true) - $llmStart) * 1000, 2);
-                    Logger::info('[LLM] Bot reply generated', [
+                    Logger::info('[LLM] Bot reply generated (pipeline)', [
                         'session_id' => $sessionId,
-                        'cost_ms' => $llmCostMs,
-                        'reply_len' => mb_strlen($reply),
+                        'cost_ms'    => $llmCostMs,
+                        'segments'   => count($segments),
+                        'delays'     => $delays,
                     ]);
                     if ($llmCostMs > 5000) {
                         Logger::warning('[LLM] Bot reply slow', [
@@ -787,33 +870,36 @@ class GameWebSocketHandler
                         return;
                     }
 
-                    $this->botService->addToHistory('assistant', $reply);
+                    // 记录完整回复到历史
+                    $fullReply = implode('', $segments);
+                    $this->botService->addToHistory($sessionId, 'assistant', $fullReply);
 
-                    $delay = $this->botService->replyDelay($reply);
-                    Coroutine::sleep($delay / 1000);
+                    // 分段发送
+                    foreach ($segments as $i => $seg) {
+                        if (!$server->isEstablished($fd)) {
+                            return;
+                        }
 
-                    if (!$server->isEstablished($fd)) {
-                        return;
+                        $this->sendToPlayer($server, $fd, [
+                            'type'   => 'message',
+                            'text'   => $seg,
+                            'sender' => '对方',
+                        ]);
+
+                        // 记录到聊天历史
+                        GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, 'left');
+
+                        // 转发给旁观者
+                        $this->sendToSpectators($server, $sessionId, [
+                            'type'   => 'spectate_message',
+                            'text'   => $seg,
+                            'sender' => 'Bot(AI)',
+                            'side'   => 'left',
+                        ]);
                     }
-
-                    $this->sendToPlayer($server, $fd, [
-                        'type' => 'message',
-                        'text' => $reply,
-                        'sender' => '对方',
-                    ]);
-
-                    // 记录 Bot 回复到聊天历史
-                    GameService::addSessionMessage($sessionId, 'Bot(AI)', $reply, 'left');
-
-                    // 转发 Bot 回复给旁观者
-                    $this->sendToSpectators($server, $sessionId, [
-                        'type' => 'spectate_message',
-                        'text' => $reply,
-                        'sender' => 'Bot(AI)',
-                        'side' => 'left',
-                    ]);
                 } finally {
                     self::$botLlmSem->pop();
+                    unset($this->botGenerating[$sessionId]);
                 }
             });
         }
@@ -841,7 +927,7 @@ class GameWebSocketHandler
 
         // 多 Worker 并发保护：整个 judge 流程加锁，避免两个 Worker 同时处理导致数据不一致
         $lockWaitStart = microtime(true);
-        GameService::acquireSessionLock();
+        GameService::acquireSessionLock($session['id']);
         $lockWaitMs = round((microtime(true) - $lockWaitStart) * 1000, 2);
         if ($lockWaitMs > 100) {
             Logger::warning('[LOCK] Session lock wait slow', [
@@ -1023,7 +1109,7 @@ class GameWebSocketHandler
         }
         } finally {
             $lockHoldMs = round((microtime(true) - $lockHoldStart) * 1000, 2);
-            GameService::releaseSessionLock();
+            GameService::releaseSessionLock($session['id']);
             if ($lockHoldMs > 200) {
                 Logger::warning('[LOCK] Session lock held long', [
                     'session_id' => $session['id'] ?? 'unknown',
@@ -1155,11 +1241,25 @@ class GameWebSocketHandler
                 'opponent_truth' => $leaverTruth,
                 'session_id' => $sessionId,
             ]);
+
+            $msgCount = $this->gameService->getMessageCount($sessionId);
+            // 剩余玩家记为胜
+            $this->recordLeaderboardGame($session, $opponentFd, 'opponent_left', $msgCount);
+            // 主动离开方记为负
+            $this->recordLeaderboardGame($session, $fd, 'left', $msgCount);
         }
+
+        // 转换为 finished 状态，启动标准清理流程
+        $this->gameService->transitionState($sessionId, 'finished');
+        $this->cleanupTimers[$sessionId] = \Swoole\Timer::after(5000, function () use ($sessionId) {
+            unset($this->cleanupTimers[$sessionId]);
+            $this->cleanupSessionWithReportCheck($sessionId);
+        });
 
         $this->notifySpectatorsEnded($server, $sessionId, '玩家离开');
 
-        $this->cleanupSessionWithReportCheck($sessionId);
+        // 双方确认制：标记该玩家离开，双方都离开才清理
+        $this->markAndCheckCleanup($sessionId, $fd);
     }
 
     // ==================== 管理员功能 ====================
@@ -1181,6 +1281,9 @@ class GameWebSocketHandler
         }
 
         $this->sendToPlayer($server, $fd, ['type' => 'admin_connected']);
+
+        // 自动推送房间列表
+        $this->handleAdminSessions($server, $fd, $data);
 
         Logger::info('Admin connected (panel only)', ['fd' => $fd]);
     }
@@ -1230,7 +1333,7 @@ class GameWebSocketHandler
             return;
         }
 
-        $opponentInfo = $this->ipTable?->get((string)$opponentFd);
+        $opponentInfo = $this->clientInfo[(string)$opponentFd] ?? null;
         if (!$opponentInfo) {
             $this->sendError($server, $fd, '无法获取对方信息');
             return;
@@ -1272,7 +1375,7 @@ class GameWebSocketHandler
             return;
         }
 
-        $playerInfo = $this->ipTable?->get((string)$playerFd);
+        $playerInfo = $this->clientInfo[(string)$playerFd] ?? null;
         if (!$playerInfo) {
             $this->sendError($server, $fd, '无法获取该玩家信息');
             return;
@@ -1343,8 +1446,15 @@ class GameWebSocketHandler
 
         Logger::debug('Admin broadcast', ['fd' => $fd, 'text' => $text]);
 
-        // 推送给所有 SSE 连接（覆盖首页 + 游戏中所有玩家）
-        \App\Services\SSEService::broadcast('broadcast', ['text' => $text]);
+        // 推送给所有 WebSocket 连接
+        foreach ($this->clientInfo as $clientFd => $row) {
+            if ($server->isEstablished((int)$clientFd) && $clientFd !== $fd) {
+                $this->sendToPlayer($server, (int)$clientFd, [
+                    'type' => 'broadcast',
+                    'text' => $text,
+                ]);
+            }
+        }
 
         $this->sendToPlayer($server, $fd, [
             'type' => 'system',
@@ -1514,12 +1624,12 @@ class GameWebSocketHandler
      */
     private function handleAdminUnspectate(Server $server, int $fd): void
     {
-        foreach ($this->allSpectatorSessions() as $sessionId => $slist) {
+        foreach ($this->spectatorSessions as $sessionId => $slist) {
             $slist = array_values(array_filter($slist, fn($afd) => $afd !== $fd));
             if (empty($slist)) {
-                $this->spectatorTable->del($sessionId);
+                unset($this->spectatorSessions[$sessionId]);
             } else {
-                $this->spectatorTable->set($sessionId, ['admin_fds' => implode(',', $slist)]);
+                $this->spectatorSessions[$sessionId] = $slist;
             }
         }
 
@@ -1627,10 +1737,10 @@ class GameWebSocketHandler
         }
 
         // 尝试踢掉在线的同 IP/指纹玩家
-        foreach ($server->getClientList() as $clientFd) {
+        foreach ($server->connections as $clientFd) {
             if ($clientFd == $fd) continue;
             if (!$server->isEstablished($clientFd)) continue;
-            $info = $this->ipTable?->get((string)$clientFd);
+            $info = $this->clientInfo[(string)$clientFd] ?? null;
             if (!$info) continue;
             $matches = false;
             if (!empty($ip) && $info['ip'] === $ip) $matches = true;
@@ -1660,7 +1770,8 @@ class GameWebSocketHandler
         $sessionId = $session['id'];
         $duration = $session['duration'];
 
-        $this->botService->clearHistory();
+        $this->botService->clearHistory($sessionId);
+        unset($this->botGenerating[$sessionId]);
 
         // 标记对局由当前 Worker 管理（多 Worker 模式下，只有管理 Worker 才能操作定时器）
         $this->gameService->updateSession($sessionId, [
@@ -1900,17 +2011,17 @@ class GameWebSocketHandler
             return;
         }
 
+        // 使用决策器判定对手身份（结合对话历史分析）
+        $botGuess = $this->botService->judgeOpponent($sessionId);
         $correctGuess = $session['player1_truth'];
-        $wrongGuess = $correctGuess === 'human' ? 'ai' : 'human';
-        $botGuess = mt_rand(1, 100) <= 70 ? $correctGuess : $wrongGuess;
+        Logger::info('Bot judged (DecisionMaker)', [
+            'session_id' => $sessionId,
+            'bot_guess' => $botGuess,
+            'correct' => $botGuess === $correctGuess,
+        ]);
 
         try {
             $result = $this->gameService->recordBotGuess($sessionId, $botGuess);
-            Logger::info('Bot judged', [
-                'session_id' => $sessionId,
-                'bot_guess' => $botGuess,
-                'correct' => $botGuess === $correctGuess,
-            ]);
 
             $this->sendToPlayer($server, $playerFd, [
                 'type' => 'judged',
@@ -1974,27 +2085,63 @@ class GameWebSocketHandler
             }
 
             Coroutine::create(function () use ($server, $sessionId, $playerFd, &$scheduleNext) {
-                // 限制 Bot LLM 并发
+                // 限制 Bot LLM 并发（10 槽位 + 5s 超时）
                 if (self::$botLlmSem === null) {
-                    self::$botLlmSem = new Channel(3);
+                    self::$botLlmSem = new Channel(self::BOT_LLM_SLOTS);
                 }
                 $semWaitStart = microtime(true);
-                self::$botLlmSem->push(true);
+                $acquired = self::$botLlmSem->push(true, self::BOT_LLM_TIMEOUT);
                 $semWaitMs = round((microtime(true) - $semWaitStart) * 1000, 2);
                 if ($semWaitMs > 500) {
                     Logger::warning('[LLM] Bot proactive semaphore wait slow', [
                         'session_id' => $sessionId,
                         'wait_ms' => $semWaitMs,
+                        'acquired' => $acquired,
                     ]);
                 }
+
+                // 信号量超时 → 跳过本轮主动发言
+                if (!$acquired) {
+                    Logger::warning('[LLM] Bot proactive semaphore timeout, skipping', [
+                        'session_id' => $sessionId,
+                    ]);
+                    $nextInterval = $this->botService->proactiveInterval();
+                    $this->botTimers[$sessionId] = Timer::after($nextInterval, $scheduleNext);
+                    return;
+                }
+
+                // 同一会话已有消息在生成中 → 释放信号量，跳过本轮，避免 AI 连发
+                if (!empty($this->botGenerating[$sessionId])) {
+                    self::$botLlmSem->pop();
+                    Logger::info('[LLM] Bot skip proactive: already generating', ['session_id' => $sessionId]);
+                    $nextInterval = $this->botService->proactiveInterval();
+                    $this->botTimers[$sessionId] = Timer::after($nextInterval, $scheduleNext);
+                    return;
+                }
+
+                $this->botGenerating[$sessionId] = true;
+
                 try {
                     $llmStart = microtime(true);
-                    $msg = $this->botService->proactiveMessage();
+
+                    // 管线模式：proactiveMessage 返回 {segments: [...], delays: [...]}
+                    $result = $this->botService->proactiveMessage($sessionId);
+                    $segments = $result['segments'] ?? [];
+                    $delays   = $result['delays'] ?? [];
+
+                    // 如果管线返回空，使用模板兜底
+                    if (empty($segments)) {
+                        $fallbackMsg = $this->botService->generateTemplateReply('（主动发言）');
+                        $segments = [$fallbackMsg];
+                        $delays   = [mt_rand(2000, 6000)];
+                    }
+
                     $llmCostMs = round((microtime(true) - $llmStart) * 1000, 2);
-                    Logger::info('[LLM] Bot proactive message generated', [
+                    Logger::info('[LLM] Bot proactive message generated (pipeline)', [
                         'session_id' => $sessionId,
-                        'cost_ms' => $llmCostMs,
-                        'reply_len' => mb_strlen($msg),
+                        'cost_ms'    => $llmCostMs,
+                        'segments'   => count($segments),
+                        'delays'     => $delays,
                     ]);
                     if ($llmCostMs > 5000) {
                         Logger::warning('[LLM] Bot proactive message slow', [
@@ -2007,33 +2154,36 @@ class GameWebSocketHandler
                         return;
                     }
 
-                    $this->botService->addToHistory('assistant', $msg);
+                    // 记录完整回复到历史
+                    $fullMsg = implode('', $segments);
+                    $this->botService->addToHistory($sessionId, 'assistant', $fullMsg);
 
-                    $delay = $this->botService->replyDelay($msg);
-                    Coroutine::sleep($delay / 1000);
+                    // 分段发送
+                    foreach ($segments as $i => $seg) {
+                        if (!$server->isEstablished($playerFd)) {
+                            return;
+                        }
 
-                    if (!$server->isEstablished($playerFd)) {
-                        return;
+                        $this->sendToPlayer($server, $playerFd, [
+                            'type'   => 'message',
+                            'text'   => $seg,
+                            'sender' => '对方',
+                        ]);
+
+                        // 记录到聊天历史
+                        GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, 'left');
+
+                        // 转发给旁观者
+                        $this->sendToSpectators($server, $sessionId, [
+                            'type'   => 'spectate_message',
+                            'text'   => $seg,
+                            'sender' => 'Bot(AI)',
+                            'side'   => 'left',
+                        ]);
                     }
-
-                    $this->sendToPlayer($server, $playerFd, [
-                        'type'   => 'message',
-                        'text'   => $msg,
-                        'sender' => '对方',
-                    ]);
-
-                    // 记录 Bot 主动发言到聊天历史
-                    GameService::addSessionMessage($sessionId, 'Bot(AI)', $msg, 'left');
-
-                    // 转发 Bot 主动发言给旁观者
-                    $this->sendToSpectators($server, $sessionId, [
-                        'type' => 'spectate_message',
-                        'text' => $msg,
-                        'sender' => 'Bot(AI)',
-                        'side' => 'left',
-                    ]);
                 } finally {
                     self::$botLlmSem->pop();
+                    unset($this->botGenerating[$sessionId]);
                 }
 
                 $nextInterval = $this->botService->proactiveInterval();
@@ -2072,45 +2222,9 @@ class GameWebSocketHandler
             Timer::clear($this->mutualChatTimers[$sessionId]);
             unset($this->mutualChatTimers[$sessionId]);
         }
-        $this->botService->clearHistory();
+        $this->botService->clearHistory($sessionId);
     }
 
-    /**
-     * 处理跨 Worker 管道消息（多 Worker 模式下 Worker 间通信）
-     * 通过 Swoole\Server->sendMessage() / PipeMessage 事件实现
-     */
-    public function handlePipeMessage(Server $server, int $srcWorkerId, array $message): void
-    {
-        if (!is_array($message)) return;
-
-        $type = $message['type'] ?? '';
-        $sessionId = $message['session_id'] ?? '';
-
-        if (empty($sessionId)) return;
-
-        Logger::debug('PipeMessage received', [
-            'src_worker' => $srcWorkerId,
-            'type' => $type,
-            'session_id' => $sessionId,
-        ]);
-
-        switch ($type) {
-            case 'session_close':
-                // 非管理 Worker 收到玩家断连通知，清理本地状态
-                $this->clearSessionTimers($sessionId);
-                break;
-
-            case 'set_closing':
-                // 通知管理 Worker：对局正在关闭
-                $this->clearSessionTimers($sessionId);
-                break;
-
-            case 'clear_timers':
-                // 通用定时器清理指令
-                $this->clearSessionTimers($sessionId);
-                break;
-        }
-    }
 
     // ==================== 辅助方法 ====================
 
@@ -2118,82 +2232,82 @@ class GameWebSocketHandler
 
     private function isAdminFd(int $fd): bool
     {
-        return $this->adminTable && $this->adminTable->exists((string)$fd);
+        return isset($this->adminFds[(string)$fd]);
     }
 
     private function addAdminFd(int $fd): void
     {
-        $this->adminTable?->set((string)$fd, ['present' => 1]);
+        $this->adminFds[(string)$fd] = true;
     }
 
     private function removeAdminFd(int $fd): void
     {
-        $this->adminTable?->del((string)$fd);
+        unset($this->adminFds[(string)$fd]);
     }
 
     /** @return int[] */
     private function getSpectatorFds(string $sessionId): array
     {
-        if (!$this->spectatorTable) return [];
-        $row = $this->spectatorTable->get($sessionId);
-        if (!$row || empty($row['admin_fds'])) return [];
-        return array_map('intval', explode(',', $row['admin_fds']));
+        return $this->spectatorSessions[$sessionId] ?? [];
     }
 
     private function addSpectatorFd(string $sessionId, int $fd): void
     {
-        if (!$this->spectatorTable) return;
-        $row = $this->spectatorTable->get($sessionId);
-        $fds = ($row && !empty($row['admin_fds'])) ? explode(',', $row['admin_fds']) : [];
-        if (!in_array((string)$fd, $fds, true)) {
-            $fds[] = (string)$fd;
+        if (!isset($this->spectatorSessions[$sessionId])) {
+            $this->spectatorSessions[$sessionId] = [];
         }
-        $this->spectatorTable->set($sessionId, ['admin_fds' => implode(',', $fds)]);
+        if (!in_array($fd, $this->spectatorSessions[$sessionId], true)) {
+            $this->spectatorSessions[$sessionId][] = $fd;
+        }
     }
 
     private function removeSpectatorFd(string $sessionId, int $fd): void
     {
-        if (!$this->spectatorTable) return;
-        $row = $this->spectatorTable->get($sessionId);
-        if (!$row || empty($row['admin_fds'])) return;
-        $fds = array_filter(explode(',', $row['admin_fds']), fn($f) => (int)$f !== $fd);
-        if (empty($fds)) {
-            $this->spectatorTable->del($sessionId);
-        } else {
-            $this->spectatorTable->set($sessionId, ['admin_fds' => implode(',', $fds)]);
+        if (!isset($this->spectatorSessions[$sessionId])) return;
+        $this->spectatorSessions[$sessionId] = array_values(
+            array_filter($this->spectatorSessions[$sessionId], fn($f) => $f !== $fd)
+        );
+        if (empty($this->spectatorSessions[$sessionId])) {
+            unset($this->spectatorSessions[$sessionId]);
         }
     }
 
     private function hasSpectators(string $sessionId): bool
     {
-        return $this->spectatorTable && $this->spectatorTable->exists($sessionId);
+        return isset($this->spectatorSessions[$sessionId]);
     }
 
     /** 获取所有在线管理员 fd 列表，用于广播 */
     private function allAdminFds(): array
     {
-        if (!$this->adminTable) return [];
-        $fds = [];
-        foreach ($this->adminTable as $key => $row) {
-            $fds[] = (int)$key;
-        }
-        return $fds;
+        return array_map('intval', array_keys($this->adminFds));
     }
 
     /** 获取所有旁观记录，用于清理 */
     private function allSpectatorSessions(): array
     {
-        if (!$this->spectatorTable) return [];
-        $result = [];
-        foreach ($this->spectatorTable as $sessionId => $row) {
-            if (!empty($row['admin_fds'])) {
-                $result[$sessionId] = array_map('intval', explode(',', $row['admin_fds']));
-            }
-        }
-        return $result;
+        return $this->spectatorSessions;
     }
 
-    // ── 原有辅助方法 ──
+    /**
+     * 向所有已连接客户端广播在线人数（排除指定 fd）
+     * 跳过正在对局中的玩家（他们不需要）
+     */
+    private function broadcastOnlineCount(Server $server, int $excludeFd = 0): void
+    {
+        $count = $this->gameService->getOnlineCount();
+        foreach ($server->connections as $clientFd) {
+            if ($clientFd === $excludeFd) continue;
+            // 只推给已建立 WebSocket 握手的客户端（排除 HTTP 连接）
+            if (!$server->isEstablished($clientFd)) continue;
+            // 跳过已在游戏中的玩家
+            if ($this->gameService->getSessionByPlayerFd($clientFd) !== null) continue;
+            $this->sendToPlayer($server, $clientFd, [
+                'type' => 'online_count',
+                'count' => $count,
+            ]);
+        }
+    }
 
     private function sendToPlayer(Server $server, int $fd, array $data): void
     {

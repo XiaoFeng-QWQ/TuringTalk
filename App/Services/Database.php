@@ -3,27 +3,123 @@
 namespace App\Services;
 
 use PDO;
+use Swoole\Coroutine;
+use Swoole\Coroutine\Channel;
 use Config\Config;
 
 /**
- * MySQL 连接服务
+ * MySQL 连接服务（协程级 PDO 复用 + 连接池）
  *
- * 使用 PDO 连接 MySQL，Swoole 协程自动 hook PDO 为非阻塞。
- * 每次读写即时连接、即时关闭，不持有持久连接（与 BanRepository 模式一致）。
+ * 核心策略：
+ * - 每个协程持有独立的 PDO 连接（避免单 TCP 连接排队）
+ * - 协程结束时通过 defer() 自动归还到池
+ * - 连接池预热加速初始连接
+ * - 完全兼容旧调用方，无需修改任何 repository
  */
 class Database
 {
-    private static ?PDO $instance = null;
+    /** @var Channel|null PDO 连接预热池（协程之间共享） */
+    private static ?Channel $pool = null;
 
-    /** 上次连接时使用的配置，变更时自动重连 */
+    /** @var int 池容量 */
+    private static int $poolSize = 10;
+
+    /** 上次配置，变更时重建 */
     private static array $lastConfig = [];
 
     /**
-     * 获取 PDO 连接（单例复用，配置变更时自动重连）
+     * 获取 PDO 连接（协程安全，非协程环境直接创建裸连接）
      */
     public static function connect(): PDO
     {
-        $cfg = [
+        // 非协程环境（启动阶段、定时器等）：直接创建裸 PDO，不走池
+        if (Coroutine::getCid() < 0) {
+            return self::createPDO();
+        }
+
+        self::ensurePool();
+
+        $cid = Coroutine::getCid();
+        $key = "_db_pdo_{$cid}";
+        $ctx = Coroutine::getContext();
+
+        // 同一协程内复用同一个 PDO
+        if (isset($ctx[$key])) {
+            $pdo = $ctx[$key];
+            try {
+                $pdo->query('SELECT 1');
+                return $pdo;
+            } catch (\Throwable $e) {
+                unset($ctx[$key]);
+            }
+        }
+
+        // 优先从预热池取
+        $pdo = self::$pool?->pop(0.001);
+        if ($pdo !== false) {
+            try {
+                $pdo->query('SELECT 1');
+            } catch (\Throwable $e) {
+                $pdo = self::createPDO();
+            }
+        } else {
+            $pdo = self::createPDO();
+        }
+
+        $ctx[$key] = $pdo;
+
+        // 协程退出时自动归还连接到池
+        Coroutine::defer(function () use ($pdo) {
+            try {
+                $pdo->query('SELECT 1');
+                self::$pool?->push($pdo, 0.001);
+            } catch (\Throwable $e) {
+                // 连接坏了不归还，或者不在协程中（defer 在非协程中忽略）
+            }
+        });
+
+        return $pdo;
+    }
+
+    /**
+     * 关闭连接池（shutdown / reload 时调用）
+     */
+    public static function close(): void
+    {
+        self::drainPool();
+    }
+
+    // ==================== private ====================
+
+    private static function ensurePool(): void
+    {
+        $cfg = self::buildConfig();
+
+        // 配置变更 → 重建
+        if (self::$pool !== null && self::$lastConfig !== $cfg) {
+            self::drainPool();
+        }
+
+        if (self::$pool === null) {
+            self::$poolSize = (int)Config::get('MySQL.PoolSize', 10);
+            self::$pool = new Channel(self::$poolSize);
+            self::$lastConfig = $cfg;
+
+            // 预热
+            for ($i = 0; $i < self::$poolSize; $i++) {
+                try {
+                    self::$pool->push(self::createPDO(), 0.001);
+                } catch (\Throwable $e) {
+                    break;
+                }
+            }
+            Logger::info('DB pool ready', ['capacity' => self::$poolSize, 'warm' => self::$pool->length()]);
+        }
+    }
+
+    private static function buildConfig(): array
+    {
+        return [
             'host'     => Config::get('MySQL.Host', '127.0.0.1'),
             'port'     => Config::get('MySQL.Port', 3306),
             'database' => Config::get('MySQL.Database', 'turing_game'),
@@ -31,40 +127,32 @@ class Database
             'password' => Config::get('MySQL.Password', ''),
             'charset'  => Config::get('MySQL.Charset', 'utf8mb4'),
         ];
+    }
 
-        // 配置变更 → 关闭旧连接
-        if (self::$instance !== null && self::$lastConfig !== $cfg) {
-            self::$instance = null;
-        }
+    private static function createPDO(): PDO
+    {
+        $cfg = self::$lastConfig ?: self::buildConfig();
+        $connectTimeout = (int)($cfg['connect_timeout'] ?? 5);
+        $dsn = "mysql:host={$cfg['host']};port={$cfg['port']};dbname={$cfg['database']};charset={$cfg['charset']};connect_timeout={$connectTimeout}";
 
-        if (self::$instance !== null) {
-            // 检测连接是否还活着
-            try {
-                self::$instance->query('SELECT 1');
-                return self::$instance;
-            } catch (\Throwable $e) {
-                self::$instance = null;
-            }
-        }
-
-        $dsn = "mysql:host={$cfg['host']};port={$cfg['port']};dbname={$cfg['database']};charset={$cfg['charset']}";
-
-        self::$instance = new PDO($dsn, $cfg['username'], $cfg['password'], [
+        return new PDO($dsn, $cfg['username'], $cfg['password'], [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
         ]);
-
-        self::$lastConfig = $cfg;
-
-        return self::$instance;
     }
 
-    /**
-     * 主动关闭连接（shutdown / reload 时调用）
-     */
-    public static function close(): void
+    private static function drainPool(): void
     {
-        self::$instance = null;
+        if (self::$pool === null) return;
+
+        while (true) {
+            $pdo = self::$pool->pop(0.001);
+            if ($pdo === false) break;
+        }
+        self::$pool->close();
+        self::$pool = null;
+        self::$poolSize = 0;
+        self::$lastConfig = [];
     }
 }

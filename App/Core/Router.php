@@ -23,9 +23,7 @@ class Router
                 '/' => [GameController::class, 'index'],
                 '/script.js' => [GameController::class, 'script'],
                 '/style.css' => [GameController::class, 'style'],
-                '/pow-solver.js' => [GameController::class, 'powSolver'],
-                '/api/online' => [GameController::class, 'online'],
-                '/api/sse' => [GameController::class, 'sse'],
+                '/favicon.svg' => [GameController::class, 'favicon'],
                 '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/generate-code' => [GameController::class, 'generateCode'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
@@ -35,7 +33,6 @@ class Router
                 '/api/admin/login' => [GameController::class, 'adminLogin'],
                 '/api/join-leaderboard' => [GameController::class, 'joinLeaderboard'],
                 '/api/leaderboard-join' => [GameController::class, 'leaderboardJoin'],
-                '/api/pow/challenge'   => [GameController::class, 'powChallenge'],
                 '/api/save-chat-history' => [GameController::class, 'saveChatHistory'],
             ],
         ];

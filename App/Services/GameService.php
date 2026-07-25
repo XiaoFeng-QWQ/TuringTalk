@@ -2,112 +2,41 @@
 
 namespace App\Services;
 
-use Swoole\Table;
-use Swoole\Lock;
-use Swoole\Atomic\Long;
+use Swoole\Coroutine\Channel;
+use Config\Config;
 
 /**
- * 核心游戏逻辑服务
+ * 核心游戏逻辑服务——单 Worker + Redis 状态存储
  *
- * 使用 Swoole\Table 共享内存存储所有跨 Worker 状态，确保多 Worker 模式下数据一致。
- * 每个 Worker 实例化时共享同一个 Table（fork 前在 master 进程创建）。
+ * Redis key 规范：
+ *   tg:sess:{id}          → hash  会话数据
+ *   tg:player:{fd}        → hash  玩家 fd → session_id + state
+ *   tg:msg:{sessId}       → list  聊天消息（JSON per item）
+ *   tg:code:{fd}          → string 恢复码，TTL 300s
+ *   tg:msg:seq            → string 全局消息序号
+ *
+ * 单 Worker 下无需跨进程锁，协程级 Channel 锁够用。
  */
 class GameService
 {
-    private Table $sessionsTable;
-    private Table $playersTable;
+    /** 在线 fd 集合（worker_num=1 下 PHP 数组即可，无需 Redis/锁） */
+    private array $onlineFds = [];
 
-    /** 全局共享的在线连接表，由 Application 层创建注入 */
-    private static ?Table $onlineTable = null;
+    /** 会话级互斥锁（per-session Channel(1)） */
+    private static array $sessionLocks = [];
+    private static int $sessionLockCount = 0;
+    private const MAX_SESSION_LOCKS = 200;
 
-    /** 聊天消息共享表（跨 Worker）key: session_id:seq */
-    private static ?Table $msgTable = null;
-
-    /** 消息序列号原子计数器（跨 Worker 安全递增） */
-    private static ?Long $msgSeq = null;
-
-    /** 玩家恢复码表（fd => code，跨 Worker） */
-    private static ?Table $playerCodeTable = null;
-
-    /** 静态引用 sessionsTable，供 HTTP API 等非 WS 上下文查询 */
-    private static ?Table $staticSessionsTable = null;
-
-    /** 会话级 Mutex 锁（用于 handlerJudge 等并发操作） */
-    private static ?Lock $sessionLock = null;
-
-    private const MAX_MSG_TABLE = 16384;
-
-    public static function setOnlineTable(Table $table): void
-    {
-        self::$onlineTable = $table;
-    }
+    /**
+     * 会话相关 key 的兜底 TTL（秒）
+     * 正常流程由 cleanupSession() 主动清理；TTL 仅作为 Worker 崩溃等异常情况的兜底
+     */
+    private const SESSION_TTL = 3600;
 
     public function __construct()
     {
-        // 会话表：最多 1024 个会话
-        $this->sessionsTable = new Table(1024);
-        $this->sessionsTable->column('id', Table::TYPE_STRING, 32);
-        $this->sessionsTable->column('player1_fd', Table::TYPE_INT, 8);
-        $this->sessionsTable->column('player2_fd', Table::TYPE_INT, 8);
-        $this->sessionsTable->column('player1_nickname', Table::TYPE_STRING, 32);
-        $this->sessionsTable->column('player2_nickname', Table::TYPE_STRING, 32);
-        $this->sessionsTable->column('player1_truth', Table::TYPE_STRING, 10);
-        $this->sessionsTable->column('player2_truth', Table::TYPE_STRING, 10);
-        $this->sessionsTable->column('duration', Table::TYPE_INT, 4);
-        $this->sessionsTable->column('state', Table::TYPE_STRING, 16);
-        $this->sessionsTable->column('player1_guess', Table::TYPE_STRING, 10);
-        $this->sessionsTable->column('player2_guess', Table::TYPE_STRING, 10);
-        $this->sessionsTable->column('player1_tag', Table::TYPE_STRING, 50);
-        $this->sessionsTable->column('player2_tag', Table::TYPE_STRING, 50);
-        $this->sessionsTable->column('chat_started_at', Table::TYPE_INT, 8);
-        $this->sessionsTable->column('created_at', Table::TYPE_INT, 8);
-        $this->sessionsTable->column('worker_id', Table::TYPE_INT, 2);
-        $this->sessionsTable->column('closing', Table::TYPE_INT, 1);
-        $this->sessionsTable->create();
-
-        self::$staticSessionsTable = $this->sessionsTable;
-
-        // 玩家表：fd => session_id
-        $this->playersTable = new Table(2048);
-        $this->playersTable->column('fd', Table::TYPE_INT, 8);
-        $this->playersTable->column('session_id', Table::TYPE_STRING, 32);
-        $this->playersTable->column('state', Table::TYPE_STRING, 16);
-        $this->playersTable->create();
-
-        // 聊天消息共享表（仅 master 进程创建一次）
-        if (self::$msgTable === null) {
-            self::$msgTable = new Table(self::MAX_MSG_TABLE);
-            self::$msgTable->column('session_id', Table::TYPE_STRING, 32);
-            self::$msgTable->column('seq', Table::TYPE_INT, 4);
-            self::$msgTable->column('sender', Table::TYPE_STRING, 32);
-            self::$msgTable->column('text', Table::TYPE_STRING, 512);
-            self::$msgTable->column('side', Table::TYPE_STRING, 8);
-            self::$msgTable->column('time', Table::TYPE_STRING, 16);
-            self::$msgTable->create();
-
-            // 消息序列号原子计数器（跨 Worker 安全，防竞态覆盖）
-            self::$msgSeq = new Long(0);
-        }
-
-        // 玩家恢复码共享表（fd => code）
-        if (self::$playerCodeTable === null) {
-            self::$playerCodeTable = new Table(2048);
-            self::$playerCodeTable->column('code', Table::TYPE_STRING, 32);
-            self::$playerCodeTable->column('updated_at', Table::TYPE_INT, 8);
-            self::$playerCodeTable->create();
-        }
-
-        // 会话级互斥锁
-        if (self::$sessionLock === null) {
-            self::$sessionLock = new Lock(SWOOLE_MUTEX);
-        }
-
-        Logger::info('GameService initialized', [
-            'sessions_capacity' => 1024,
-            'players_capacity' => 2048,
-            'msg_capacity' => self::MAX_MSG_TABLE,
-            'code_capacity' => 2048,
-            'multi_worker_ready' => true,
+        Logger::info('GameService initialized (Redis + single-worker)', [
+            'redis' => Config::get('Redis.Host', '127.0.0.1'),
         ]);
     }
 
@@ -115,57 +44,74 @@ class GameService
 
     public function createSession(int $fd1, string $nick1, int $fd2, string $nick2, int $duration, bool $isBot): array
     {
-        // 自匹配兜底防护：fd1 === fd2 且非 Bot 对局，直接拒绝
+        // 自匹配兜底防护
         if (!$isBot && $fd1 === $fd2) {
             Logger::error('createSession: SELF-MATCH REJECTED', ['fd' => $fd1]);
             throw new \RuntimeException('Self-match rejected: player1_fd equals player2_fd');
         }
 
+        // 防止重复创建：检查玩家是否已在活跃对局中
+        $p1State = $this->getPlayerState($fd1);
+        if ($p1State === 'chatting') {
+            throw new \RuntimeException("Player fd=$fd1 already in active session");
+        }
+        if ($fd2 > 0) {
+            $p2State = $this->getPlayerState($fd2);
+            if ($p2State === 'chatting') {
+                throw new \RuntimeException("Player fd=$fd2 already in active session");
+            }
+        }
+
         $sessionId = uniqid('sess_', true);
         $now = time();
-
         $player1Truth = 'human';
         $player2Truth = $isBot ? 'ai' : 'human';
 
-        $this->sessionsTable->set($sessionId, [
-            'id' => $sessionId,
-            'player1_fd' => $fd1,
-            'player2_fd' => $fd2,
-            'player1_nickname' => $nick1,
-            'player2_nickname' => $nick2,
-            'player1_truth' => $player1Truth,
-            'player2_truth' => $player2Truth,
-            'duration' => $duration,
-            'state' => 'chatting',
-            'player1_guess' => '',
-            'player2_guess' => '',
-            'player1_tag' => '',
-            'player2_tag' => '',
-            'chat_started_at' => $now,
-            'created_at' => $now,
-        ]);
+        $redis = RedisService::connect();
 
-        $this->playersTable->set((string)$fd1, [
-            'fd' => $fd1,
-            'session_id' => $sessionId,
-            'state' => 'chatting',
+        // 原子写入会话
+        $redis->hMSet(RedisService::KP_SESSION . $sessionId, [
+            'id'                => $sessionId,
+            'player1_fd'        => (string)$fd1,
+            'player2_fd'        => (string)$fd2,
+            'player1_nickname'  => $nick1,
+            'player2_nickname'  => $nick2,
+            'player1_truth'     => $player1Truth,
+            'player2_truth'     => $player2Truth,
+            'duration'          => (string)$duration,
+            'state'             => 'chatting',
+            'player1_guess'     => '',
+            'player2_guess'     => '',
+            'player1_tag'       => '',
+            'player2_tag'       => '',
+            'chat_started_at'   => (string)$now,
+            'created_at'        => (string)$now,
         ]);
+        $redis->expire(RedisService::KP_SESSION . $sessionId, self::SESSION_TTL);
+
+        // 绑定玩家 → 会话
+        $redis->hMSet(RedisService::KP_PLAYER . $fd1, [
+            'fd'         => (string)$fd1,
+            'session_id' => $sessionId,
+            'state'      => 'chatting',
+        ]);
+        $redis->expire(RedisService::KP_PLAYER . $fd1, self::SESSION_TTL);
 
         if (!$isBot) {
-            $this->playersTable->set((string)$fd2, [
-                'fd' => $fd2,
+            $redis->hMSet(RedisService::KP_PLAYER . $fd2, [
+                'fd'         => (string)$fd2,
                 'session_id' => $sessionId,
-                'state' => 'chatting',
+                'state'      => 'chatting',
             ]);
+            $redis->expire(RedisService::KP_PLAYER . $fd2, self::SESSION_TTL);
         }
 
         Logger::info('Session created', [
             'session_id' => $sessionId,
-            'player1' => "{$nick1}(fd:{$fd1})",
-            'player2' => $isBot ? 'Bot' : "{$nick2}(fd:{$fd2})",
-            'player1_truth' => $player1Truth,
-            'is_bot' => $isBot,
-            'duration' => $duration,
+            'player1'    => "{$nick1}(fd:{$fd1})",
+            'player2'    => $isBot ? 'Bot' : "{$nick2}(fd:{$fd2})",
+            'is_bot'     => $isBot,
+            'duration'   => $duration,
         ]);
 
         return $this->getSession($sessionId);
@@ -173,45 +119,57 @@ class GameService
 
     public function getSession(string $sessionId): array
     {
-        $row = $this->sessionsTable->get($sessionId);
-        return $row ?: [];
+        $redis = RedisService::connect();
+        $data = $redis->hGetAll(RedisService::KP_SESSION . $sessionId);
+        if (!$data) return [];
+        // Redis hGetAll 返回 string，统一转 int 避免严格比较陷阱
+        if (isset($data['player1_fd'])) $data['player1_fd'] = (int)$data['player1_fd'];
+        if (isset($data['player2_fd'])) $data['player2_fd'] = (int)$data['player2_fd'];
+        if (isset($data['worker_id'])) $data['worker_id'] = (int)$data['worker_id'];
+        if (isset($data['duration'])) $data['duration'] = (int)$data['duration'];
+        if (isset($data['closing'])) $data['closing'] = (int)$data['closing'];
+        if (isset($data['created_at'])) $data['created_at'] = (int)$data['created_at'];
+        if (isset($data['chat_started_at'])) $data['chat_started_at'] = (int)$data['chat_started_at'];
+        return $data;
     }
 
     public static function getSessionStatic(string $sessionId): array
     {
-        $row = self::$staticSessionsTable?->get($sessionId);
-        return $row ?: [];
+        $redis = RedisService::connect();
+        return $redis->hGetAll(RedisService::KP_SESSION . $sessionId) ?: [];
     }
 
     public function getSessionByPlayerFd(int $fd): ?array
     {
-        $player = $this->playersTable->get((string)$fd);
-        if (!$player) return null;
-        $session = $this->sessionsTable->get($player['session_id']);
-        return $session ?: null;
+        $redis = RedisService::connect();
+        $player = $redis->hGetAll(RedisService::KP_PLAYER . $fd);
+        if (!$player || empty($player['session_id'])) return null;
+        return $this->getSession($player['session_id']) ?: null;
     }
 
     public function getOpponentFd(int $fd): ?int
     {
         $session = $this->getSessionByPlayerFd($fd);
         if (!$session) return null;
-        return $session['player1_fd'] === $fd ? $session['player2_fd'] : $session['player1_fd'];
+        return (int)$session['player1_fd'] === $fd
+            ? (int)$session['player2_fd']
+            : (int)$session['player1_fd'];
     }
 
     public function getPlayerTruth(int $fd): ?string
     {
         $session = $this->getSessionByPlayerFd($fd);
         if (!$session) return null;
-        return $session['player1_fd'] === $fd
-            ? $session['player1_truth']
-            : $session['player2_truth'];
+        return (int)$session['player1_fd'] === $fd
+            ? ($session['player1_truth'] ?? null)
+            : ($session['player2_truth'] ?? null);
     }
 
     public function getPlayerIndex(int $fd): ?int
     {
         $session = $this->getSessionByPlayerFd($fd);
         if (!$session) return null;
-        return $session['player1_fd'] === $fd ? 1 : 2;
+        return (int)$session['player1_fd'] === $fd ? 1 : 2;
     }
 
     public function recordGuess(int $fd, string $guess, string $tag = ''): array
@@ -220,27 +178,35 @@ class GameService
         if (!$session) throw new \RuntimeException('Session not found');
         $sessionId = $session['id'];
         $tag = mb_substr($tag, 0, 50);
-        if ($session['player1_fd'] === $fd) {
-            $this->sessionsTable->set($sessionId, ['player1_guess' => $guess, 'player1_tag' => $tag]);
+        $redis = RedisService::connect();
+
+        if ((int)$session['player1_fd'] === $fd) {
+            $redis->hMSet(RedisService::KP_SESSION . $sessionId, [
+                'player1_guess' => $guess,
+                'player1_tag'   => $tag,
+            ]);
         } else {
-            $this->sessionsTable->set($sessionId, ['player2_guess' => $guess, 'player2_tag' => $tag]);
+            $redis->hMSet(RedisService::KP_SESSION . $sessionId, [
+                'player2_guess' => $guess,
+                'player2_tag'   => $tag,
+            ]);
         }
+
         $updated = $this->getSession($sessionId);
         return [
             'completed' => $this->bothJudged($updated),
-            'session' => $updated,
+            'session'   => $updated,
         ];
     }
 
     public function recordBotGuess(string $sessionId, string $guess): array
     {
-        $session = $this->getSession($sessionId);
-        if (!$session) throw new \RuntimeException('Session not found');
-        $this->sessionsTable->set($sessionId, ['player2_guess' => $guess]);
+        $redis = RedisService::connect();
+        $redis->hSet(RedisService::KP_SESSION . $sessionId, 'player2_guess', $guess);
         $updated = $this->getSession($sessionId);
         return [
             'completed' => $this->bothJudged($updated),
-            'session' => $updated,
+            'session'   => $updated,
         ];
     }
 
@@ -251,14 +217,19 @@ class GameService
 
     public function transitionState(string $sessionId, string $newState): void
     {
-        $this->sessionsTable->set($sessionId, ['state' => $newState]);
+        $redis = RedisService::connect();
+        $redis->hSet(RedisService::KP_SESSION . $sessionId, 'state', $newState);
+        $redis->expire(RedisService::KP_SESSION . $sessionId, self::SESSION_TTL);
+
         $session = $this->getSession($sessionId);
         if ($session) {
-            if ($session['player1_fd'] > 0) {
-                $this->playersTable->set((string)$session['player1_fd'], ['state' => $newState]);
+            if ((int)($session['player1_fd'] ?? 0) > 0) {
+                $redis->hSet(RedisService::KP_PLAYER . $session['player1_fd'], 'state', $newState);
+                $redis->expire(RedisService::KP_PLAYER . $session['player1_fd'], self::SESSION_TTL);
             }
-            if ($session['player2_fd'] > 0) {
-                $this->playersTable->set((string)$session['player2_fd'], ['state' => $newState]);
+            if ((int)($session['player2_fd'] ?? 0) > 0) {
+                $redis->hSet(RedisService::KP_PLAYER . $session['player2_fd'], 'state', $newState);
+                $redis->expire(RedisService::KP_PLAYER . $session['player2_fd'], self::SESSION_TTL);
             }
         }
         Logger::info('Session state transition', ['session_id' => $sessionId, 'new_state' => $newState]);
@@ -266,148 +237,129 @@ class GameService
 
     public function updateSession(string $sessionId, array $fields): void
     {
-        $this->sessionsTable->set($sessionId, $fields);
+        $redis = RedisService::connect();
+        $redis->hMSet(RedisService::KP_SESSION . $sessionId, $fields);
     }
 
     public function cleanupSession(string $sessionId): void
     {
-        $session = $this->getSession($sessionId);
+        $redis = RedisService::connect();
+        $session = $redis->hGetAll(RedisService::KP_SESSION . $sessionId);
         if (!$session) return;
 
-        // 只清理仍然属于本会话的 playersTable 条目（防止误删新会话）
-        if ($session['player1_fd'] > 0) {
-            $p1 = $this->playersTable->get((string)$session['player1_fd']);
+        // 安全清理玩家绑定（验证 session_id 匹配，防止误删新会话）
+        if ((int)($session['player1_fd'] ?? 0) > 0) {
+            $p1 = $redis->hGetAll(RedisService::KP_PLAYER . $session['player1_fd']);
             if ($p1 && ($p1['session_id'] ?? '') === $sessionId) {
-                $this->playersTable->del((string)$session['player1_fd']);
+                $redis->del(RedisService::KP_PLAYER . $session['player1_fd']);
             }
         }
-        if ($session['player2_fd'] > 0) {
-            $p2 = $this->playersTable->get((string)$session['player2_fd']);
+        if ((int)($session['player2_fd'] ?? 0) > 0) {
+            $p2 = $redis->hGetAll(RedisService::KP_PLAYER . $session['player2_fd']);
             if ($p2 && ($p2['session_id'] ?? '') === $sessionId) {
-                $this->playersTable->del((string)$session['player2_fd']);
+                $redis->del(RedisService::KP_PLAYER . $session['player2_fd']);
             }
         }
-        $this->sessionsTable->del($sessionId);
 
-        // 清除聊天消息
-        self::clearSessionMessages($sessionId);
+        $redis->del(RedisService::KP_SESSION . $sessionId);
+        $redis->del(RedisService::KP_MSG . $sessionId);
+
+        // 清除会话锁
+        self::destroySessionLock($sessionId);
 
         Logger::info('Session cleaned up', ['session_id' => $sessionId]);
     }
 
-    // ==================== 聊天消息（共享 Table） ====================
-
     /**
-     * 追加一条对局聊天记录（写入共享 Table，跨 Worker 可见，Atomic 序列号防竞态）
+     * 标记玩家已离开对局结果页，返回 true 表示双方都已离开
      */
+    public function markPlayerLeft(string $sessionId, int $fd): bool
+    {
+        $redis = RedisService::connect();
+        $key = RedisService::KP_SESSION . $sessionId;
+        $confirmed = $redis->hGet($key, 'left_fds') ?: '';
+        $fds = $confirmed ? explode(',', $confirmed) : [];
+        if (!in_array((string)$fd, $fds)) {
+            $fds[] = (string)$fd;
+            $redis->hSet($key, 'left_fds', implode(',', $fds));
+        }
+        $session = $redis->hGetAll($key);
+        $p1 = (int)($session['player1_fd'] ?? 0);
+        $p2 = (int)($session['player2_fd'] ?? 0);
+        return ($p1 <= 0 || in_array((string)$p1, $fds))
+            && ($p2 <= 0 || in_array((string)$p2, $fds));
+    }
+
+    // ==================== 聊天消息 ====================
+
     public static function addSessionMessage(string $sessionId, string $sender, string $text, string $side = 'left'): void
     {
-        // 原子递增获取唯一条目 key，避免多 Worker / 协程并发覆盖
-        $seq = self::$msgSeq->add(1);
-        $key = $sessionId . ':' . $seq;
+        $redis = RedisService::connect();
+        $key = RedisService::KP_MSG . $sessionId;
+        $redis->rPush($key, json_encode([
+            'sender' => mb_substr($sender, 0, 32),
+            'text'   => mb_substr($text, 0, 500),
+            'side'   => $side,
+            'time'   => date('H:i:s'),
+        ], JSON_UNESCAPED_UNICODE));
 
-        self::$msgTable->set($key, [
-            'session_id' => $sessionId,
-            'seq'         => $seq,
-            'sender'      => mb_substr($sender, 0, 32),
-            'text'        => mb_substr($text, 0, 500),
-            'side'        => $side,
-            'time'        => date('H:i:s'),
-        ]);
+        // 限制单会话最多 200 条消息
+        if ($redis->lLen($key) > 200) {
+            $redis->lTrim($key, -200, -1);
+        }
+
+        // 续期 TTL：活跃会话的消息列表不应过期
+        $redis->expire($key, self::SESSION_TTL);
     }
 
     public static function getSessionMessages(string $sessionId): array
     {
+        $redis = RedisService::connect();
+        $raw = $redis->lRange(RedisService::KP_MSG . $sessionId, 0, -1);
         $msgs = [];
-        if (self::$msgTable === null) return $msgs;
-        foreach (self::$msgTable as $key => $row) {
-            if (($row['session_id'] ?? '') === $sessionId) {
-                $msgs[$key] = [
-                    'sender' => $row['sender'] ?? '',
-                    'text'   => $row['text'] ?? '',
-                    'side'   => $row['side'] ?? 'left',
-                    'time'   => $row['time'] ?? '',
-                ];
-            }
+        foreach ($raw as $item) {
+            $msgs[] = json_decode($item, true) ?: [];
         }
-        // 按插入顺序排序（key 包含 seq，但 Table 迭代不保证顺序）
-        ksort($msgs, SORT_NATURAL);
-        return array_values($msgs);
+        return $msgs;
     }
 
     public static function getMessageCount(string $sessionId): int
     {
-        return self::countSessionMessages($sessionId);
+        $redis = RedisService::connect();
+        return $redis->lLen(RedisService::KP_MSG . $sessionId);
     }
 
-    /**
-     * 获取双方各自发送的消息数 [player1, player2]
-     */
     public static function getPlayerMessageCounts(string $sessionId): array
     {
-        $p1 = 0;
-        $p2 = 0;
-        if (self::$msgTable === null) return [$p1, $p2];
-        foreach (self::$msgTable as $row) {
-            if (($row['session_id'] ?? '') !== $sessionId) continue;
-            if (($row['side'] ?? '') === 'left') $p1++;
-            elseif (($row['side'] ?? '') === 'right') $p2++;
+        $msgs = self::getSessionMessages($sessionId);
+        $p1 = $p2 = 0;
+        foreach ($msgs as $m) {
+            if (($m['side'] ?? '') === 'left') $p1++;
+            elseif (($m['side'] ?? '') === 'right') $p2++;
         }
         return [$p1, $p2];
     }
 
-    /**
-     * 清除指定会话的所有消息
-     */
     public static function clearSessionMessages(string $sessionId): void
     {
-        if (self::$msgTable === null) return;
-        $toDelete = [];
-        foreach (self::$msgTable as $key => $row) {
-            if (($row['session_id'] ?? '') === $sessionId) {
-                $toDelete[] = $key;
-            }
-        }
-        foreach ($toDelete as $k) {
-            self::$msgTable->del($k);
-        }
+        RedisService::connect()->del(RedisService::KP_MSG . $sessionId);
     }
 
-    private static function countSessionMessages(string $sessionId): int
-    {
-        if (self::$msgTable === null) return 0;
-        $c = 0;
-        foreach (self::$msgTable as $row) {
-            if (($row['session_id'] ?? '') === $sessionId) $c++;
-        }
-        return $c;
-    }
+    // ==================== 恢复码 ====================
 
-    // ==================== 恢复码（共享 Table） ====================
-
-    /**
-     * 设置玩家的恢复码（跨 Worker 写入）
-     */
     public static function setPlayerCode(int $fd, string $code): void
     {
-        self::$playerCodeTable?->set((string)$fd, [
-            'code' => $code,
-            'updated_at' => time(),
-        ]);
+        $redis = RedisService::connect();
+        $redis->setEx(RedisService::KP_CODE . $fd, 300, $code);
     }
 
-    /**
-     * 获取玩家的恢复码（跨 Worker 读取）
-     */
     public static function getPlayerCode(int $fd): ?string
     {
-        $row = self::$playerCodeTable?->get((string)$fd);
-        return $row ? ($row['code'] ?: null) : null;
+        $redis = RedisService::connect();
+        $code = $redis->get(RedisService::KP_CODE . $fd);
+        return $code ?: null;
     }
 
-    /**
-     * 检查是否有玩家拥有恢复码（用于延长清理时间）
-     */
     public static function sessionHasPlayerCode(array $session): bool
     {
         $p1 = (int)($session['player1_fd'] ?? 0);
@@ -416,104 +368,169 @@ class GameService
             || ($p2 > 0 && self::getPlayerCode($p2) !== null);
     }
 
-    /**
-     * 移除玩家的恢复码（断开连接时清理）
-     */
     public static function removePlayerCode(int $fd): void
     {
-        self::$playerCodeTable?->del((string)$fd);
+        RedisService::connect()->del(RedisService::KP_CODE . $fd);
     }
 
     // ==================== 会话锁 ====================
 
-    /**
-     * 获取会话级互斥锁（用于 judge 操作的并发保护）
-     */
-    public static function acquireSessionLock(): void
+    public static function acquireSessionLock(string $sessionId): void
     {
-        self::$sessionLock?->lock();
+        if (!isset(self::$sessionLocks[$sessionId])) {
+            if (self::$sessionLockCount >= self::MAX_SESSION_LOCKS) {
+                self::evictStaleLocks();
+            }
+            self::$sessionLocks[$sessionId] = new Channel(1);
+            self::$sessionLockCount++;
+        }
+        self::$sessionLocks[$sessionId]->push(true, 10.0);
     }
 
-    public static function releaseSessionLock(): void
+    public static function releaseSessionLock(string $sessionId): void
     {
-        self::$sessionLock?->unlock();
+        if (isset(self::$sessionLocks[$sessionId])) {
+            self::$sessionLocks[$sessionId]->pop(0.001);
+        }
     }
 
-    // ==================== 其他 ====================
-
-    public function getPlayer(int $fd): ?array
+    public static function destroySessionLock(string $sessionId): void
     {
-        $player = $this->playersTable->get((string)$fd);
-        return $player ?: null;
+        if (isset(self::$sessionLocks[$sessionId])) {
+            self::$sessionLocks[$sessionId]->close();
+            unset(self::$sessionLocks[$sessionId]);
+            self::$sessionLockCount--;
+        }
     }
 
-    public function getActiveSessionCount(): int
+    private static function evictStaleLocks(): void
     {
-        return $this->sessionsTable->count();
+        $redis = RedisService::connect();
+        $toDelete = [];
+        foreach (self::$sessionLocks as $sid => $ch) {
+            if (!$redis->exists(RedisService::KP_SESSION . $sid)) {
+                $toDelete[] = $sid;
+            }
+        }
+        foreach ($toDelete as $sid) {
+            self::destroySessionLock($sid);
+        }
+        if (!empty($toDelete)) {
+            Logger::debug('Session locks evicted', ['count' => count($toDelete)]);
+        }
     }
+
+    // ==================== 在线状态 ====================
 
     public function addOnline(int $fd): void
     {
-        self::$onlineTable?->set((string)$fd, ['joined_at' => time()]);
+        $this->onlineFds[$fd] = true;
     }
 
     public function removeOnline(int $fd): void
     {
-        self::$onlineTable?->del((string)$fd);
+        unset($this->onlineFds[$fd]);
     }
 
-    public static function getOnlineCount(): int
+    public function getOnlineCount(): int
     {
-        return self::$onlineTable?->count() ?? 0;
+        return count($this->onlineFds);
     }
 
-    public function sweepStaleHistory(int $maxAgeSeconds = 300): void
+    // ==================== 查询 ====================
+
+    public function getPlayer(int $fd): ?array
     {
-        $now = time();
-        $cleaned = 0;
+        $data = RedisService::connect()->hGetAll(RedisService::KP_PLAYER . $fd);
+        return $data ?: null;
+    }
 
-        // 收集所有需要清理的 session_id（去重）
-        $staleSessionIds = [];
-        if (self::$msgTable !== null) {
-            foreach (self::$msgTable as $row) {
-                $sid = $row['session_id'] ?? '';
-                if ($sid === '') continue;
-                if (isset($staleSessionIds[$sid])) continue;
+    private function getPlayerState(int $fd): ?string
+    {
+        $player = $this->getPlayer($fd);
+        return $player['state'] ?? null;
+    }
 
-                $sessionRow = $this->sessionsTable->get($sid);
-                if (!$sessionRow) {
-                    $staleSessionIds[$sid] = true;
-                    continue;
-                }
-                if ($sessionRow['state'] === 'finished') {
-                    $createdAt = (int)($sessionRow['created_at'] ?? 0);
-                    if ($createdAt > 0 && ($now - $createdAt) > $maxAgeSeconds) {
-                        $staleSessionIds[$sid] = true;
-                    }
-                }
-            }
-        }
-
-        foreach (array_keys($staleSessionIds) as $sid) {
-            self::clearSessionMessages($sid);
-            $cleaned++;
-        }
-
-        if ($cleaned > 0) {
-            Logger::debug('Swept stale message history', [
-                'cleaned' => $cleaned,
-                'remaining' => self::$msgTable?->count() ?? 0,
-            ]);
-        }
+    public function getActiveSessionCount(): int
+    {
+        // 使用 SCAN 代替 KEYS（生产安全，O(1) per-scan 不阻塞 Redis）
+        return count(RedisService::scanKeys(RedisService::KP_SESSION . '*'));
     }
 
     public function getActiveSessions(): array
     {
+        $redis = RedisService::connect();
+        $keys = RedisService::scanKeys(RedisService::KP_SESSION . '*');
         $sessions = [];
-        foreach ($this->sessionsTable as $row) {
-            if (!isset($row['id']) || empty($row['id'])) continue;
-            $sessions[] = $row;
+        foreach ($keys as $key) {
+            $data = $redis->hGetAll($key);
+            if (!empty($data['id'])) {
+                $sessions[] = $data;
+            }
         }
         return $sessions;
+    }
+
+    /**
+     * 扫除过期数据：清理已结束超时的会话、玩家绑定、消息记录
+     * - finished 状态 + 超过 maxAgeSeconds：完整清理
+     * - 非 finished 状态 + 超过 2×maxAgeSeconds：异常卡住会话，强制清理
+     */
+    public function sweepStaleHistory(int $maxAgeSeconds = 300): void
+    {
+        $now = time();
+        $redis = RedisService::connect();
+        $keys = RedisService::scanKeys(RedisService::KP_SESSION . '*');
+        $cleaned = 0;
+
+        foreach ($keys as $key) {
+            $sessionId = substr($key, strlen(RedisService::KP_SESSION));
+            $session = $redis->hGetAll($key);
+            if (!$session) continue;
+
+            $state = $session['state'] ?? '';
+            $createdAt = (int)($session['created_at'] ?? 0);
+            if ($createdAt <= 0) continue;
+
+            $age = $now - $createdAt;
+            $shouldClean = false;
+
+            if ($state === 'finished' && $age > $maxAgeSeconds) {
+                // 已完成且超时：正常清理
+                $shouldClean = true;
+            } elseif (!in_array($state, ['finished'], true) && $age > $maxAgeSeconds * 2) {
+                // 异常卡在非 finished 状态超过 2 倍阈值：强制清理
+                Logger::warning('sweepStaleHistory: force-cleaning stuck session', [
+                    'session_id' => $sessionId,
+                    'state' => $state,
+                    'age' => $age,
+                ]);
+                $shouldClean = true;
+            }
+
+            if ($shouldClean) {
+                // 清理玩家绑定（安全校验 session_id 匹配）
+                if ((int)($session['player1_fd'] ?? 0) > 0) {
+                    $p1 = $redis->hGetAll(RedisService::KP_PLAYER . $session['player1_fd']);
+                    if ($p1 && ($p1['session_id'] ?? '') === $sessionId) {
+                        $redis->del(RedisService::KP_PLAYER . $session['player1_fd']);
+                    }
+                }
+                if ((int)($session['player2_fd'] ?? 0) > 0) {
+                    $p2 = $redis->hGetAll(RedisService::KP_PLAYER . $session['player2_fd']);
+                    if ($p2 && ($p2['session_id'] ?? '') === $sessionId) {
+                        $redis->del(RedisService::KP_PLAYER . $session['player2_fd']);
+                    }
+                }
+
+                $redis->del(RedisService::KP_MSG . $sessionId);
+                $redis->del($key); // tg:sess:{id}
+                $cleaned++;
+            }
+        }
+
+        if ($cleaned > 0) {
+            Logger::info('Swept stale sessions', ['cleaned' => $cleaned]);
+        }
     }
 }

@@ -8,6 +8,7 @@ use App\Core\Router;
 use App\Core\Request as HttpRequest;
 use App\Core\Response as HttpResponse;
 use App\Services\Logger;
+use Throwable;
 
 class HttpHandler
 {
@@ -61,7 +62,7 @@ class HttpHandler
                     'response_time_ms' => $responseTime,
                 ]);
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $request = new HttpRequest($swooleRequest);
             $responseTime = round((microtime(true) - $startTime) * 1000, 2);
             Logger::error('HTTP request failed', [
@@ -77,7 +78,7 @@ class HttpHandler
         }
     }
 
-    private function handleError(\Throwable $e, Response $response): void
+    private function handleError(Throwable $e, Response $response): void
     {
         $response->status(500);
         $response->header('Content-Type', 'application/json');

@@ -2,282 +2,253 @@
 
 namespace App\Services;
 
-use Swoole\Table;
+use Swoole\Coroutine\Channel;
 use Swoole\Timer;
-use Swoole\Lock;
+use Swoole\WebSocket\Server;
 use Config\Config;
 
 /**
- * 匹配队列管理服务
+ * 匹配队列服务——单 Worker + Redis 状态存储
  *
- * 使用 Swoole\Table 共享内存存储匹配队列
- * 使用 Swoole\Lock 保护队列操作防止竞态
+ * 队列使用 Redis List（单个 FIFO 队列，无跨进程竞态），
+ * 定时器标记使用 Redis String + TTL 代替 Swoole\Table。
+ *
+ * 协程安全：匹配锁使用 Channel(1)（协程级锁），
+ * 绝对禁止在协程环境使用 Swoole\Lock(SWOOLE_MUTEX)（会阻塞整个进程）。
  */
 class MatchService
 {
-    private Table $queueTable;
-    private Lock $lock;
     private GameService $gameService;
-
-    /** 匹配超时定时器共享表（fd => timer_id + worker_id，跨 Worker 管理定时器生命周期） */
-    private ?Table $matchTimerTable = null;
-
-    /** 当前 Worker ID，定时器回调中用于判断是否为本 Worker 的定时器 */
-    private int $workerId = 0;
-
-    /** @var callable|null 匹配成功回调 */
-    private $onMatchCallback = null;
-
     private BotService $botService;
+    private Channel $lockCh;
+    private ?Server $server = null;
 
     public function __construct(GameService $gameService, BotService $botService)
     {
         $this->gameService = $gameService;
         $this->botService = $botService;
+        // Channel(1) 作为协程安全互斥锁：push 获取，pop 释放
+        $this->lockCh = new Channel(1);
 
-        // 匹配队列表：最多 512 个等待玩家
-        $this->queueTable = new Table(512);
-        $this->queueTable->column('fd', Table::TYPE_INT, 8);
-        $this->queueTable->column('nickname', Table::TYPE_STRING, 32);
-        $this->queueTable->column('duration', Table::TYPE_INT, 4);
-        $this->queueTable->column('joined_at', Table::TYPE_INT, 8);
-        $this->queueTable->create();
-
-        // 互斥锁
-        $this->lock = new Lock(SWOOLE_MUTEX);
+        Logger::info('MatchService initialized (Redis queue, coroutine-safe lock)');
     }
 
-    /**
-     * 设置匹配定时器共享表（由 Application 在 fork 前创建并注入）
-     */
-    public function setMatchTimerTable(Table $table): void
+    public function setServer(Server $server): void
     {
-        $this->matchTimerTable = $table;
+        $this->server = $server;
     }
 
     /**
-     * 设置当前 Worker ID（由 GameWebSocketHandler 在 WorkerStart 时注入）
+     * 获取匹配锁（协程安全，30 秒超时防死锁）
      */
-    public function setWorkerId(int $workerId): void
+    private function lock(): bool
     {
-        $this->workerId = $workerId;
+        return $this->lockCh->push(true, 30.0);
+    }
+
+    private function unlock(): void
+    {
+        $this->lockCh->pop(0.001);
     }
 
     /**
-     * 设置匹配成功回调
-     *
-     * @param callable $callback function(array $sessionData): void
+     * 将玩家加入匹配队列，阻塞直到匹配成功或超时降级 Bot
      */
+    public function enqueue(int $fd, string $nickname, int $duration): array
+    {
+        $redis = RedisService::connect();
+
+        // 1. AI 概率匹配（不经过队列直接匹配 Bot）
+        $aiRate = (float)Config::get('Game.AiMatchRate', 0.05);
+        if (mt_rand(1, 10000) / 10000 <= $aiRate) {
+            Logger::info('Match: AI probability matched', ['fd' => $fd, 'nickname' => $nickname]);
+            $persona = Persona::random();
+            $botName = $persona['name'];
+            $session = $this->gameService->createSession($fd, $nickname, 0, $botName, $duration, true);
+            $this->botService->setPersona($session['id'], $persona);
+            return $this->notifyMatch($session, $fd);
+        }
+
+        // 2. 加锁尝试与排队对手匹配
+        $locked = $this->lock();
+        if (!$locked) {
+            // 锁超时 → 降级 Bot
+            Logger::warning('Match: lock timeout, fallback to Bot', ['fd' => $fd]);
+            $persona = Persona::random();
+            $botName = $persona['name'];
+            $session = $this->gameService->createSession($fd, $nickname, 0, $botName, $duration, true);
+            $this->botService->setPersona($session['id'], $persona);
+            return $this->notifyMatch($session, $fd);
+        }
+
+        try {
+            $opponent = $this->dequeueFirst($redis);
+            $opponentFd = $opponent !== null ? (int)$opponent['fd'] : 0;
+
+            // 防止自我匹配
+            if ($opponentFd > 0 && $opponentFd === $fd) {
+                Logger::warning('Match: self-match detected, skipping', ['fd' => $fd]);
+                $this->pushQueue($redis, $opponentFd, $opponent['nickname'], $opponent['duration']);
+                $opponent = null;
+                $opponentFd = 0;
+            }
+
+            // 校验对手 FD 是否存活（防止匹配到已断开的连接）
+            if ($opponentFd > 0 && $this->server !== null && !$this->server->isEstablished($opponentFd)) {
+                Logger::warning('Match: opponent fd is dead, skipping', [
+                    'fd' => $fd,
+                    'opponent_fd' => $opponentFd,
+                ]);
+                $this->removeFromQueue($redis, $opponentFd);
+                $opponent = null;
+                $opponentFd = 0;
+            }
+
+            if ($opponent !== null) {
+                $session = $this->gameService->createSession(
+                    $fd, $nickname,
+                    $opponentFd, $opponent['nickname'],
+                    $duration, false
+                );
+                return $this->notifyMatch($session, $fd);
+            }
+        } finally {
+            $this->unlock();
+        }
+
+        // 3. 无人可匹配，加入队列等待
+        $this->pushQueue($redis, $fd, $nickname, $duration);
+
+        // 4. 设置超时定时器
+        $matchTimeout = Config::get('Game.MatchTimeout', 10);
+        $timerKey = RedisService::KP_MATCH_TIMER . $fd;
+        $redis->setEx($timerKey, $matchTimeout + 5, (string)$fd);
+
+        $timerId = Timer::after($matchTimeout * 1000, function () use ($fd, $nickname, $duration, $timerKey) {
+            $redis = RedisService::connect();
+
+            // 检查定时器标记是否仍在（未被 cancelTimeout 删除）
+            if (!$redis->exists($timerKey)) {
+                Logger::debug('Match timer already cancelled, skipping', ['fd' => $fd]);
+                return;
+            }
+            $redis->del($timerKey);
+
+            // 用 LREM 原子移除（不需要锁，单 Worker 中同一协程按序执行）
+            $inQueue = $this->removeFromQueue($redis, $fd);
+
+            if (!$inQueue) {
+                Logger::debug('Match timeout: already matched, skipping', ['fd' => $fd]);
+                return;
+            }
+
+            // 二次确认：检查玩家是否已经在对局中
+            $existingSession = $this->gameService->getSessionByPlayerFd($fd);
+            if ($existingSession !== null) {
+                Logger::warning('Match timeout: player already in session, aborting Bot fallback', [
+                    'fd' => $fd,
+                    'existing_session' => $existingSession['id'] ?? 'unknown',
+                ]);
+                return;
+            }
+
+            // 检查玩家连接是否仍然存活（已断开则不降级 Bot）
+            if ($this->server !== null && !$this->server->isEstablished($fd)) {
+                Logger::info('Match timeout: player disconnected, skipping', ['fd' => $fd]);
+                return;
+            }
+
+            Logger::info('Match timeout, fallback to Bot', ['fd' => $fd]);
+            $persona = Persona::random();
+            $botName = $persona['name'];
+            try {
+                $session = $this->gameService->createSession($fd, $nickname, 0, $botName, $duration, true);
+                $this->botService->setPersona($session['id'], $persona);
+                if ($this->onMatchCallback !== null) {
+                    ($this->onMatchCallback)($session);
+                }
+            } catch (\RuntimeException $e) {
+                Logger::warning('Match timeout: Bot session creation failed', [
+                    'fd' => $fd,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        });
+
+        return ['status' => 'pending', 'fd' => $fd];
+    }
+
+    /**
+     * 从队列中移除玩家
+     */
+    public function dequeue(int $fd): void
+    {
+        $redis = RedisService::connect();
+        $this->removeFromQueue($redis, $fd);
+    }
+
+    // ==================== 私有方法 ====================
+
+    private function pushQueue(\Redis $redis, int $fd, string $nickname, int $duration): void
+    {
+        $redis->rPush(RedisService::KP_MATCH_Q, json_encode([
+            'fd'       => $fd,
+            'nickname' => $nickname,
+            'duration' => $duration,
+        ], JSON_UNESCAPED_UNICODE));
+    }
+
+    private function dequeueFirst(\Redis $redis): ?array
+    {
+        $raw = $redis->lPop(RedisService::KP_MATCH_Q);
+        if ($raw === false || $raw === null) return null;
+        $data = json_decode($raw, true);
+        return $data ?: null;
+    }
+
+    /**
+     * 使用 Redis LREM 原子移除匹配队列中的指定 fd
+     * 复杂度 O(N) 但在队列条目数不多时远快于 lRange+del+重建
+     */
+    private function removeFromQueue(\Redis $redis, int $fd): bool
+    {
+        // Lua 脚本原子查找+移除匹配队列中的 fd
+        $script = "local q = KEYS[1]; local fd = ARGV[1];
+             local list = redis.call('LRANGE', q, 0, -1);
+             for i = 1, #list do
+                 local item = cjson.decode(list[i]);
+                 if item and tostring(item['fd']) == fd then
+                     redis.call('LREM', q, 1, list[i]);
+                     return 1;
+                 end
+             end
+             return 0;";
+        // PHPRedis eval(s script, array args, int numKeys): keys 和 args 合并为一个数组
+        $removed = $redis->eval($script, [RedisService::KP_MATCH_Q, (string)$fd], 1);
+        return $removed > 0;
+    }
+
+    private function notifyMatch(array $session, int $fd): array
+    {
+        if ($this->onMatchCallback !== null) {
+            ($this->onMatchCallback)($session);
+        }
+        return $session;
+    }
+
+    /** @var callable|null */
+    private $onMatchCallback = null;
+
     public function onMatch(callable $callback): void
     {
         $this->onMatchCallback = $callback;
     }
 
     /**
-     * 玩家加入匹配队列
-     *
-     * @param int    $fd       玩家 fd
-     * @param string $nickname 玩家昵称
-     * @param int    $duration 聊天时长（秒）
+     * 取消匹配超时定时器
      */
-    public function enqueue(int $fd, string $nickname, int $duration): void
+    private function cancelTimeout(int $fd): void
     {
-        Logger::debug('Player enqueued', [
-            'fd' => $fd,
-            'nickname' => $nickname,
-            'duration' => $duration,
-            'queue_size' => $this->getQueueSize(),
-        ]);
-
-        // 1. 极小概率直接匹配 AI（惊喜）
-        $aiMatchRate = Config::get('Game.AiMatchRate', 0.05);
-        if (mt_rand() / mt_getrandmax() < $aiMatchRate) {
-            Logger::info('AI match by probability', ['fd' => $fd, 'rate' => $aiMatchRate]);
-            $botName = $this->botService->getRandomName();
-            $session = $this->gameService->createSession($fd, $nickname, 0, $botName, $duration, true);
-            $this->notifyMatch($session);
-            return;
-        }
-
-        // 2. 尝试匹配队列中的等待者
-        $lockWaitStart = microtime(true);
-        $this->lock->lock();
-        $lockWaitMs = round((microtime(true) - $lockWaitStart) * 1000, 2);
-        if ($lockWaitMs > 50) {
-            Logger::warning('[LOCK] Match queue lock wait slow', [
-                'fd' => $fd,
-                'wait_ms' => $lockWaitMs,
-                'queue_size' => $this->getQueueSize(),
-            ]);
-        }
-
-        $lockHoldStart = microtime(true);
-        try {
-            // 如果队列为空，跳过 dequeueFirst 避免无意义的迭代
-            if ($this->queueTable->count() === 0) {
-                // 队列为空，直接进入等待
-            } else {
-                $opponent = $this->dequeueFirst();
-                $opponentFd = $opponent !== null ? (int)$opponent['fd'] : 0;
-                // 防止自我匹配：跳过同 fd 的过期队列条目
-                if ($opponentFd > 0 && $opponentFd === $fd) {
-                    Logger::warning('Skipped self-match in MatchService::enqueue', [
-                        'fd' => $fd,
-                        'opponent_fd' => $opponentFd,
-                    ]);
-                    $opponent = null;
-                }
-                if ($opponent !== null) {
-                    // 匹配成功！取消对手的超时定时器
-                    $this->cancelTimeout($opponentFd);
-                    Logger::info('Human match found', [
-                        'player1_fd' => $fd,
-                        'player2_fd' => $opponentFd,
-                    ]);
-
-                    $session = $this->gameService->createSession(
-                        $fd,
-                        $nickname,
-                        $opponentFd,
-                        $opponent['nickname'],
-                        $duration,
-                        false
-                    );
-                    $this->notifyMatch($session);
-                    return;
-                }
-            }
-        } finally {
-            $lockHoldMs = round((microtime(true) - $lockHoldStart) * 1000, 2);
-            $this->lock->unlock();
-            if ($lockHoldMs > 100) {
-                Logger::warning('[LOCK] Match queue lock held long', [
-                    'fd' => $fd,
-                    'hold_ms' => $lockHoldMs,
-                ]);
-            }
-        }
-
-        // 3. 队列为空，加入等待
-        $this->queueTable->set((string)$fd, [
-            'fd' => $fd,
-            'nickname' => $nickname,
-            'duration' => $duration,
-            'joined_at' => time(),
-        ]);
-
-        // 4. 设置超时定时器，超时后降级匹配 Bot
-        $matchTimeout = Config::get('Game.MatchTimeout', 10);
-        $timerId = Timer::after($matchTimeout * 1000, function () use ($fd, $nickname, $duration) {
-            // 原子性检查并删除共享定时器条目：del() 返回 false 说明已被 cancelTimeout 抢先清理
-            if ($this->matchTimerTable !== null && !$this->matchTimerTable->del((string)$fd)) {
-                Logger::debug('Match timer already cancelled (cross-worker), skipping', ['fd' => $fd]);
-                return;
-            }
-
-            // 检查是否还在队列中
-            if ($this->queueTable->exists((string)$fd)) {
-                $this->queueTable->del((string)$fd);
-
-                Logger::info('Match timeout, fallback to Bot', ['fd' => $fd]);
-                $botName = $this->botService->getRandomName();
-                $session = $this->gameService->createSession($fd, $nickname, 0, $botName, $duration, true);
-                $this->notifyMatch($session);
-            }
-        });
-
-        // 将定时器信息写入共享表（跨 Worker 可见）
-        $this->matchTimerTable?->set((string)$fd, [
-            'timer_id' => $timerId,
-            'worker_id' => $this->workerId,
-        ]);
-    }
-
-    /**
-     * 从队列中移除玩家（断开连接时调用）
-     */
-    public function dequeue(int $fd): void
-    {
-        $this->lock->lock();
-        try {
-            if ($this->queueTable->exists((string)$fd)) {
-                $this->queueTable->del((string)$fd);
-            }
-        } finally {
-            $this->lock->unlock();
-        }
-
-        $this->cancelTimeout($fd);
-    }
-
-    /**
-     * 取消匹配超时定时器（跨 Worker 安全）
-     *
-     * 先从共享表中删除标记（无论哪个 Worker 调用），定时器回调检测到
-     * 共享表条目不存在时会自行跳过。如果恰好在同一 Worker，则直接清除定时器。
-     */
-    public function cancelTimeout(int $fd): void
-    {
-        if ($this->matchTimerTable === null) {
-            return;
-        }
-
-        $row = $this->matchTimerTable->get((string)$fd);
-        if (!$row) {
-            return;
-        }
-
-        $timerWorkerId = (int)$row['worker_id'];
-        $timerId = (int)$row['timer_id'];
-
-        // 先从共享表删除（权威标记：通知定时器回调已被取消）
-        $this->matchTimerTable->del((string)$fd);
-
-        // 如果当前 Worker 就是创建定时器的 Worker，直接清除定时器
-        if ($timerWorkerId === $this->workerId && $timerId > 0) {
-            Timer::clear($timerId);
-        }
-
-        Logger::debug('Match timer cancelled', [
-            'fd' => $fd,
-            'timer_worker' => $timerWorkerId,
-            'current_worker' => $this->workerId,
-        ]);
-    }
-
-    /**
-     * 获取队列中等待玩家的数量
-     */
-    public function getQueueSize(): int
-    {
-        return $this->queueTable->count();
-    }
-
-    /**
-     * 弹出队列中第一个等待者（内部方法，需在锁内调用）
-     *
-     * @return array{fd: int, nickname: string, duration: int}|null
-     */
-    private function dequeueFirst(): ?array
-    {
-        foreach ($this->queueTable as $row) {
-            $this->queueTable->del((string)$row['fd']);
-            return [
-                'fd' => (int)$row['fd'],
-                'nickname' => $row['nickname'],
-                'duration' => (int)$row['duration'],
-            ];
-        }
-        return null;
-    }
-
-    /**
-     * 通知匹配成功
-     */
-    private function notifyMatch(array $session): void
-    {
-        if ($this->onMatchCallback !== null) {
-            call_user_func($this->onMatchCallback, $session);
-        }
+        RedisService::connect()->del(RedisService::KP_MATCH_TIMER . $fd);
     }
 }

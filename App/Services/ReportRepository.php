@@ -144,6 +144,14 @@ class ReportRepository
     }
 
     /**
+     * saveChatHistory 的直接执行版本（由 AsyncDbWriter 异步调用）
+     */
+    public static function saveChatHistoryDirect(string $sessionId, array $messages, string $player1Desc, string $player2Desc, int $duration): void
+    {
+        self::saveChatHistory($sessionId, $messages, $player1Desc, $player2Desc, $duration);
+    }
+
+    /**
      * 获取举报列表（分页）
      *
      * @return array{reports: array, total: int}

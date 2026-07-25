@@ -316,99 +316,8 @@ class WebSocketTransport extends ChatTransport {
     }
 
     connect(nickname, duration) {
-        this._ws = new WebSocket(this._url);
-
-        this._ws.onopen = () => {
-            this._ws.send(JSON.stringify({
-                type: 'join',
-                nickname: nickname,
-                duration: duration || 600
-            }));
-
-            // 启动心跳：每 25 秒发送一次 ping，防止代理/防火墙切断空闲连接
-            this._heartbeatTimer = setInterval(() => {
-                if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-                    this._ws.send(JSON.stringify({ type: 'ping' }));
-                }
-            }, 25000);
-        };
-
-        this._ws.onmessage = (event) => {
-            let data;
-            try {
-                data = JSON.parse(event.data);
-            } catch (e) {
-                console.warn('[WS] JSON parse error, raw data:', event.data);
-                return;
-            }
-            switch (data.type) {
-                case 'matched':
-                    this._emit('connected', {
-                        opponent_name: data.opponent_name,
-                        duration: data.duration,
-                        session_id: data.session_id,
-                    });
-                    break;
-                case 'message':
-                    this._emit('message', {
-                        text: data.text,
-                        sender: data.sender
-                    });
-                    break;
-                case 'system':
-                    this._emit('system', { text: data.text });
-                    break;
-                case 'banned':
-                    alert(data.text);
-                    break;
-                case 'opponent_banned':
-                    stopChat();
-                    this._emit('system', { text: data.text });
-                    this._emit('opponent_timeout', {
-                        reason: 'opponent_banned',
-                        opponent_truth: data.opponent_truth,
-                    });
-                    break;
-                case 'judged':
-                    this._emit('opponent_judged', {
-                        truth: data.truth,
-                        opponent_guess: data.opponent_guess,
-                        opponent_tag: data.opponent_tag || '',
-                        session_id: data.session_id,
-                    });
-                    break;
-                case 'judge_notify':
-                    this._emit('judge_notify', { message: data.message });
-                    break;
-                case 'timeout':
-                    this._emit('opponent_timeout', {
-                        reason: data.reason,
-                        session_id: data.session_id,
-                        opponent_truth: data.opponent_truth,
-                    });
-                    break;
-                case 'error':
-                    this._emit('system', { text: data.message });
-                    break;
-                case 'admin_connected':
-                    this._adminConnected = true;
-                    break;
-                case 'save_history_status':
-                    this._emit('save_history_status', data);
-                    break;
-                default:
-                    if (this._adminHandler) this._adminHandler(data);
-                    break;
-            }
-        };
-
-        this._ws.onerror = () => {
-            this._emit('error', { text: 'WebSocket 连接失败' });
-        };
-
-        this._ws.onclose = () => {
-            this._emit('disconnected', {});
-        };
+        // connect 方法由下方 WebSocketTransport.prototype.connect 完全覆盖
+        // 包括 onopen/onmessage/onerror/onclose 的完整实现
     }
 
     sendMessage(text) {
@@ -447,6 +356,16 @@ class WebSocketTransport extends ChatTransport {
             throw new Error('WebSocket not connected');
         }
         this._ws.send(JSON.stringify({ type, ...payload }));
+    }
+
+    sendLeaveResult(sessionId) {
+        if (!sessionId) return;
+        DebugLogger.log('game', '发送leave_result', { session_id: sessionId });
+        try {
+            this.send('leave_result', { session_id: sessionId });
+        } catch (e) {
+            DebugLogger.log('error', 'leave_result发送失败', { error: e.message });
+        }
     }
 }
 
@@ -596,11 +515,14 @@ class GameClient {
         DebugLogger.log('game', 'GameClient.reset调用', { session_id: this._sessionId, disconnecting: this._disconnecting });
         this._disconnecting = true;
 
-        // 通知服务端离开，清理服务端排队/对局状态
-        if (this._transport && this._transport._ws
-            && this._transport._ws.readyState === WebSocket.OPEN) {
+        // 通知服务端离开并断开连接，确保下次 join 使用新 fd 避免旧会话残留
+        if (this._transport && this._transport._ws) {
             try {
-                this._transport._ws.send(JSON.stringify({ type: 'leave' }));
+                if (this._transport._ws.readyState === WebSocket.OPEN) {
+                    this._transport._ws.send(JSON.stringify({ type: 'leave' }));
+                    this._transport._ws.close();
+                }
+                this._transport._ws = null;
             } catch (e) { /* ignore */ }
         }
 
@@ -639,6 +561,10 @@ class GameClient {
 
     resetAndPlay() {
         DebugLogger.log('game', 'resetAndPlay被调用');
+        // 发送离开确认，等另一方也离开后房间自动清理
+        if (this._sessionId) {
+            this._transport.sendLeaveResult(this._sessionId);
+        }
         const nickname = localStorage.getItem('turing_nickname') || 'You';
         const durationSelect = document.getElementById('duration-select');
         const duration = parseInt(durationSelect?.value) || 600;
@@ -912,7 +838,7 @@ class GameClient {
         } else if (data && data.reason) {
             // opponent_timeout / opponent_disconnected / opponent_left
             if (data.opponent_truth) this._opponentTruth = data.opponent_truth;
-            renderResult('opponent', this._userGuess, this._opponentTruth, null);
+            renderResult(data.reason, this._userGuess, this._opponentTruth, null);
         }
     }
 
@@ -927,7 +853,12 @@ class GameClient {
     _onError(data) {
         DebugLogger.log('error', '传输层错误', { text: data.text });
         console.error('传输层错误:', data.text);
-        alert('连接出错，请刷新页面重试');
+        // 匹配阶段：显示在匹配页
+        if (matchingPage.style.display === 'flex') {
+            showMatchError(data.text || '连接出错');
+        } else {
+            alert('连接出错，请刷新页面重试');
+        }
     }
 
     _onBanned(data) {
@@ -1164,7 +1095,8 @@ function makeJudgement(guess) {
 
 function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, opponentTag) {
     const isTimeout = !!timeoutReason;
-    const isWin = (timeoutReason === 'opponent')
+    const isWin = (timeoutReason === 'opponent' || timeoutReason === 'opponent_timeout')
+        || (timeoutReason === 'opponent_disconnected' || timeoutReason === 'opponent_left')
         || (!isTimeout && userGuess === opponentTruth);
 
     const guessLabel = userGuess === 'human' ? '它是人类' : (userGuess === 'ai' ? '它是 AI' : '未判定');
@@ -1178,14 +1110,18 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
         ? `<svg viewBox="0 0 24 24" style="width:48px;height:48px;fill:none;stroke:#4caf50;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>`
         : `<svg viewBox="0 0 24 24" style="width:48px;height:48px;fill:none;stroke:#f44336;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><line x1="8" y1="8" x2="16" y2="16"/><line x1="16" y1="8" x2="8" y2="16"/></svg>`;
 
-    const verdict = timeoutReason === 'opponent' ? '对方超时未判定，你赢了！'
+    const verdict = timeoutReason === 'opponent' || timeoutReason === 'opponent_timeout' ? '对方超时未判定，你赢了！'
+        : timeoutReason === 'opponent_disconnected' ? '对方断开了连接，你赢了！'
+        : timeoutReason === 'opponent_left' ? '对方主动退出，你赢了！'
         : timeoutReason === 'you' ? '你超时未判定，对方赢了...'
             : timeoutReason === 'both' ? '双方超时，平局'
                 : timeoutReason === 'no_mutual_chat' ? '未互发消息，平局不记战绩'
                     : timeoutReason === 'opponent_banned' ? '对方已被封禁，对局结束'
                     : (isWin ? '猜对啦！' : '猜错了...');
     const reveal = isTimeout
-        ? (timeoutReason === 'opponent' ? '对方未能在 60 秒内完成判定'
+        ? (timeoutReason === 'opponent' || timeoutReason === 'opponent_timeout' ? '对方未能在 60 秒内完成判定'
+            : timeoutReason === 'opponent_disconnected' ? '对方断开了连接'
+            : timeoutReason === 'opponent_left' ? '对方主动退出了对局'
             : timeoutReason === 'you' ? '你未能在 60 秒内完成判定'
                 : timeoutReason === 'both' ? '双方均未在 60 秒内完成判定'
                     : timeoutReason === 'no_mutual_chat' ? '双方未互发消息，不计入战绩'
@@ -1310,6 +1246,35 @@ function resetState() {
     game.reset();
 }
 
+/**
+ * 匹配阶段错误：在匹配页面展示错误信息并返回首页
+ */
+function showMatchError(message) {
+    const errorEl = document.getElementById('match-error');
+    const dotsEl = document.getElementById('matching-dots');
+    const hintEl = document.getElementById('matching-hint');
+
+    // 隐藏加载动画，显示错误
+    if (dotsEl) dotsEl.style.display = 'none';
+    if (hintEl) hintEl.textContent = '匹配失败，请稍后重试';
+    if (errorEl) {
+        errorEl.textContent = '⚠ ' + (message || '服务器返回错误');
+        errorEl.style.display = 'block';
+        errorEl.style.animation = 'wiggle 0.3s ease';
+    }
+
+    // 1.5 秒后返回首页
+    setTimeout(() => {
+        if (errorEl) {
+            errorEl.style.display = 'none';
+            errorEl.style.animation = '';
+        }
+        if (dotsEl) dotsEl.style.display = '';
+        if (hintEl) hintEl.textContent = '稍等一下，马上就好';
+        resetState();
+    }, 2500);
+}
+
 function resetGame() {
     game.resetAndPlay();
 }
@@ -1346,8 +1311,8 @@ function recordGameStats(result) {
     s.totalDuration += result.duration || 0;
 
     // 胜负
-    if (result.timeoutReason === 'opponent') {
-        s.wins++;  // 对方超时，你赢
+    if (result.timeoutReason === 'opponent' || result.timeoutReason === 'opponent_disconnected' || result.timeoutReason === 'opponent_left') {
+        s.wins++;  // 对方超时/断开/离开，你赢
     } else if (result.timeoutReason === 'you') {
         s.losses++;
         s.timeouts++;
@@ -1561,49 +1526,6 @@ settingsOverlay.addEventListener('click', (e) => {
         settingsOverlay.style.display = 'none';
     }
 });
-
-// ================================================================
-// SSE 事件流（在线人数 + 全服公告）
-// ================================================================
-let sseSource = null;
-
-function connectSSE() {
-    if (sseSource) {
-        sseSource.close();
-        sseSource = null;
-    }
-    sseSource = new EventSource('/api/sse');
-
-    sseSource.addEventListener('connected', () => {
-        // SSE 连接已建立
-    });
-
-    sseSource.addEventListener('broadcast', (e) => {
-        const data = JSON.parse(e.data);
-        showDanmaku(data.text);
-    });
-
-    sseSource.addEventListener('online_count', (e) => {
-        const data = JSON.parse(e.data);
-        document.getElementById('online-num').textContent = data.count;
-    });
-    
-
-    sseSource.onerror = () => {
-        // SSE 断线，5s 后自动重连
-        DebugLogger.log('network', 'SSE连接断开，5s后重连');
-        if (sseSource) {
-            sseSource.close();
-            sseSource = null;
-        }
-        document.getElementById('online-num').textContent = '--';
-        setTimeout(connectSSE, 5000);
-    };
-}
-
-// 页面加载时立即建立 SSE
-connectSSE();
-
 // ================================================================
 // 初始化传输层和游戏客户端
 // ================================================================
@@ -2526,6 +2448,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
         let data;
         try {
             data = JSON.parse(event.data);
+            console.log('[WS] 收到消息:', data);
         } catch (e) {
             DebugLogger.log('error', 'WebSocket JSON解析失败', { raw_len: event.data ? event.data.length : 0, error: e.message });
             console.warn('[WS] JSON parse error, raw data:', event.data);
@@ -2580,7 +2503,12 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 if (data.message && data.message.includes('封禁')) {
                     this._emit('banned', { message: data.message });
                 } else {
-                    this._emit('system', { text: data.message });
+                    // 匹配阶段错误：显示在匹配页并返回首页
+                    if (matchingPage.style.display === 'flex') {
+                        showMatchError(data.message);
+                    } else {
+                        this._emit('system', { text: data.message });
+                    }
                 }
                 break;
             case 'room_announce':
@@ -2619,6 +2547,27 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 }
                 break;
             case 'admin_connected':
+                break;
+            case 'online_count':
+                document.getElementById('online-num').textContent = data.count;
+                break;
+            case 'broadcast':
+                showDanmaku(data.text);
+                break;
+            case 'banned':
+                alert(data.text);
+                break;
+            case 'opponent_banned':
+                stopChat();
+                this._emit('system', { text: data.text });
+                this._emit('opponent_timeout', {
+                    reason: 'opponent_banned',
+                    opponent_truth: data.opponent_truth,
+                });
+                break;
+            case 'save_history_status':
+                this._emit('save_history_status', data);
+                break;
             default:
                 if (this._adminHandler) this._adminHandler(data);
                 break;
@@ -2649,20 +2598,8 @@ WebSocketTransport.prototype.reconnect = function (nickname, duration) {
         }));
         return;
     }
-    DebugLogger.log('ws', 'WS已断开，发起重连-PoW', { readyState: this._ws ? this._ws.readyState : 'null' });
-    // WS 已断（超时/网络中断），重新计算 PoW 挑战获取新的 d 参数
-    var _reconnStart = Date.now();
-    initPoW().then((powQuery) => {
-        DebugLogger.log('ws', '重连PoW完成', { elapsed_ms: Date.now() - _reconnStart });
-        if (powQuery) {
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            this._url = wsProtocol + window.location.host + '/ws' + powQuery;
-        }
-        this.connect(nickname, duration);
-    }).catch(() => {
-        DebugLogger.log('error', '重连PoW计算失败，直接connect');
-        this.connect(nickname, duration);
-    });
+    DebugLogger.log('ws', 'WS已断开，直接重连', { readyState: this._ws ? this._ws.readyState : 'null' });
+    this.connect(nickname, duration);
 };
 
 // preconnect: 页面加载即建立 WS 并启动心跳，不发送 join
@@ -2677,6 +2614,8 @@ WebSocketTransport.prototype.preconnect = function () {
 // 初始化传输层和游戏客户端
 // ================================================================
 let transport, game;
+const LB_CODE_KEY = 'turing_player_code';
+let _chatHistoryPage = 1;
 
 (async function () {
     // 记录环境信息
@@ -2692,11 +2631,8 @@ let transport, game;
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
     try {
-        var powStart = Date.now();
-        const powQuery = await initPoW();
-        DebugLogger.log('lifecycle', 'PoW计算完成', { elapsed_ms: Date.now() - powStart, hasPow: !!powQuery });
         const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-        transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws' + powQuery);
+        transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws');
         game = new GameClient(transport);
         transport.preconnect();  // 页面加载即建立 WS 连接并启动心跳
         DebugLogger.log('lifecycle', 'WebSocket preconnect已调用');
@@ -2791,7 +2727,6 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 // ================================================================
 //  个人战绩记录
 // ================================================================
-const LB_CODE_KEY = 'turing_player_code';
 
 function getLbCode() {
     return localStorage.getItem(LB_CODE_KEY) || '';
@@ -2825,6 +2760,17 @@ function updateLbUI() {
         recoverArea.style.display = '';
         myStatsEl.style.display = 'none';
         statusText.textContent = '开启后战绩自动记录，换设备可用恢复码找回';
+    }
+
+    // 聊天记录回顾区域
+    var historySection = document.getElementById('chat-history-section');
+    if (historySection) {
+        if (code) {
+            historySection.style.display = '';
+            loadChatHistoryList(1);
+        } else {
+            historySection.style.display = 'none';
+        }
     }
 }
 
@@ -2942,6 +2888,8 @@ document.getElementById('cb-auto-record').addEventListener('change', function ()
             return;
         }
         nickname = nickname.trim();
+        document.getElementById('nickname-input').value = nickname;
+        localStorage.setItem('turing_nickname', nickname);
     }
     if (nickname.length > 16) { alert('昵称不能超过16个字符'); this.checked = false; return; }
 
@@ -2988,8 +2936,6 @@ document.getElementById('lb-recover-input').addEventListener('keydown', (e) => {
 // ================================================================
 //  聊天记录回顾
 // ================================================================
-
-let _chatHistoryPage = 1;
 
 /** 加载聊天记录列表 */
 function loadChatHistoryList(page) {
@@ -3142,19 +3088,5 @@ document.getElementById('chat-history-detail-overlay').addEventListener('click',
         document.getElementById('chat-history-detail-overlay').style.display = 'none';
     }
 });
-
-// 更新 updateLbUI 以显示/隐藏聊天记录回顾区域
-const _origUpdateLbUI = updateLbUI;
-updateLbUI = function () {
-    _origUpdateLbUI();
-    const code = getLbCode();
-    const section = document.getElementById('chat-history-section');
-    if (code) {
-        section.style.display = '';
-        loadChatHistoryList(1);
-    } else {
-        section.style.display = 'none';
-    }
-};
 
 // ================================================================

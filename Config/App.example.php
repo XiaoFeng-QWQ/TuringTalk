@@ -42,7 +42,6 @@ return [
         'JudgementTimeout' => 60,
     ],
     // 通用 LLM 配置（OpenAI 兼容 HTTP 接口）
-    // 优先级低于 SparkLLM，SparkLLM 启用时此配置不生效
     'LLM' => [
         'Enable' => false,
         // DeepSeek: https://api.deepseek.com/v1
@@ -51,21 +50,7 @@ return [
         // 智谱:    https://open.bigmodel.cn/api/paas/v4
         // OpenAI:  https://api.openai.com/v1
         'ApiBase' => 'https://api.deepseek.com/v1',
-        'ApiKey' => '',
         'Model' => 'deepseek-chat',
-        'MaxTokens' => 200,
-        'Temperature' => 0.8,
-        'Timeout' => 15,
-    ],
-    // 讯飞星火 Spark LLM 配置（WebSocket 协议，优先级高于通用 LLM）
-    'SparkLLM' => [
-        'Enable' => false,
-        // 从控制台获取：https://console.xfyun.cn/services/bmx1
-        'AppId' => '',
-        'ApiKey' => '',
-        'ApiSecret' => '',
-        'Model' => 'x1.5',
-        'Domain' => 'spark-x',
         'MaxTokens' => 200,
         'Temperature' => 0.8,
         'Timeout' => 15,

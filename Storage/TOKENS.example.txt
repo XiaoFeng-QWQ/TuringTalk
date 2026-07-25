@@ -1,0 +1,7 @@
+# TOKENS.txt — 每行一个 API Key，LLM 调用时随机选取
+# 以 # 开头的行为注释，空行自动忽略
+# 格式：直接粘贴 key，无需引号或 sk- 前缀以外的处理
+sk-your-api-key-here-1
+sk-your-api-key-here-2
+# 这行是注释不会读取
+sk-your-api-key-here-3

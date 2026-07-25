@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>更好的图灵测试</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <meta name="theme-color" content="#2c3e50">
@@ -139,10 +140,11 @@
         <section id="matching-page">
             <div class="matching-card doodle-border">
                 <h2>正在为你寻找对手...</h2>
-                <div class="dot-bounce">
+                <div class="dot-bounce" id="matching-dots">
                     <span></span><span></span><span></span>
                 </div>
-                <p style="margin-top: 15px; font-size: 14px; color: #666;">稍等一下，马上就好</p>
+                <p style="margin-top: 15px; font-size: 14px; color: #666;" id="matching-hint">稍等一下，马上就好</p>
+                <div id="match-error" style="display:none;margin-top:12px;padding:10px 14px;background:#fde2e4;color:#c62828;border:2px solid #e74c3c;border-radius:8px 4px 8px 4px;font-size:14px;font-weight:bold;text-align:center;"></div>
             </div>
         </section>
 
@@ -688,7 +690,6 @@
     <footer>
         ✎ Handcrafted by XiaoFengQWQ // 随时随地，无需注册
     </footer>
-    <script src="pow-solver.js"></script>
     <script src="script.js"></script>
 </body>
 

@@ -5,6 +5,7 @@ vendor/
 Storage/Logs/*.log
 Storage/*.pid
 Storage/*.db
+TOKENS.txt
 
 # 配置文件
 Config/App.php

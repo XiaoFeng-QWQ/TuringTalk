@@ -3,6 +3,7 @@
     "require": {
         "php": ">=8.2",
         "ext-swoole": ">=5.0",
+        "ext-redis": "*",
         "ext-json": "*",
         "ext-mbstring": "*"
     },

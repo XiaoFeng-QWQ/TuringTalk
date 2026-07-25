@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <!-- 点阵纹理（匹配网站 paper-bg 风格） -->
+    <pattern id="dots" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
+      <circle cx="4" cy="4" r="0.8" fill="#d1d1d1" opacity="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- 背景：圆角方形 + 点阵 -->
+  <rect x="4" y="4" width="120" height="120" rx="24" ry="24" fill="#fefef6"/>
+  <rect x="4" y="4" width="120" height="120" rx="24" ry="24" fill="url(#dots)"/>
+
+  <!-- 涂鸦外框：略抖动的手绘线条 -->
+  <rect x="6" y="6" width="116" height="116" rx="22" ry="22"
+        fill="none" stroke="#2b2b2b" stroke-width="3"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 对话气泡（左侧出气口） -->
+  <path d="M26 38 Q24 34 30 34 L88 34 Q96 34 96 42 L96 62
+           Q96 70 88 70 L48 70 L28 86 L34 70 L30 70 Q24 70 26 62 Z"
+        fill="none" stroke="#2b2b2b" stroke-width="2.8"
+        stroke-linecap="round" stroke-linejoin="round" fill-opacity="0"/>
+
+  <!-- 气泡内问号 -->
+  <text x="62" y="68" font-family="'ZCOOL KuaiLe', 'Pangolin', 'Comic Sans MS', cursive, sans-serif"
+        font-size="48" font-weight="bold" fill="#1e3799"
+        text-anchor="middle" transform="rotate(-8, 62, 54)">?</text>
+
+  <!-- 左侧：小机器人脸（暗示另一方可能是AI） -->
+  <!-- 方脑袋 -->
+  <rect x="100" y="86" width="16" height="14" rx="3" ry="3"
+        fill="none" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round"/>
+  <!-- 眼睛：像素点 -->
+  <rect x="104" y="91" width="3" height="3" rx="1" fill="#2b2b2b"/>
+  <rect x="109" y="91" width="3" height="3" rx="1" fill="#2b2b2b"/>
+  <!-- 嘴：直线 -->
+  <line x1="104" y1="97" x2="112" y2="97" stroke="#2b2b2b" stroke-width="1.5" stroke-linecap="round"/>
+
+  <!-- 右侧小天线 -->
+  <line x1="108" y1="86" x2="108" y2="80" stroke="#2b2b2b" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="108" cy="78" r="2" fill="#e74c3c"/>
+
+  <!-- 右下角：涂鸦风格下划线装饰 -->
+  <path d="M16 114 Q38 108 60 114 Q82 120 98 114"
+        fill="none" stroke="#1e3799" stroke-width="2.5"
+        stroke-linecap="round" opacity="0.5"/>
+
+  <!-- 小星星点缀 -->
+  <path d="M104 30 L105 32 L107 33 L105 34 L104 36 L103 34 L101 33 L103 32 Z"
+        fill="#f39c12" opacity="0.7"/>
+</svg>

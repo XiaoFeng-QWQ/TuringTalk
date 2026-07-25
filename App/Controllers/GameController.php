@@ -5,8 +5,6 @@ namespace App\Controllers;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Sanitizer;
-use App\Core\PowValidator;
-use App\Core\PowEncoder;
 use App\Services\GameService;
 use App\Services\PlayerStatsRepository;
 use App\Services\ChatHistoryRepository;
@@ -26,7 +24,6 @@ class GameController
 
         $cssHash = $this->getFileVersionHash('style.css');
         $jsHash  = $this->getFileVersionHash('script.js');
-        $powHash = $this->getFileVersionHash('pow-solver.js');
 
         $html = str_replace(
             'href="style.css"',
@@ -36,18 +33,6 @@ class GameController
         $html = str_replace(
             'src="script.js"',
             'src="script.js?v=' . $jsHash . '"',
-            $html
-        );
-        $html = str_replace(
-            'src="pow-solver.js"',
-            'src="pow-solver.js?v=' . $powHash . '"',
-            $html
-        );
-
-        // 注入 PoW 字母表（防脚本刷接口，挑战通过 POST /api/pow/challenge 获取）
-        $powAlphabet = PowEncoder::getAlphabet();
-        $html = str_replace('</head>',
-            '<script>window.__POW_ALPHABET__=' . json_encode($powAlphabet) . ';</script></head>',
             $html
         );
 
@@ -83,9 +68,9 @@ class GameController
         $this->serveStaticFile('style.css', 'text/css', $request, $response);
     }
 
-    public function powSolver(Request $request, Response $response): void
+    public function favicon(Request $request, Response $response): void
     {
-        $this->serveStaticFile('pow-solver.js', 'application/javascript', $request, $response);
+        $this->serveStaticFile('favicon.svg', 'image/svg+xml', $request, $response);
     }
 
     private function serveStaticFile(string $filename, string $contentType, Request $request, Response $response): void
@@ -138,48 +123,10 @@ class GameController
         return false;
     }
 
-    public function online(Request $request, Response $response): void
-    {
-        $gameService = new GameService();
-        $response->setHeader('Content-Type', 'application/json');
-        $response->setContent(json_encode([
-            'online' => $gameService->getOnlineCount(),
-        ]));
-        $response->send();
-    }
-
     /**
      * 生成恢复码（纯随机，无需 WS）
      * 同一设备（IP+指纹）不重复生成，返回已有码
      */
-    /**
-     * POST /api/pow/challenge —— 获取 PoW 挑战 + 一次性 token（绑定客户端）
-     */
-    public function powChallenge(Request $request, Response $response): void
-    {
-        $body = $request->getJsonBody();
-        $clientId     = Sanitizer::identifier($body['clientId'] ?? '' ?: '', 64);
-        $browserProof = preg_replace('/[^a-f0-9]/', '', $body['browserProof'] ?? '' ?: '');
-
-        if ($clientId === '') {
-            $response->setStatusCode(400);
-            $response->setContent(json_encode(['error' => 'client_id_required']));
-            $response->send();
-            return;
-        }
-
-        // browserProof 为空时用 clientId 做兜底（防止前端 JS 异常导致全部连接失败）
-        if ($browserProof === '') {
-            $browserProof = hash('sha256', $clientId . '_fallback');
-        }
-
-        $challenge = PowValidator::generateChallenge($clientId, $browserProof);
-
-        $response->setHeader('Content-Type', 'application/json');
-        $response->setContent(json_encode($challenge));
-        $response->send();
-    }
-
     public function generateCode(Request $request, Response $response): void
     {
         $fp = Sanitizer::identifier($request->get('fp', ''));
@@ -413,7 +360,6 @@ class GameController
 
         $cssHash = $this->getFileVersionHash('style.css');
         $jsHash  = $this->getFileVersionHash('script.js');
-        $powHash = $this->getFileVersionHash('pow-solver.js');
 
         $html = str_replace(
             'href="style.css"',
@@ -425,16 +371,10 @@ class GameController
             'src="script.js?v=' . $jsHash . '"',
             $html
         );
-        $html = str_replace(
-            'src="pow-solver.js"',
-            'src="pow-solver.js?v=' . $powHash . '"',
-            $html
-        );
 
-        // 注入管理模式标记 + PoW 字母表
-        $powAlphabet = PowEncoder::getAlphabet();
+        // 注入管理模式标记
         $html = str_replace('</head>',
-            '<script>window.__ADMIN_MODE__=true;window.__POW_ALPHABET__=' . json_encode($powAlphabet) . ';</script></head>',
+            '<script>window.__ADMIN_MODE__=true;</script></head>',
             $html
         );
 
@@ -500,49 +440,5 @@ class GameController
         $secret = Config::get('Admin.Password', '');
         $expectedSig = hash_hmac('sha256', $payloadJson, $secret);
         return hash_equals($expectedSig, $parts[1]);
-    }
-
-    /**
-     * SSE 事件流端点
-     * 页面加载时前端自动连接，接收公告推送和在线人数更新
-     */
-    public function sse(Request $request, Response $response): void
-    {
-        $swooleRes = $response->getSwooleResponse();
-        $fd = $request->getFd();
-
-        // SSE 响应头
-        $response->setHeader('Content-Type', 'text/event-stream');
-        $response->setHeader('Cache-Control', 'no-cache');
-        $response->setHeader('Connection', 'keep-alive');
-        $response->setHeader('X-Accel-Buffering', 'no');
-        $response->setHeader('Access-Control-Allow-Origin', '*');
-        $response->sendHeaders();
-
-        \App\Services\SSEService::addConnection($fd, $swooleRes);
-
-        // 初始连接确认 + 当前在线人数
-        $onlineCount = GameService::getOnlineCount();
-        $response->write("event: connected\ndata: {}\n\n");
-        $response->write("event: online_count\ndata: {\"count\":{$onlineCount}}\n\n");
-
-        // 保活循环（15s 心跳 + 在线人数变化推送）
-        $lastCount = $onlineCount;
-        while (true) {
-            if (!$swooleRes->isWritable()) {
-                break;
-            }
-
-            $count = GameService::getOnlineCount();
-            if ($count !== $lastCount) {
-                $lastCount = $count;
-                $response->write("event: online_count\ndata: {\"count\":{$count}}\n\n");
-            }
-
-            $response->write(": heartbeat\n\n");
-            \Swoole\Coroutine::sleep(15);
-        }
-
-        \App\Services\SSEService::removeConnection($fd);
     }
 }

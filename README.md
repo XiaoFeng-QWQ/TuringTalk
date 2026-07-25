@@ -16,7 +16,7 @@
 |---|---|
 | 后端 | PHP 8.2 + Swoole 5 |
 | 通信 | WebSocket |
-| AI 引擎 | 讯飞星火（WebSocket）/ OpenAI 兼容 API |
+| AI 引擎 | OpenAI 兼容 API |
 | 前端 | 原生 HTML/CSS/JS |
 | 存储 | Swoole\Table（内存） |
 
@@ -49,15 +49,7 @@ php server.php
 默认使用模板匹配的 AI。要接入大模型，编辑 `Config/App.php`：
 
 ```php
-// 方案 A：讯飞星火
-'SparkLLM' => [
-    'Enable'    => true,
-    'AppId'     => '你的AppId',
-    'ApiKey'    => '你的ApiKey',
-    'ApiSecret' => '你的ApiSecret',
-],
-
-// 方案 B：任意 OpenAI 兼容 API
+// OpenAI 兼容 API
 'LLM' => [
     'Enable'  => true,
     'ApiBase' => 'https://api.deepseek.com/v1',  // 换成任意兼容地址
@@ -87,7 +79,6 @@ php server.php
 │       ├── GameService.php       # 游戏会话管理
 │       ├── MatchService.php      # 玩家匹配队列
 │       ├── BotService.php        # AI 行为编排
-│       ├── SparkLLMService.php   # 讯飞星火 WS 客户端
 │       ├── LLMService.php        # OpenAI 兼容 HTTP 客户端
 │       └── Logger.php            # 日志
 └── Storage/

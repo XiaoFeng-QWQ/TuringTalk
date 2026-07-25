@@ -253,6 +253,15 @@ class PlayerStatsRepository
         ]);
     }
 
+    /**
+     * recordGame 的直接执行版本（由 AsyncDbWriter 异步调用）
+     * 参数与 recordGame 完全一致
+     */
+    public static function recordGameDirect(array $params): void
+    {
+        self::recordGame($params);
+    }
+
     // ================================================================
     //  玩家统计
     // ================================================================
