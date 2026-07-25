@@ -192,61 +192,115 @@ class BotService
     {
         $this->keywords = [
             // 问候
-            '你好' => 'greeting', '嗨' => 'greeting', 'hello' => 'greeting',
-            'hi' => 'greeting', '早上好' => 'greeting', '晚上好' => 'greeting',
-            '下午好' => 'greeting', '在吗' => 'greeting', '来了' => 'greeting',
-            '哈喽' => 'greeting', '嘿' => 'greeting',
+            '你好' => 'greeting',
+            '嗨' => 'greeting',
+            'hello' => 'greeting',
+            'hi' => 'greeting',
+            '早上好' => 'greeting',
+            '晚上好' => 'greeting',
+            '下午好' => 'greeting',
+            '在吗' => 'greeting',
+            '来了' => 'greeting',
+            '哈喽' => 'greeting',
+            '嘿' => 'greeting',
 
             // 天气
-            '天气' => 'weather', '下雨' => 'weather', '太阳' => 'weather',
-            '热' => 'weather', '冷' => 'weather', '闷' => 'weather',
-            '降温' => 'weather', '凉快' => 'weather',
+            '天气' => 'weather',
+            '下雨' => 'weather',
+            '太阳' => 'weather',
+            '热' => 'weather',
+            '冷' => 'weather',
+            '闷' => 'weather',
+            '降温' => 'weather',
+            '凉快' => 'weather',
 
             // 爱好
-            '喜欢' => 'hobby', '爱好' => 'hobby', '兴趣' => 'hobby',
-            '平时' => 'hobby', '游戏' => 'hobby', '音乐' => 'hobby',
-            '电影' => 'hobby', '看书' => 'hobby', '运动' => 'hobby',
-            '跑步' => 'hobby', '猫' => 'hobby', '狗' => 'hobby',
-            '宠物' => 'hobby', '周末' => 'hobby', '玩' => 'hobby',
-            '画' => 'hobby', '唱' => 'hobby',
+            '喜欢' => 'hobby',
+            '爱好' => 'hobby',
+            '兴趣' => 'hobby',
+            '平时' => 'hobby',
+            '游戏' => 'hobby',
+            '音乐' => 'hobby',
+            '电影' => 'hobby',
+            '看书' => 'hobby',
+            '运动' => 'hobby',
+            '跑步' => 'hobby',
+            '猫' => 'hobby',
+            '狗' => 'hobby',
+            '宠物' => 'hobby',
+            '周末' => 'hobby',
+            '玩' => 'hobby',
+            '画' => 'hobby',
+            '唱' => 'hobby',
 
             // 食物
-            '吃' => 'food', '饭' => 'food', '饿' => 'food',
-            '火锅' => 'food', '烧烤' => 'food', '奶茶' => 'food',
-            '外卖' => 'food', '做饭' => 'food', '菜' => 'food',
-            '喝' => 'food', '好吃' => 'food', '味道' => 'food',
+            '吃' => 'food',
+            '饭' => 'food',
+            '饿' => 'food',
+            '火锅' => 'food',
+            '烧烤' => 'food',
+            '奶茶' => 'food',
+            '外卖' => 'food',
+            '做饭' => 'food',
+            '菜' => 'food',
+            '喝' => 'food',
+            '好吃' => 'food',
+            '味道' => 'food',
 
             // 工作
-            '上班' => 'work', '工作' => 'work', '加班' => 'work',
-            '搬砖' => 'work', '老板' => 'work', '忙' => 'work',
-            '摸鱼' => 'work', '下班' => 'work', '周一' => 'work',
+            '上班' => 'work',
+            '工作' => 'work',
+            '加班' => 'work',
+            '搬砖' => 'work',
+            '老板' => 'work',
+            '忙' => 'work',
+            '摸鱼' => 'work',
+            '下班' => 'work',
+            '周一' => 'work',
             '打工' => 'work',
 
             // 提问/试探
-            '为什么' => 'question', '怎么' => 'question',
-            '什么' => 'question', '真的吗' => 'question',
-            '确定' => 'question', '你是' => 'question',
-            '是不是' => 'question', '会不会' => 'question',
+            '为什么' => 'question',
+            '怎么' => 'question',
+            '什么' => 'question',
+            '真的吗' => 'question',
+            '确定' => 'question',
+            '你是' => 'question',
+            '是不是' => 'question',
+            '会不会' => 'question',
 
             // 哲学/深度
-            'AI' => 'philosophy', '人工智能' => 'philosophy',
-            '机器人' => 'philosophy', '意识' => 'philosophy',
-            '真实' => 'philosophy', '人类' => 'philosophy',
-            '图灵' => 'philosophy', '思考' => 'philosophy',
-            '存在' => 'philosophy', '意义' => 'philosophy',
+            'AI' => 'philosophy',
+            '人工智能' => 'philosophy',
+            '机器人' => 'philosophy',
+            '意识' => 'philosophy',
+            '真实' => 'philosophy',
+            '人类' => 'philosophy',
+            '图灵' => 'philosophy',
+            '思考' => 'philosophy',
+            '存在' => 'philosophy',
+            '意义' => 'philosophy',
             '灵魂' => 'philosophy',
 
             // 情绪表达
-            '哈哈' => 'emotion', '嘿嘿' => 'emotion',
-            '哎' => 'emotion', '哇' => 'emotion',
-            '嗯' => 'emotion', '笑死' => 'emotion',
-            '6' => 'emotion', '牛' => 'emotion',
+            '哈哈' => 'emotion',
+            '嘿嘿' => 'emotion',
+            '哎' => 'emotion',
+            '哇' => 'emotion',
+            '嗯' => 'emotion',
+            '笑死' => 'emotion',
+            '6' => 'emotion',
+            '牛' => 'emotion',
 
             // 自我介绍
-            '你是谁' => 'self', '介绍一下' => 'self',
-            '哪里人' => 'self', '多大' => 'self',
-            '做什么' => 'self', '干什么' => 'self',
-            '你是人' => 'self', '你是AI' => 'self',
+            '你是谁' => 'self',
+            '介绍一下' => 'self',
+            '哪里人' => 'self',
+            '多大' => 'self',
+            '做什么' => 'self',
+            '干什么' => 'self',
+            '你是人' => 'self',
+            '你是AI' => 'self',
         ];
     }
 
@@ -260,20 +314,20 @@ class BotService
         if ($this->sparkLLM->isEnabled()) {
             $reply = $this->sparkLLM->generateReply($message, $this->history);
             if ($reply !== null && trim($reply) !== '') {
-                Logger::info('BotService: SparkLLM reply used');
+                Logger::debug('BotService: SparkLLM reply used');
                 return $reply;
             }
-            Logger::info('BotService: SparkLLM failed, trying next');
+            Logger::debug('BotService: SparkLLM failed, trying next');
         }
 
         // 2. 通用 LLM（HTTP）
         if ($this->llmService->isEnabled()) {
             $reply = $this->llmService->generateReply($message, $this->history);
             if ($reply !== null && trim($reply) !== '') {
-                Logger::info('BotService: LLM reply used');
+                Logger::debug('BotService: LLM reply used');
                 return $reply;
             }
-            Logger::info('BotService: LLM failed, fallback to template');
+            Logger::warning('BotService: LLM failed, fallback to template');
         }
 
         // 3. 模板兜底
@@ -442,14 +496,37 @@ class BotService
     public function getRandomName(): string
     {
         $names = [
-            '小明', '小红', '路人甲', '阿花', '小张', '大壮',
-            '程序员', '奶茶爱好者', '夜猫子', '社恐星人',
-            '失眠患者', '吃瓜群众', '摸鱼达人', '键盘侠',
-            '追剧狂魔', '喵星人', '打工人', '躺平青年',
-            '不瘦十斤不改名', '低调的咸鱼', '今天也很困',
-            '小王', '小李', '小赵', '小陈', '老周',
-            '练习时长两年半', '国家一级退堂鼓手',
-            '人间清醒', '摆烂大师', '吃嘛嘛香',
+            '小明',
+            '小红',
+            '路人甲',
+            '阿花',
+            '小张',
+            '大壮',
+            '程序员',
+            '奶茶爱好者',
+            '夜猫子',
+            '社恐星人',
+            '失眠患者',
+            '吃瓜群众',
+            '摸鱼达人',
+            '键盘侠',
+            '追剧狂魔',
+            '喵星人',
+            '打工人',
+            '躺平青年',
+            '不瘦十斤不改名',
+            '低调的咸鱼',
+            '今天也很困',
+            '小王',
+            '小李',
+            '小赵',
+            '小陈',
+            '老周',
+            '练习时长两年半',
+            '国家一级退堂鼓手',
+            '人间清醒',
+            '摆烂大师',
+            '吃嘛嘛香',
         ];
         return $names[array_rand($names)];
     }

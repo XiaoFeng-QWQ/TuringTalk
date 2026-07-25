@@ -65,4 +65,36 @@ class Response
             $this->swooleResponse->end((string)$this->content);
         }
     }
+
+    /**
+     * 发送响应头（不结束连接，用于 SSE）
+     */
+    public function sendHeaders(): void
+    {
+        $this->swooleResponse->status($this->statusCode);
+        foreach ($this->headers as $key => $value) {
+            $this->swooleResponse->header($key, $value);
+        }
+    }
+
+    /**
+     * 流式写入数据（不结束连接，用于 SSE）
+     */
+    public function write(string $data): void
+    {
+        $this->swooleResponse->write($data);
+    }
+
+    /**
+     * 获取底层 Swoole Response 对象
+     */
+    public function getSwooleResponse(): \Swoole\Http\Response
+    {
+        return $this->swooleResponse;
+    }
+
+    public function getHeaders(): array
+    {
+        return $this->headers;
+    }
 }

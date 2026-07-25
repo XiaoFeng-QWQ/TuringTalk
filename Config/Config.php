@@ -7,6 +7,10 @@ class Config
     private static array $config = [];
     private static string $configFile = '';
     private static int $lastMtime = 0;
+    /** 上次检测 mtime 的时间戳，避免每次 get() 都调 filemtime() */
+    private static float $lastCheckTime = 0;
+    /** 热重载检测间隔（秒） */
+    private const RELOAD_INTERVAL = 1.0;
 
     /**
      * 加载配置文件
@@ -68,12 +72,24 @@ class Config
             return;
         }
 
-        $mtime = @filemtime(self::$configFile);
-        if ($mtime && $mtime > self::$lastMtime) {
+        // 节流：每个检查周期只检查一次 mtime
+        $now = microtime(true);
+        if ($now - self::$lastCheckTime < self::RELOAD_INTERVAL) {
+            return;
+        }
+        self::$lastCheckTime = $now;
+
+        // 同时追踪 App.php 和 Prompt.md 的变更
+        $appMtime    = @filemtime(self::$configFile) ?: 0;
+        $promptFile  = dirname(self::$configFile) . '/Prompt.md';
+        $promptMtime = @filemtime($promptFile) ?: 0;
+        $maxMtime    = max($appMtime, $promptMtime);
+
+        if ($maxMtime > self::$lastMtime) {
             $newConfig = require self::$configFile;
             if (is_array($newConfig)) {
                 self::$config    = $newConfig;
-                self::$lastMtime = $mtime;
+                self::$lastMtime = $maxMtime;
             }
         }
     }

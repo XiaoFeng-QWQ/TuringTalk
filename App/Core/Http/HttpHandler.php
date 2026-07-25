@@ -27,11 +27,16 @@ class HttpHandler
             $request = new HttpRequest($swooleRequest);
             $response = new HttpResponse($swooleResponse);
 
-            // 记录请求信息
-            Logger::info('HTTP request received', [
+            // 获取真实 IP（优先代理头）
+            $xForwarded = $swooleRequest->header['x-forwarded-for'] ?? '';
+            $clientIp = !empty($xForwarded)
+                ? trim(explode(',', $xForwarded)[0])
+                : ($swooleRequest->header['x-real-ip'] ?? $swooleRequest->server['remote_addr'] ?? 'unknown');
+
+            Logger::debug('HTTP request received', [
                 'method' => $request->getMethod(),
                 'path' => $request->getPath(),
-                'client_ip' => $swooleRequest->server['remote_addr'] ?? 'unknown',
+                'client_ip' => $clientIp,
                 'user_agent' => $request->getHeader('user-agent') ?? 'unknown'
             ]);
 
@@ -40,12 +45,22 @@ class HttpHandler
 
             // 记录响应信息
             $responseTime = round((microtime(true) - $startTime) * 1000, 2);
-            Logger::info('HTTP response sent', [
-                'method' => $request->getMethod(),
-                'path' => $request->getPath(),
-                'status_code' => $response->getStatusCode(),
-                'response_time_ms' => $responseTime
-            ]);
+            if ($responseTime > 1000) {
+                Logger::warning('[SLOW] HTTP slow request', [
+                    'method' => $request->getMethod(),
+                    'path' => $request->getPath(),
+                    'status_code' => $response->getStatusCode(),
+                    'response_time_ms' => $responseTime,
+                    'client_ip' => $clientIp ?? 'unknown',
+                ]);
+            } else {
+                Logger::debug('HTTP response sent', [
+                    'method' => $request->getMethod(),
+                    'path' => $request->getPath(),
+                    'status_code' => $response->getStatusCode(),
+                    'response_time_ms' => $responseTime,
+                ]);
+            }
         } catch (\Throwable $e) {
             $request = new HttpRequest($swooleRequest);
             $responseTime = round((microtime(true) - $startTime) * 1000, 2);

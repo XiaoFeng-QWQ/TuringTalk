@@ -11,5 +11,13 @@
             "App\\": "App/",
             "Config\\": "Config/"
         }
+    },
+    "require-dev": {
+        "swoole/ide-helper": "^6.0"
+    },
+    "config": {
+        "platform": {
+            "ext-swoole": "5.0"
+        }
     }
 }

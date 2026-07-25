@@ -19,8 +19,11 @@ class MatchService
     private Lock $lock;
     private GameService $gameService;
 
-    /** @var array<int, int> fd => timerId，用于取消匹配超时 */
-    private array $matchTimers = [];
+    /** 匹配超时定时器共享表（fd => timer_id + worker_id，跨 Worker 管理定时器生命周期） */
+    private ?Table $matchTimerTable = null;
+
+    /** 当前 Worker ID，定时器回调中用于判断是否为本 Worker 的定时器 */
+    private int $workerId = 0;
 
     /** @var callable|null 匹配成功回调 */
     private $onMatchCallback = null;
@@ -45,6 +48,22 @@ class MatchService
     }
 
     /**
+     * 设置匹配定时器共享表（由 Application 在 fork 前创建并注入）
+     */
+    public function setMatchTimerTable(Table $table): void
+    {
+        $this->matchTimerTable = $table;
+    }
+
+    /**
+     * 设置当前 Worker ID（由 GameWebSocketHandler 在 WorkerStart 时注入）
+     */
+    public function setWorkerId(int $workerId): void
+    {
+        $this->workerId = $workerId;
+    }
+
+    /**
      * 设置匹配成功回调
      *
      * @param callable $callback function(array $sessionData): void
@@ -63,7 +82,7 @@ class MatchService
      */
     public function enqueue(int $fd, string $nickname, int $duration): void
     {
-        Logger::info('Player enqueued', [
+        Logger::debug('Player enqueued', [
             'fd' => $fd,
             'nickname' => $nickname,
             'duration' => $duration,
@@ -81,28 +100,62 @@ class MatchService
         }
 
         // 2. 尝试匹配队列中的等待者
+        $lockWaitStart = microtime(true);
         $this->lock->lock();
-        try {
-            $opponent = $this->dequeueFirst();
-            if ($opponent !== null) {
-                // 匹配成功！取消对手的超时定时器
-                $this->cancelTimeout($opponent['fd']);
-                Logger::info('Human match found', [
-                    'player1_fd' => $fd,
-                    'player2_fd' => $opponent['fd'],
-                ]);
+        $lockWaitMs = round((microtime(true) - $lockWaitStart) * 1000, 2);
+        if ($lockWaitMs > 50) {
+            Logger::warning('[LOCK] Match queue lock wait slow', [
+                'fd' => $fd,
+                'wait_ms' => $lockWaitMs,
+                'queue_size' => $this->getQueueSize(),
+            ]);
+        }
 
-                $session = $this->gameService->createSession(
-                    $fd, $nickname,
-                    $opponent['fd'], $opponent['nickname'],
-                    $duration,
-                    false
-                );
-                $this->notifyMatch($session);
-                return;
+        $lockHoldStart = microtime(true);
+        try {
+            // 如果队列为空，跳过 dequeueFirst 避免无意义的迭代
+            if ($this->queueTable->count() === 0) {
+                // 队列为空，直接进入等待
+            } else {
+                $opponent = $this->dequeueFirst();
+                $opponentFd = $opponent !== null ? (int)$opponent['fd'] : 0;
+                // 防止自我匹配：跳过同 fd 的过期队列条目
+                if ($opponentFd > 0 && $opponentFd === $fd) {
+                    Logger::warning('Skipped self-match in MatchService::enqueue', [
+                        'fd' => $fd,
+                        'opponent_fd' => $opponentFd,
+                    ]);
+                    $opponent = null;
+                }
+                if ($opponent !== null) {
+                    // 匹配成功！取消对手的超时定时器
+                    $this->cancelTimeout($opponentFd);
+                    Logger::info('Human match found', [
+                        'player1_fd' => $fd,
+                        'player2_fd' => $opponentFd,
+                    ]);
+
+                    $session = $this->gameService->createSession(
+                        $fd,
+                        $nickname,
+                        $opponentFd,
+                        $opponent['nickname'],
+                        $duration,
+                        false
+                    );
+                    $this->notifyMatch($session);
+                    return;
+                }
             }
         } finally {
+            $lockHoldMs = round((microtime(true) - $lockHoldStart) * 1000, 2);
             $this->lock->unlock();
+            if ($lockHoldMs > 100) {
+                Logger::warning('[LOCK] Match queue lock held long', [
+                    'fd' => $fd,
+                    'hold_ms' => $lockHoldMs,
+                ]);
+            }
         }
 
         // 3. 队列为空，加入等待
@@ -115,11 +168,16 @@ class MatchService
 
         // 4. 设置超时定时器，超时后降级匹配 Bot
         $matchTimeout = Config::get('Game.MatchTimeout', 10);
-        $this->matchTimers[$fd] = Timer::after($matchTimeout * 1000, function () use ($fd, $nickname, $duration) {
+        $timerId = Timer::after($matchTimeout * 1000, function () use ($fd, $nickname, $duration) {
+            // 原子性检查并删除共享定时器条目：del() 返回 false 说明已被 cancelTimeout 抢先清理
+            if ($this->matchTimerTable !== null && !$this->matchTimerTable->del((string)$fd)) {
+                Logger::debug('Match timer already cancelled (cross-worker), skipping', ['fd' => $fd]);
+                return;
+            }
+
             // 检查是否还在队列中
             if ($this->queueTable->exists((string)$fd)) {
                 $this->queueTable->del((string)$fd);
-                unset($this->matchTimers[$fd]);
 
                 Logger::info('Match timeout, fallback to Bot', ['fd' => $fd]);
                 $botName = $this->botService->getRandomName();
@@ -127,6 +185,12 @@ class MatchService
                 $this->notifyMatch($session);
             }
         });
+
+        // 将定时器信息写入共享表（跨 Worker 可见）
+        $this->matchTimerTable?->set((string)$fd, [
+            'timer_id' => $timerId,
+            'worker_id' => $this->workerId,
+        ]);
     }
 
     /**
@@ -147,14 +211,38 @@ class MatchService
     }
 
     /**
-     * 取消匹配超时定时器
+     * 取消匹配超时定时器（跨 Worker 安全）
+     *
+     * 先从共享表中删除标记（无论哪个 Worker 调用），定时器回调检测到
+     * 共享表条目不存在时会自行跳过。如果恰好在同一 Worker，则直接清除定时器。
      */
     public function cancelTimeout(int $fd): void
     {
-        if (isset($this->matchTimers[$fd])) {
-            Timer::clear($this->matchTimers[$fd]);
-            unset($this->matchTimers[$fd]);
+        if ($this->matchTimerTable === null) {
+            return;
         }
+
+        $row = $this->matchTimerTable->get((string)$fd);
+        if (!$row) {
+            return;
+        }
+
+        $timerWorkerId = (int)$row['worker_id'];
+        $timerId = (int)$row['timer_id'];
+
+        // 先从共享表删除（权威标记：通知定时器回调已被取消）
+        $this->matchTimerTable->del((string)$fd);
+
+        // 如果当前 Worker 就是创建定时器的 Worker，直接清除定时器
+        if ($timerWorkerId === $this->workerId && $timerId > 0) {
+            Timer::clear($timerId);
+        }
+
+        Logger::debug('Match timer cancelled', [
+            'fd' => $fd,
+            'timer_worker' => $timerWorkerId,
+            'current_worker' => $this->workerId,
+        ]);
     }
 
     /**
@@ -175,9 +263,9 @@ class MatchService
         foreach ($this->queueTable as $row) {
             $this->queueTable->del((string)$row['fd']);
             return [
-                'fd' => $row['fd'],
+                'fd' => (int)$row['fd'],
                 'nickname' => $row['nickname'],
-                'duration' => $row['duration'],
+                'duration' => (int)$row['duration'],
             ];
         }
         return null;

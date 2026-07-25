@@ -53,4 +53,20 @@ class Request
     {
         return $this->swooleRequest->rawContent();
     }
+
+    public function getFd(): int
+    {
+        return $this->swooleRequest->fd;
+    }
+
+    public function getClientIp(): string
+    {
+        $xForwarded = $this->swooleRequest->header['x-forwarded-for'] ?? '';
+        if (!empty($xForwarded)) {
+            return trim(explode(',', $xForwarded)[0]);
+        }
+        return $this->swooleRequest->header['x-real-ip']
+            ?? $this->swooleRequest->server['remote_addr']
+            ?? 'unknown';
+    }
 }

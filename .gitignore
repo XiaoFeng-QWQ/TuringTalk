@@ -4,6 +4,7 @@ vendor/
 # 日志和运行时文件
 Storage/Logs/*.log
 Storage/*.pid
+Storage/*.db
 
 # 配置文件
 Config/App.php

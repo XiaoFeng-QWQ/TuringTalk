@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\LogLevel;
+
 return [
     'Server' => [
         'Host' => '0.0.0.0',
@@ -9,12 +11,25 @@ return [
             'daemonize' => false,
             'log_file' => __DIR__ . '/../Storage/Logs/swoole.log',
             'pid_file' => __DIR__ . '/../Storage/swoole.pid',
-            'max_request' => 1000,
+            // 不限制请求数，避免 Worker 重启导致所有 WebSocket 玩家掉线
+            'max_request' => 0,
+            // 心跳检测：120 秒无消息则判定连接死亡
+            'heartbeat_idle_time' => 120,
+            'heartbeat_check_interval' => 30,
+            // Worker 退出前等待 3 秒，给客户端重连窗口
+            'max_wait_time' => 3,
+            // 允许的最大连接数
+            'max_connection' => 1024,
         ]
     ],
     'WebSocket' => [
         'Enable' => true,
         'Route' => '/ws'
+    ],
+    'Log' => [
+        // 日志级别：LogLevel::DEBUG / INFO / WARNING / ERROR
+        // 生产环境建议 WARNING，开发环境 INFO，排障时 DEBUG
+        'Level' => LogLevel::INFO,
     ],
     'Game' => [
         // 直接匹配 AI 的概率（极低，如 0.05 = 5%）
@@ -54,5 +69,21 @@ return [
         'MaxTokens' => 200,
         'Temperature' => 0.8,
         'Timeout' => 15,
-    ]
+    ],
+    // 管理后台配置
+    'Admin' => [
+        // 访问管理后台的路径，例如 /admin9527
+        'Path' => 'admin',
+        // 管理密码（明文，配置文件已 gitignore，不会泄漏）
+        'Password' => '',
+    ],
+    // MySQL 数据库配置（举报记录持久化存储）
+    'MySQL' => [
+        'Host' => '127.0.0.1',
+        'Port' => 3306,
+        'Database' => 'turing_game',
+        'Username' => 'root',
+        'Password' => '',
+        'Charset' => 'utf8mb4',
+    ],
 ];

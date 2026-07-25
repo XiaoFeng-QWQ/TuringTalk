@@ -3,6 +3,7 @@
 namespace App\Core;
 
 use App\Controllers\GameController;
+use Config\Config;
 
 class Router
 {
@@ -15,11 +16,34 @@ class Router
 
     private function initializeRoutes(): void
     {
+        $adminPath = '/' . trim(Config::get('Admin.Path', 'admin'), '/');
+
         $this->routes = [
             'GET' => [
                 '/' => [GameController::class, 'index'],
+                '/script.js' => [GameController::class, 'script'],
+                '/style.css' => [GameController::class, 'style'],
+                '/pow-solver.js' => [GameController::class, 'powSolver'],
+                '/api/online' => [GameController::class, 'online'],
+                '/api/sse' => [GameController::class, 'sse'],
+                '/api/player-stats' => [GameController::class, 'playerStats'],
+                '/api/generate-code' => [GameController::class, 'generateCode'],
+                '/api/chat-history' => [GameController::class, 'chatHistoryList'],
+                '/api/chat-history/detail' => [GameController::class, 'chatHistoryDetail'],
+            ],
+            'POST' => [
+                '/api/admin/login' => [GameController::class, 'adminLogin'],
+                '/api/join-leaderboard' => [GameController::class, 'joinLeaderboard'],
+                '/api/leaderboard-join' => [GameController::class, 'leaderboardJoin'],
+                '/api/pow/challenge'   => [GameController::class, 'powChallenge'],
+                '/api/save-chat-history' => [GameController::class, 'saveChatHistory'],
             ],
         ];
+
+        // 动态添加管理员页面路由
+        if ($adminPath !== '/') {
+            $this->routes['GET'][$adminPath] = [GameController::class, 'adminPage'];
+        }
     }
 
     public function dispatch(Request $request, Response $response): void
