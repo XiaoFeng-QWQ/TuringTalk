@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Bot;
 
+use App\Services\Infrastructure\Logger;
 use Config\Config;
 
 /**

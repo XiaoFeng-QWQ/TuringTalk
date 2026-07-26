@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Infrastructure;
 
 use PDO;
 use Swoole\Coroutine;

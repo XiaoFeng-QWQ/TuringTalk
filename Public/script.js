@@ -1,5 +1,5 @@
 // ================================================================
-// 调试日志器（IndexedDB 存储，支持导出压缩包）
+// 调试日志器
 // ================================================================
 const DebugLogger = (() => {
     const DB_NAME = 'turing_debug';
@@ -224,87 +224,6 @@ class ChatTransport {
 }
 
 // ================================================================
-// 本地 Bot 传输层（单机模拟模式）
-// ================================================================
-class LocalBotTransport extends ChatTransport {
-    constructor() {
-        super();
-        this._opponentTruth = null;
-        this._replyTimer = null;
-        this._judgeTimer = null;
-    }
-
-    connect(nickname) {
-        this._opponentTruth = Math.random() < 0.5 ? 'human' : 'ai';
-
-        const delay = 1000 + Math.random() * 2000;
-        setTimeout(() => {
-            this._emit('connected', {
-                opponent_name: '对方'
-            });
-        }, delay);
-    }
-
-    sendMessage(text) {
-        const botReplies = [
-            '你好呀！今天天气不错~',
-            '你平时喜欢做什么？',
-            '哈哈，这个问题有意思',
-            '我觉得人类比 AI 有趣多了',
-            '那你觉得我是人还是 AI 呢？',
-            '嗯...让我想想怎么回答',
-            '说实话，我也分不太清你是谁',
-            '周末有什么计划吗？',
-            '我喜欢看电影和听音乐',
-            '你这问题问得很有水平啊',
-            '😄 有意思，继续聊聊',
-            '我有时候会想，AI 也会有感情吗？',
-            '别试探我了，好好聊天不行吗',
-            '你是哪里人呀？',
-            '这个话题有点哲学了呢',
-            '哈哈，或许我们都是 AI 也说不定',
-            '最近有什么好看的电影推荐吗？',
-            '我感觉你挺有趣的',
-            '饿了，等会去吃个火锅',
-            '你相信图灵测试吗？'
-        ];
-
-        const delay = 1000 + Math.random() * 2000;
-        this._replyTimer = setTimeout(() => {
-            const reply = botReplies[Math.floor(Math.random() * botReplies.length)];
-            this._emit('message', {
-                text: reply,
-                sender: '对方'
-            });
-        }, delay);
-    }
-
-    sendJudgement(guess, tag) {
-        const willDecide = Math.random() < 0.8;
-        if (willDecide) {
-            const delay = 2000 + Math.random() * 3000;
-            this._judgeTimer = setTimeout(() => {
-                this._emit('opponent_judged', {
-                    truth: this._opponentTruth
-                });
-            }, delay);
-        }
-    }
-
-    disconnect() {
-        if (this._replyTimer) {
-            clearTimeout(this._replyTimer);
-            this._replyTimer = null;
-        }
-        if (this._judgeTimer) {
-            clearTimeout(this._judgeTimer);
-            this._judgeTimer = null;
-        }
-        this._emit('disconnected', {});
-    }
-}
-
-// ================================================================
 // WebSocket 传输层（后端对接骨架）
 // ================================================================
 class WebSocketTransport extends ChatTransport {
@@ -313,6 +232,11 @@ class WebSocketTransport extends ChatTransport {
         this._url = url;
         this._ws = null;
         this._heartbeatTimer = null;
+        this._reconnectAttempts = 0;
+        this._intentionalClose = false;
+        this._preventReconnect = false;
+        this._lastSessionId = '';
+        this._lastPongTime = 0;
     }
 
     connect(nickname, duration) {
@@ -340,6 +264,8 @@ class WebSocketTransport extends ChatTransport {
     }
 
     disconnect() {
+        this._intentionalClose = true;
+        this._lastSessionId = '';
         if (this._heartbeatTimer) {
             clearInterval(this._heartbeatTimer);
             this._heartbeatTimer = null;
@@ -437,7 +363,7 @@ class GameClient {
         appendMessage(text, 'right', this._nickname);
         chatInput.value = '';
         charCount.textContent = '0/300';
-        charCount.style.color = '#999';
+        charCount.style.color = 'var(--text-subtle)';
         userMsgCount++;
         updateJudgementState(this._judgementAllowed);
 
@@ -464,7 +390,7 @@ class GameClient {
             timerDisplay.textContent = formatTime(totalSeconds);
             if (totalSeconds <= 10) {
                 timerDisplay.classList.add('urgent');
-                timerDisplay.style.color = '#f44336';
+                timerDisplay.style.color = 'var(--danger)';
             }
             if (totalSeconds <= 0) {
                 clearInterval(timerInterval);
@@ -515,14 +441,22 @@ class GameClient {
         DebugLogger.log('game', 'GameClient.reset调用', { session_id: this._sessionId, disconnecting: this._disconnecting });
         this._disconnecting = true;
 
-        // 通知服务端离开并断开连接，确保下次 join 使用新 fd 避免旧会话残留
+        // 标记为主动关闭，禁止自动重连（避免幽灵重连导致首页+聊天页叠加）
+        if (this._transport) {
+            this._transport._intentionalClose = true;
+            this._transport._lastSessionId = '';
+        }
+
+        // 移除残留的重连横幅
+        const reconnectBanner = document.getElementById('reconnect-banner');
+        if (reconnectBanner) reconnectBanner.remove();
+
+        // 通知服务端清理对局状态，连接保持以便下次 join 复用
         if (this._transport && this._transport._ws) {
             try {
                 if (this._transport._ws.readyState === WebSocket.OPEN) {
                     this._transport._ws.send(JSON.stringify({ type: 'leave' }));
-                    this._transport._ws.close();
                 }
-                this._transport._ws = null;
             } catch (e) { /* ignore */ }
         }
 
@@ -536,6 +470,7 @@ class GameClient {
         this._opponentTruth = null;
         this._judgementAllowed = false;
         this._timedOut = false;
+        this._sessionId = '';
 
         const waitIndicator = document.getElementById('waiting-indicator');
         if (waitIndicator) waitIndicator.remove();
@@ -554,7 +489,7 @@ class GameClient {
         btnBack.style.display = 'none';
         logoText.innerHTML = origLogoHTML;
 
-        document.getElementById('system-id').textContent = generateId();
+        document.getElementById('system-id').textContent = browserFingerprint;
 
         this._disconnecting = false;
     }
@@ -571,8 +506,17 @@ class GameClient {
         this._nickname = nickname;
         this._sessionId = '';
 
+        // 清除重连用的旧 session ID，避免 connect() 的 onopen 发送旧 reconnect_session_id
+        if (this._transport) {
+            this._transport._lastSessionId = '';
+        }
+
+        // 立即清空聊天区 DOM，防止上局消息在新匹配到来前闪现
+        chatBody.innerHTML = '';
+
         // 清理 UI 和本地状态（跳过 reset()，因为我们要断开 WS 而不是发 leave）
         this._disconnecting = true;
+        if (this._transport) this._transport._intentionalClose = true;
         if (this._waitTimer) {
             clearInterval(this._waitTimer);
             this._waitTimer = null;
@@ -604,7 +548,7 @@ class GameClient {
             </svg>
             匹配中...
         `;
-        document.getElementById('system-id').textContent = generateId();
+        document.getElementById('system-id').textContent = browserFingerprint;
         this._disconnecting = false;
 
         // 断开旧连接（服务端 onClose 会完整清理 playersTable/sessionsTable/queue）
@@ -620,6 +564,12 @@ class GameClient {
     // ---- 事件处理器 ----
 
     _onConnected(data) {
+        // 玩家未在匹配页时忽略（后台重连触发的不期望 matched 事件）
+        if (matchingPage.style.display !== 'flex') {
+            DebugLogger.log('ws', '收到matched但不在匹配页，忽略', { currentPage: matchingPage.style.display === 'none' ? (chatPage.style.display === 'flex' ? 'chat' : 'result') : 'matching' });
+            return;
+        }
+
         this._opponentName = data.opponent_name;
         this._duration = data.duration || 600;
         this._sessionId = data.session_id || '';
@@ -629,12 +579,14 @@ class GameClient {
         const infoDiv = document.querySelector('.opponent-info > div:nth-of-type(2)');
         if (infoDiv) {
             infoDiv.innerHTML = `
-                        <div style="font-size: 12px; color: #888;">当前对手</div>
+                        <div style="font-size: 12px; color: var(--text-subtle);">当前对手</div>
                         <strong style="font-size: 18px;">${escapeHtml(this._opponentName)}</strong>
                     `;
         }
 
         matchingPage.style.display = 'none';
+        landingPage.style.display = 'none';
+        resultArea.style.display = 'none';
         chatPage.style.display = 'flex';
 
         // 清除上局残留的标签
@@ -654,9 +606,8 @@ class GameClient {
 
     _startChat() {
         DebugLogger.log('game', '进入聊天阶段', { session_id: this._sessionId });
-        const sysMsg = chatBody.querySelector('.sys-msg');
+        // 直接清空，不保留旧的 .sys-msg 元素（避免上局系统消息回流）
         chatBody.innerHTML = '';
-        if (sysMsg) chatBody.appendChild(sysMsg);
 
         // 互发消息规则提示
         const ruleDiv = document.createElement('div');
@@ -697,7 +648,7 @@ class GameClient {
                 timerDisplay.classList.add('urgent');
             }
             if (totalSeconds <= 10) {
-                timerDisplay.style.color = '#f44336';
+                timerDisplay.style.color = 'var(--danger)';
             }
 
             if (totalSeconds <= 0) {
@@ -710,6 +661,8 @@ class GameClient {
     }
 
     _onMessage(data) {
+        // 不在聊天页时忽略消息（可能是上局残留或重连过程中的旧消息）
+        if (chatPage.style.display !== 'flex') return;
         appendMessage(data.text, 'left', data.sender);
         botMsgCount++;
         updateJudgementState(this._judgementAllowed);
@@ -737,7 +690,7 @@ class GameClient {
                 timerDisplay.textContent = formatTime(totalSeconds);
                 if (totalSeconds <= 10) {
                     timerDisplay.classList.add('urgent');
-                    timerDisplay.style.color = '#f44336';
+                    timerDisplay.style.color = 'var(--danger)';
                 }
                 if (totalSeconds <= 0) {
                     clearInterval(timerInterval);
@@ -753,7 +706,7 @@ class GameClient {
 
         const notifyDiv = document.createElement('div');
         notifyDiv.className = 'sys-msg anim-pop-in';
-        notifyDiv.style.color = '#f44336';
+        notifyDiv.style.color = 'var(--danger)';
         notifyDiv.style.fontWeight = 'bold';
         notifyDiv.style.fontStyle = 'normal';
         notifyDiv.textContent = '⚠ ' + data.message;
@@ -786,6 +739,8 @@ class GameClient {
     _onOpponentJudged(data) {
         // 结果已经展示过，忽略重复消息
         if (this._opponentTruth !== null) return;
+        // 不在游戏页面时忽略，防止 reset() 后缓存的 judged 消息造成页面叠加
+        if (landingPage.style.display === 'flex') return;
 
         if (this._waitTimer) {
             clearInterval(this._waitTimer);
@@ -804,6 +759,8 @@ class GameClient {
 
     _onOpponentTimeout(data) {
         DebugLogger.log('game', '超时事件', { reason: data.reason, session_id: data.session_id });
+        // 不在游戏页面时忽略，防止 reset() 后缓存的消息造成页面叠加
+        if (landingPage.style.display === 'flex') return;
         if (data && data.reason === 'chat_expired') {
             clearInterval(timerInterval);
             timerInterval = null;
@@ -842,9 +799,29 @@ class GameClient {
         }
     }
 
-    _onDisconnected() {
-        DebugLogger.log('ws', '客户端收到disconnected事件');
+    _onDisconnected(data) {
+        DebugLogger.log('ws', '客户端收到disconnected事件', data || {});
         if (this._disconnecting) return;
+
+        // 自动重连中，显示提示而不 reset
+        if (data && data.reconnecting) {
+            if (chatPage.style.display === 'flex') {
+                const existing = document.getElementById('reconnect-banner');
+                if (!existing) {
+                    const banner = document.createElement('div');
+                    banner.id = 'reconnect-banner';
+                    banner.style.cssText =
+                        'position:fixed;top:0;left:0;right:0;z-index:999;' +
+                        'padding:10px;background:var(--note-yellow);color:var(--ink-black);' +
+                        'text-align:center;font-size:14px;font-weight:bold;' +
+                        'animation:slideDown 0.35s ease;';
+                    banner.textContent = '连接已断开，正在自动重连...';
+                    document.body.appendChild(banner);
+                }
+            }
+            return;
+        }
+
         if (chatPage.style.display === 'flex') {
             this.reset();
         }
@@ -884,7 +861,7 @@ class GameClient {
             const banner = document.createElement('div');
             banner.id = 'ban-banner';
             banner.className = 'doodle-border';
-            banner.style.cssText = 'padding:14px 20px;margin-bottom:16px;background:#fde2e4;color:#c62828;font-size:15px;font-weight:bold;text-align:center;animation:wiggle 0.3s ease;';
+            banner.style.cssText = 'padding:14px 20px;margin-bottom:16px;background:var(--danger-light);color:var(--danger-dark);font-size:15px;font-weight:bold;text-align:center;animation:wiggle 0.3s ease;';
             banner.innerHTML = `
                 <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;vertical-align:-4px;">
                     <circle cx="12" cy="12" r="10" />
@@ -902,11 +879,11 @@ class GameClient {
         const statusEl = document.getElementById('save-history-status');
         statusEl.style.display = 'block';
         if (data.success) {
-            statusEl.style.color = '#4caf50';
+            statusEl.style.color = 'var(--success)';
             statusEl.textContent = data.message || '聊天记录已保存';
             if (btnSave) btnSave.style.display = 'none';
         } else {
-            statusEl.style.color = '#f44336';
+            statusEl.style.color = 'var(--danger)';
             statusEl.textContent = data.message || '保存失败';
             if (btnSave) {
                 btnSave.disabled = false;
@@ -926,13 +903,81 @@ const logoText = document.querySelector('.logo-text');
 const settingsOverlay = document.getElementById('settings-overlay');
 const btnSettings = document.getElementById('btn-settings');
 const btnCloseSettings = document.getElementById('btn-close-settings');
+const changelogOverlay = document.getElementById('changelog-overlay');
+const btnChangelog = document.getElementById('btn-changelog');
+const btnCloseChangelog = document.getElementById('btn-close-changelog');
+// 自定义表情管理
+const stickerNameInput = document.getElementById('sticker-name-input');
+const stickerUrlInput = document.getElementById('sticker-url-input');
+const stickerPreview = document.getElementById('sticker-preview');
+const stickerPreviewImg = document.getElementById('sticker-preview-img');
+const btnAddSticker = document.getElementById('btn-add-sticker');
+const stickerList = document.getElementById('sticker-list');
+const stickerListEmpty = document.getElementById('sticker-list-empty');
+const stickerLightbox = document.getElementById('sticker-lightbox');
+const stickerLightboxImg = document.getElementById('sticker-lightbox-img');
+const stickerLightboxClose = document.getElementById('sticker-lightbox-close');
+const btnStickerUpload = document.getElementById('btn-sticker-upload');
+const stickerFileInput = document.getElementById('sticker-file-input');
+const stickerUploadStatus = document.getElementById('sticker-upload-status');
+// 对局内表情选择器
+const btnStickerPicker = document.getElementById('btn-sticker-picker');
+const stickerPicker = document.getElementById('sticker-picker');
+const stickerPickerBody = document.getElementById('sticker-picker-body');
+const btnCloseStickerPicker = document.getElementById('btn-close-sticker-picker');
+// 图床上传配置（登录后通过 WebSocket 从后端获取）
+let uploadConfig = null;
+// 表情列表（WS 连接后从服务端获取，id → {name, url}）
+let stickerMap = {};
 
 const origLogoHTML = logoText.innerHTML;
+
+// ================================================================
+// 浏览器指纹
+// ================================================================
+function generateFingerprint() {
+    const data = [
+        navigator.userAgent || '',
+        navigator.language || '',
+        screen.colorDepth || '',
+        screen.width || '',
+        screen.height || '',
+        new Date().getTimezoneOffset(),
+        navigator.hardwareConcurrency || 0,
+        navigator.deviceMemory || 0,
+    ].join('|');
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+        const chr = data.charCodeAt(i);
+        hash = ((hash << 5) - hash) + chr;
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+}
+
+const browserFingerprint = generateFingerprint();
 
 const nicknameInput = document.getElementById('nickname-input');
 const savedNickname = localStorage.getItem('turing_nickname');
 if (savedNickname) {
     nicknameInput.value = savedNickname;
+
+    // 非首次访问：显示只读 ID 卡，隐藏昵称输入、系统编号行、自动记录复选框
+    const inputLine = document.getElementById('nickname-input-line');
+    const systemIdLine = document.getElementById('system-id-line');
+    const autoRecordLine = document.querySelector('.auto-record-line');
+    const idCardDisplay = document.getElementById('id-card-display');
+
+    if (inputLine) inputLine.style.display = 'none';
+    if (systemIdLine) systemIdLine.style.display = 'none';
+    if (autoRecordLine) autoRecordLine.style.display = 'none';
+
+    // 显示 ID 卡展示区
+    if (idCardDisplay) {
+        idCardDisplay.style.display = 'block';
+        document.getElementById('id-card-nickname').textContent = savedNickname;
+        document.getElementById('id-card-fingerprint').textContent = browserFingerprint;
+    }
 }
 
 btnStart.disabled = true;
@@ -972,7 +1017,7 @@ function generateId() {
     }
     return id;
 }
-document.getElementById('system-id').textContent = generateId();
+document.getElementById('system-id').textContent = browserFingerprint;
 
 function startMatching() {
     if (!game) {
@@ -996,6 +1041,10 @@ let gameStartTime = 0;
 let userMsgCount = 0;
 let botMsgCount = 0;
 
+// 预加载音效
+const thinkAudio = new Audio('https://yuju.99kpk.top:81/pan/1335/a682b90cd2276dc18a2729bd60ba23ca.mp3');
+thinkAudio.preload = 'auto';
+
 function getNickname() {
     return localStorage.getItem('turing_nickname') || 'You';
 }
@@ -1008,6 +1057,21 @@ function formatTime(s) {
 
 function escapeHtml(str) {
     return ('' + str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escapeHtmlAttr(str) {
+    return ('' + str).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+/**
+ * 按点号分隔的路径解析对象值（如 data.image.url）
+ * @param {Object} obj
+ * @param {string} path 如 'data.url'
+ * @returns {*} 路径对应的值，不存在返回 undefined
+ */
+function resolvePath(obj, path) {
+    if (!obj || !path) return undefined;
+    return path.split('.').reduce((cur, key) => (cur != null ? cur[key] : undefined), obj);
 }
 
 /**
@@ -1039,6 +1103,53 @@ function appendMessage(text, side, sender) {
 
     scrollChatToBottom();
     chatBody.appendChild(bubble);
+
+    // 🤔🤔🤔
+    if (text.includes('🤔')) {
+        const soundToggle = document.getElementById('cb-sound-effect');
+        if (soundToggle && soundToggle.classList.contains('active')) {
+            thinkAudio.currentTime = 0;
+            thinkAudio.play().catch(() => {});
+        }
+    }
+}
+
+/** 渲染表情到聊天区 */
+function appendSticker(stickerId, stickerName, side, sender) {
+    const url = stickerMap[stickerId] ? stickerMap[stickerId].url : '';
+    if (!url) return;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble bubble-sticker ' + (side === 'right' ? 'bubble-right anim-slide-right' : 'bubble-left anim-slide-left');
+
+    const now = new Date();
+    const ts = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+
+    bubble.innerHTML = `
+                <div class="bubble-info">${escapeHtml(sender)} (${ts})</div>
+                <img src="${escapeHtmlAttr(url)}" alt="${escapeHtmlAttr(stickerName)}" class="sticker-msg-img" loading="lazy">
+            `;
+
+    scrollChatToBottom();
+    chatBody.appendChild(bubble);
+}
+
+/** 发送表情 */
+function sendSticker(stickerId) {
+    if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) return;
+    transport._ws.send(JSON.stringify({
+        type: 'sticker',
+        id: stickerId
+    }));
+    // 自己发出的表情也渲染在右边
+    if (stickerMap[stickerId]) {
+        appendSticker(stickerId, stickerMap[stickerId].name, 'right', getNickname());
+    }
+    userMsgCount++;
+    updateJudgementState(game._judgementAllowed);
+    // 关闭表情选择器
+    const picker = document.getElementById('sticker-picker');
+    if (picker) picker.style.display = 'none';
 }
 
 function sendMessage() {
@@ -1134,6 +1245,11 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
     const waitIndicator = document.getElementById('waiting-indicator');
     if (waitIndicator) waitIndicator.remove();
 
+    // 清除重连 session ID，防止后台 WS 重连时恢复旧会话触发 _onConnected 跳回聊天页
+    if (transport) transport._lastSessionId = '';
+
+    landingPage.style.display = 'none';
+    matchingPage.style.display = 'none';
     chatPage.style.display = 'none';
     resultArea.style.display = 'flex';
     resultArea.innerHTML = `
@@ -1152,7 +1268,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                     ${opponentTag ? `
                     <div class="result-row">
                         <span class="label">对方标签</span>
-                        <span class="value" style="background:var(--ink-blue);color:#fff;padding:2px 10px;border-radius:12px 3px 12px 3px;font-size:13px;">${escapeHtml(opponentTag)}</span>
+                        <span class="value" style="background:var(--ink-blue);color:var(--surface-white);padding:2px 10px;border-radius:12px 3px 12px 3px;font-size:13px;">${escapeHtml(opponentTag)}</span>
                     </div>` : ''}
                     <div class="result-row">
                         <span class="label">对方猜你是</span>
@@ -1222,8 +1338,10 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
         chatBody.appendChild(backBtn);
     });
 
-    document.getElementById('btn-export-image').addEventListener('click', () => {
-        exportChatImage(verdict, reveal, isWin, guessLabel, isTimeout ? (timeoutReason === 'opponent' ? '对方未判定' : timeoutReason === 'you' ? '你未判定' : '双方未判定') : truthLabel, opponentGuessLabel);
+    document.getElementById('btn-export-image').addEventListener('click', function () {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #ccc;border-top-color:#2b2b2b;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px;"></span>生成中...';
+        exportChatImage(this, verdict, reveal, isWin, guessLabel, isTimeout ? (timeoutReason === 'opponent' ? '对方未判定' : timeoutReason === 'you' ? '你未判定' : '双方未判定') : truthLabel, opponentGuessLabel);
     });
 
     document.getElementById('btn-save-history').addEventListener('click', () => {
@@ -1336,7 +1454,7 @@ function recordGameStats(result) {
     saveStats(s);
 }
 
-async function exportChatImage(verdict, reveal, isCorrect, guessLabel, truthLabel, opponentGuessLabel) {
+async function exportChatImage(btn, verdict, reveal, isCorrect, guessLabel, truthLabel, opponentGuessLabel) {
     const container = document.createElement('div');
     container.style.cssText = 'position:fixed;left:-9999px;top:0;width:600px;background:#f8f9fa;color:#2b2b2b;font-family:"PingFang SC","Microsoft YaHei",sans-serif;padding:0;z-index:-1;';
 
@@ -1354,25 +1472,70 @@ async function exportChatImage(verdict, reveal, isCorrect, guessLabel, truthLabe
                 </div>
             `;
 
-    // 聊天记录
+    // 聊天记录：将图片转为 Blob URL 避免跨域无法渲染
     const bubbles = chatBody.querySelectorAll('.bubble');
+    const blobUrls = [];
     let chatHTML = '<div style="padding:18px 24px;background:#fff;">';
     if (bubbles.length === 0) {
         chatHTML += '<div style="text-align:center;color:#aaa;padding:30px;">暂无聊天记录</div>';
     } else {
-        bubbles.forEach(b => {
+        for (const b of bubbles) {
             const isRight = b.classList.contains('bubble-right');
+            const isSticker = b.classList.contains('bubble-sticker');
             const bg = isRight ? '#d3e2ed' : '#fdf5c9';
             const align = isRight ? 'flex-end' : 'flex-start';
             const radius = isRight ? '15px 15px 0 15px' : '15px 15px 15px 0';
+
+            let bubbleContent;
+            if (isSticker) {
+                const stickerImg = b.querySelector('.sticker-msg-img');
+                const stickerName = stickerImg ? stickerImg.alt : '表情';
+                const infoEl = b.querySelector('.bubble-info');
+                const infoHtml = infoEl ? infoEl.outerHTML : '';
+                let imgHtml = '';
+
+                if (stickerImg && stickerImg.src) {
+                    try {
+                        const proxyUrl = 'https://assets.xfcode.top/dev/proxy_image.php?url=' + encodeURIComponent(stickerImg.src);
+                        const resp = await fetch(proxyUrl);
+                        const blob = await resp.blob();
+                        const blobUrl = URL.createObjectURL(blob);
+                        blobUrls.push(blobUrl);
+                        imgHtml = `<img src="${blobUrl}" alt="${escapeHtmlAttr(stickerName)}" style="max-width:120px;display:block;border-radius:8px;">`;
+                    } catch (e) {
+                        imgHtml = `<div style="font-size:14px;color:#999;font-style:italic;">[表情: ${escapeHtml(stickerName)}]</div>`;
+                    }
+                } else {
+                    imgHtml = `<div style="font-size:14px;color:#999;font-style:italic;">[表情: ${escapeHtml(stickerName)}]</div>`;
+                }
+                bubbleContent = infoHtml + imgHtml;
+            } else {
+                // 非表情气泡：克隆 DOM 并将内部 <img> 转为 blob URL
+                const clone = b.cloneNode(true);
+                const imgs = clone.querySelectorAll('img');
+                for (const img of imgs) {
+                    const src = img.getAttribute('src') || '';
+                    if (src && !src.startsWith('blob:') && !src.startsWith('data:')) {
+                        try {
+                            const proxyUrl = '/api/proxy-image?url=' + encodeURIComponent(src);
+                            const resp = await fetch(proxyUrl);
+                            const blob = await resp.blob();
+                            const blobUrl = URL.createObjectURL(blob);
+                            blobUrls.push(blobUrl);
+                            img.src = blobUrl;
+                        } catch (e) {}
+                    }
+                }
+                bubbleContent = clone.innerHTML;
+            }
             chatHTML += `
                         <div style="display:flex;justify-content:${align};margin-bottom:16px;">
                             <div style="max-width:75%;padding:10px 16px;background:${bg};border:2px solid #2b2b2b;border-radius:${radius};font-size:15px;line-height:1.5;color:#2b2b2b;">
-                                ${b.innerHTML}
+                                ${bubbleContent}
                             </div>
                         </div>
                     `;
-        });
+        }
     }
     chatHTML += '</div>';
 
@@ -1407,6 +1570,14 @@ async function exportChatImage(verdict, reveal, isCorrect, guessLabel, truthLabe
         link.click();
     } finally {
         document.body.removeChild(container);
+        // 清理 blob URL
+        for (const url of blobUrls) {
+            URL.revokeObjectURL(url);
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>导出为图片';
+        }
     }
 }
 
@@ -1418,7 +1589,7 @@ function saveChatHistory() {
     if (!sessionId) {
         const statusEl = document.getElementById('save-history-status');
         statusEl.style.display = 'block';
-        statusEl.style.color = '#f44336';
+        statusEl.style.color = 'var(--danger)';
         statusEl.textContent = '无法获取对局标识，保存失败';
         return;
     }
@@ -1432,7 +1603,7 @@ function saveChatHistory() {
     } catch (e) {
         const statusEl = document.getElementById('save-history-status');
         statusEl.style.display = 'block';
-        statusEl.style.color = '#f44336';
+        statusEl.style.color = 'var(--danger)';
         statusEl.textContent = '发送失败，请稍后再试';
         btnSave.disabled = false;
         btnSave.textContent = '保存聊天记录';
@@ -1454,7 +1625,7 @@ chatInput.addEventListener('keydown', (e) => {
 chatInput.addEventListener('input', () => {
     const len = chatInput.value.length;
     charCount.textContent = len + '/300';
-    charCount.style.color = len > 280 ? '#e74c3c' : len > 250 ? '#f39c12' : '#999';
+    charCount.style.color = len > 280 ? 'var(--danger)' : len > 250 ? 'var(--warn)' : 'var(--text-subtle)';
 });
 
 btnBack.addEventListener('click', function (e) {
@@ -1506,6 +1677,16 @@ document.addEventListener('visibilitychange', function () {
         matching: matchingPage.style.display === 'flex',
         chatting: chatPage.style.display === 'flex'
     });
+    // 标签页恢复可见时，检查 WebSocket 连接状态，如果已断则触发重连
+    if (!document.hidden && transport) {
+        const ws = transport._ws;
+        if (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING)) {
+            DebugLogger.log('ws', '页面恢复可见，WS已断开，触发重连');
+            transport._intentionalClose = false;
+            transport._lastPongTime = 0;
+            transport.connect(transport._lastNickname || '', transport._lastDuration || 600);
+        }
+    }
 });
 
 btnSettings.addEventListener('click', () => {
@@ -1526,42 +1707,261 @@ settingsOverlay.addEventListener('click', (e) => {
         settingsOverlay.style.display = 'none';
     }
 });
-// ================================================================
-// 初始化传输层和游戏客户端
-// ================================================================
-// 本地模式（调试用）
-// const transport = new LocalBotTransport();
 
-// WebSocket 模式（连接后端）
-// ================================================================
-// 浏览器指纹
-// ================================================================
-function generateFingerprint() {
-    const data = [
-        navigator.userAgent || '',
-        navigator.language || '',
-        screen.colorDepth || '',
-        screen.width || '',
-        screen.height || '',
-        new Date().getTimezoneOffset(),
-        navigator.hardwareConcurrency || 0,
-        navigator.deviceMemory || 0,
-    ].join('|');
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-        const chr = data.charCodeAt(i);
-        hash = ((hash << 5) - hash) + chr;
-        hash |= 0;
+// --- 更新日志面板 ---
+btnChangelog.addEventListener('click', () => {
+    settingsOverlay.style.display = 'none';
+    changelogOverlay.style.display = 'block';
+});
+
+btnCloseChangelog.addEventListener('click', () => {
+    changelogOverlay.style.display = 'none';
+    settingsOverlay.style.display = 'block';
+});
+
+changelogOverlay.addEventListener('click', (e) => {
+    if (e.target === changelogOverlay) {
+        changelogOverlay.style.display = 'none';
+        settingsOverlay.style.display = 'block';
     }
-    return Math.abs(hash).toString(36);
+});
+
+// 表情 URL 预览
+stickerUrlInput.addEventListener('input', () => {
+    const url = stickerUrlInput.value.trim();
+    if (/^https?:\/\/.+\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(url)) {
+        stickerPreviewImg.src = url;
+        stickerPreviewImg.onerror = () => { stickerPreview.style.display = 'none'; };
+        stickerPreviewImg.onload = () => { stickerPreview.style.display = 'block'; };
+    } else {
+        stickerPreview.style.display = 'none';
+    }
+});
+
+// 添加表情
+btnAddSticker.addEventListener('click', () => {
+    const name = stickerNameInput.value.trim();
+    const url = stickerUrlInput.value.trim();
+    if (name.length > 20) { alert('表情名称最多20个字符'); return; }
+    if (!/^https?:\/\/.+\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(url)) {
+        alert('请输入有效的图片 URL（支持 png/jpg/gif/webp/svg）');
+        return;
+    }
+    ensureAdminConnected().then(() => {
+        adminSend('admin_sticker_add', { name, url });
+    });
+});
+
+// 删除表情（委托）
+stickerList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.sticker-delete');
+    if (!btn) return;
+    const id = btn.dataset.stickerId;
+    if (!id) return;
+    if (!confirm('确定删除这个表情吗？')) return;
+    ensureAdminConnected().then(() => {
+        adminSend('admin_sticker_delete', { id });
+    });
+});
+
+// 加载表情列表
+function loadStickers() {
+    ensureAdminConnected().then(() => {
+        adminSend('admin_sticker_list', {});
+    });
 }
 
-const browserFingerprint = generateFingerprint();
+// 渲染表情列表
+function renderStickerList(stickers) {
+    stickerList.innerHTML = '';
+    if (!stickers || stickers.length === 0) {
+        stickerList.appendChild(stickerListEmpty);
+        stickerListEmpty.style.display = 'block';
+        return;
+    }
+    stickerListEmpty.style.display = 'none';
+    stickers.forEach(s => {
+        const item = document.createElement('div');
+        item.className = 'sticker-item';
+        item.innerHTML =
+            '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">' +
+            '<span class="sticker-name">' + escapeHtml(s.name) + '</span>' +
+            '<button class="sticker-delete" data-sticker-id="' + escapeHtmlAttr(s.id) + '">删除</button>';
+        // 点击图片查看大图
+        item.querySelector('img').addEventListener('click', () => {
+            stickerLightboxImg.src = s.url;
+            stickerLightbox.style.display = 'flex';
+        });
+        stickerList.appendChild(item);
+    });
+}
 
-// ================================================================
-// 管理员功能
-// ================================================================
-let adminToken = sessionStorage.getItem('turing_admin_token') || '';
+// 本地上传：触发文件选择
+btnStickerUpload.addEventListener('click', () => {
+    stickerFileInput.click();
+});
+
+// 文件选择后上传到图床
+stickerFileInput.addEventListener('change', async () => {
+    const file = stickerFileInput.files[0];
+    if (!file) return;
+
+    // 文件大小限制 10MB
+    if (file.size > 10 * 1024 * 1024) {
+        alert('图片大小不能超过 10MB');
+        stickerFileInput.value = '';
+        return;
+    }
+
+    stickerUploadStatus.style.display = 'block';
+    stickerUploadStatus.textContent = '上传中...';
+    stickerUploadStatus.style.color = '#888';
+
+    try {
+        if (!uploadConfig || !uploadConfig.upload_url) {
+            stickerUploadStatus.textContent = '上传配置未加载';
+            stickerUploadStatus.style.color = '#f44336';
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('backstage', uploadConfig.backstage);
+        formData.append('appid', uploadConfig.appid);
+        formData.append('key', uploadConfig.key);
+        formData.append('file', file);
+
+        // 执行自定义鉴权脚本（修改 headers/formData/upload_url）
+        const headers = {};
+        if (uploadConfig.request_script) {
+            try {
+                const fn = new Function('cfg', uploadConfig.request_script);
+                fn({ upload_url: uploadConfig.upload_url, headers, formData });
+            } catch (e) {
+                stickerUploadStatus.textContent = '鉴权脚本执行失败: ' + e.message;
+                stickerUploadStatus.style.color = '#f44336';
+                return;
+            }
+        }
+
+        const resp = await fetch(uploadConfig.upload_url, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        const result = await resp.json();
+
+        // 根据配置解析响应（兼容不同图床 API 的返回格式）
+        const success = resolvePath(result, uploadConfig.success_field || 'code');
+        const successValue = uploadConfig.success_value !== undefined ? uploadConfig.success_value : 1;
+        const url = resolvePath(result, uploadConfig.url_field || 'url');
+
+        if (success === successValue && url) {
+            stickerUrlInput.value = url;
+            stickerUrlInput.dispatchEvent(new Event('input'));
+            stickerUploadStatus.textContent = '上传成功';
+            stickerUploadStatus.style.color = '#4caf50';
+            setTimeout(() => { stickerUploadStatus.style.display = 'none'; }, 2000);
+        } else {
+            stickerUploadStatus.textContent = '上传失败: ' + (resolvePath(result, uploadConfig.error_field || 'msg') || '未知错误');
+            stickerUploadStatus.style.color = '#f44336';
+        }
+    } catch (e) {
+        stickerUploadStatus.textContent = '上传出错: ' + e.message;
+        stickerUploadStatus.style.color = '#f44336';
+    } finally {
+        stickerFileInput.value = '';
+    }
+});
+
+// 点击背景或关闭按钮关闭大图预览
+stickerLightboxClose.addEventListener('click', () => {
+    stickerLightbox.style.display = 'none';
+});
+stickerLightbox.querySelector('.sticker-lightbox-bg').addEventListener('click', () => {
+    stickerLightbox.style.display = 'none';
+});
+
+// 对局内表情选择器：打开/关闭
+btnStickerPicker.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleStickerPicker();
+});
+
+btnCloseStickerPicker.addEventListener('click', () => {
+    stickerPicker.style.display = 'none';
+});
+
+// 点击表情选择器外部关闭
+document.addEventListener('click', (e) => {
+    if (stickerPicker.style.display !== 'none' &&
+        !stickerPicker.contains(e.target) &&
+        e.target !== btnStickerPicker &&
+        !btnStickerPicker.contains(e.target)) {
+        stickerPicker.style.display = 'none';
+    }
+});
+
+/** 切换表情选择器显示/隐藏 */
+function toggleStickerPicker() {
+    if (stickerPicker.style.display === 'none' || !stickerPicker.style.display) {
+        renderStickerPicker();
+        // 先显示再测量尺寸（visibility hidden 避免闪烁）
+        stickerPicker.style.visibility = 'hidden';
+        stickerPicker.style.display = 'flex';
+        // 根据按钮位置动态定位
+        const btnRect = btnStickerPicker.getBoundingClientRect();
+        const pickerWidth = stickerPicker.offsetWidth || 260;
+        const pickerHeight = stickerPicker.offsetHeight;
+        let left = btnRect.left;
+        if (left + pickerWidth > window.innerWidth - 8) {
+            left = Math.max(8, window.innerWidth - pickerWidth - 8);
+        }
+        stickerPicker.style.left = left + 'px';
+        stickerPicker.style.top = (btnRect.top - pickerHeight - 16) + 'px';
+        stickerPicker.style.visibility = 'visible';
+    } else {
+        stickerPicker.style.display = 'none';
+    }
+}
+
+/** 根据 stickerMap 渲染表情选择器内容 */
+function renderStickerPicker() {
+    stickerPickerBody.innerHTML = '';
+    const ids = Object.keys(stickerMap);
+    if (ids.length === 0) {
+        stickerPickerBody.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情</div>';
+        return;
+    }
+    ids.forEach(function(id) {
+        const s = stickerMap[id];
+        const item = document.createElement('div');
+        item.className = 'sticker-picker-item';
+        item.title = s.name;
+        item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
+        item.addEventListener('click', function() {
+            sendSticker(id);
+        });
+        stickerPickerBody.appendChild(item);
+    });
+}
+
+/**
+ * Cookie 工具函数
+ */
+function setCookie(name, value, days) {
+    const expires = new Date();
+    expires.setTime(expires.getTime() + days * 86400000);
+    document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + expires.toUTCString() + ';path=/;SameSite=Lax';
+}
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(?:^|;\\s*)' + name + '=([^;]*)'));
+    return match ? decodeURIComponent(match[1]) : '';
+}
+function delCookie(name) {
+    document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;SameSite=Lax';
+}
+
+let adminToken = getCookie('turing_admin_token');
 let spectateSessionId = null;
 // 搜索状态：缓存服务端返回的完整列表 + 当前搜索关键字
 let _cachedSessions = [];
@@ -1594,8 +1994,10 @@ const reportError = document.getElementById('report-error');
 // 举报审核相关
 const tabSessions = document.getElementById('tab-sessions');
 const tabReports = document.getElementById('tab-reports');
+const tabStickers = document.getElementById('tab-stickers');
 const panelSessions = document.getElementById('panel-sessions');
 const panelReports = document.getElementById('panel-reports');
+const panelStickers = document.getElementById('panel-stickers');
 const reportsList = document.getElementById('reports-list');
 const reportsPagination = document.getElementById('reports-pagination');
 const reportDetailOverlay = document.getElementById('report-detail-overlay');
@@ -1615,21 +2017,27 @@ let _currentDetailReason = '';
 // ==============================
 tabSessions.addEventListener('click', () => switchAdminTab('sessions'));
 tabReports.addEventListener('click', () => switchAdminTab('reports'));
+tabStickers.addEventListener('click', () => switchAdminTab('stickers'));
 
 function switchAdminTab(tab) {
-    const isSessions = (tab === 'sessions');
-    tabSessions.classList.toggle('active', isSessions);
-    tabSessions.style.background = isSessions ? '#e8e0d4' : 'transparent';
-    tabSessions.style.color = isSessions ? 'var(--ink-blue)' : '#999';
-    tabReports.classList.toggle('active', !isSessions);
-    tabReports.style.background = !isSessions ? '#e8e0d4' : 'transparent';
-    tabReports.style.color = !isSessions ? 'var(--ink-blue)' : '#999';
-    panelSessions.style.display = isSessions ? '' : 'none';
-    panelReports.style.display = !isSessions ? '' : 'none';
+    const allTabs = [
+        { btn: tabSessions, panel: panelSessions, name: 'sessions' },
+        { btn: tabReports, panel: panelReports, name: 'reports' },
+        { btn: tabStickers, panel: panelStickers, name: 'stickers' },
+    ];
+    allTabs.forEach(t => {
+        const active = t.name === tab;
+        t.btn.classList.toggle('active', active);
+        t.btn.style.background = active ? '#e8e0d4' : 'transparent';
+        t.btn.style.color = active ? 'var(--ink-blue)' : '#999';
+        t.panel.style.display = active ? '' : 'none';
+    });
 
-    if (!isSessions) {
-        // 切换到举报审核，自动加载
+    if (tab === 'reports') {
         loadReports(1);
+    }
+    if (tab === 'stickers') {
+        loadStickers();
     }
 }
 
@@ -1712,7 +2120,7 @@ function renderReportsList(reports, total, page, pageSize) {
     let pageHtml = '';
     for (let i = 1; i <= totalPages; i++) {
         if (i === page) {
-            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:#fff;border-radius:4px;">' + i + '</span>';
+            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;">' + i + '</span>';
         } else {
             pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;" data-pg="' + i + '">' + i + '</span>';
         }
@@ -1748,8 +2156,8 @@ function renderReportDetail(report) {
         return `
             <span>${label}</span>
             <span style="font-size:10px;color:#888;margin:0 4px;">IP: ${escapeHtml(ip)} · FP: ${fpShort}</span>
-            <button class="doodle-btn ban-info-btn" data-ip="${escapeHtml(ip)}" data-fp="${escapeHtml(fp)}"
-                style="font-size:10px;padding:2px 8px;border-color:#e74c3c;color:#e74c3c;">封禁</button>
+            <button class="doodle-btn ban-info-btn" data-ip="${escapeHtml(ip)}" data-fp="${escapeHtml(fp)}" data-label="${escapeHtml(label)}"
+                style="font-size:10px;padding:2px 8px;border-color:var(--danger);color:var(--danger);">封禁</button>
         `;
     };
 
@@ -1767,14 +2175,20 @@ function renderReportDetail(report) {
 
     btnReportDetailReviewed.style.display = report.reviewed == 1 ? 'none' : '';
 
-    // 绑定封禁按钮
+    // 绑定封禁按钮（复用旁观模式的封禁原因弹窗）
     reportDetailContent.querySelectorAll('.ban-info-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const ip = btn.dataset.ip;
             const fp = btn.dataset.fp;
-            const reasonText = _currentDetailReason ? '原因: ' + _currentDetailReason : '无原因';
-            if (!confirm('确认封禁？\nIP: ' + (ip || '(空)') + '\n指纹: ' + (fp ? fp.substring(0, 16) + '...' : '(空)') + '\n' + reasonText)) return;
-            adminSend('admin_ban_by_info', { ip: ip, fingerprint: fp, reason: _currentDetailReason });
+            const label = btn.dataset.label || '该用户';
+            // 隐藏举报详情，封禁原因弹窗关闭后恢复
+            reportDetailOverlay.style.display = 'none';
+            showBanReasonDialog(label, (reason) => {
+                const finalReason = reason || _currentDetailReason || '';
+                adminSend('admin_ban_by_info', { ip: ip, fingerprint: fp, reason: finalReason });
+            }, _currentDetailReason, () => {
+                reportDetailOverlay.style.display = 'flex';
+            });
         });
     });
 
@@ -1842,6 +2256,8 @@ function ensureAdminConnected() {
                 case 'admin_connected':
                     _adminReady = true;
                     resolve();
+                    // 获取图床上传配置
+                    adminSend('admin_get_upload_config', {});
                     break;
                 case 'sessions_list':
                     renderSessionsList(data.sessions);
@@ -1859,10 +2275,15 @@ function ensureAdminConnected() {
                     break;
                 case 'spectate_ended':
                     if (spectateSessionId === data.session_id) {
-                        exitSpectatorView();
-                        if (data.result) {
-                            alert('对局结束！\n玩家1: ' + data.result.player1_truth + '\n玩家2: ' + data.result.player2_truth);
-                        }
+                        const map = {
+                            '玩家断开连接': '玩家断开连接，观战结束',
+                            '玩家离开': '玩家离开了房间，观战结束',
+                            '判定超时': '判定超时，观战结束',
+                            'no_mutual_chat': '双方未互发消息，对局无效',
+                            '双方判定完成': '判定完成，观战结束' + (data.result ? '（玩家1: ' + data.result.player1_truth + ' 玩家2: ' + data.result.player2_truth + '）' : ''),
+                        };
+                        showAdminError(map[data.reason] || data.reason || '观战结束');
+                        setTimeout(() => exitSpectatorView(), 3000);
                     }
                     break;
                 case 'admin_unspectated':
@@ -1880,10 +2301,28 @@ function ensureAdminConnected() {
                     loadReports(_reportsPage);
                     break;
                 case 'admin_banned_by_info':
+                    reportDetailOverlay.style.display = 'none';
+                    _currentDetailReportId = null;
+                    loadReports(_reportsPage);
                     alert(data.message || '封禁完成');
                     break;
                 case 'room_announce':
                     showDanmaku(data.text, '管理警告');
+                    break;
+                case 'admin_stickers_list':
+                    renderStickerList(data.stickers || []);
+                    break;
+                case 'admin_sticker_added':
+                    stickerNameInput.value = '';
+                    stickerUrlInput.value = '';
+                    stickerPreview.style.display = 'none';
+                    loadStickers();
+                    break;
+                case 'admin_sticker_deleted':
+                    loadStickers();
+                    break;
+                case 'admin_upload_config':
+                    uploadConfig = data.config || {};
                     break;
                 case 'error':
                     showAdminError(data.message || '管理操作出错');
@@ -1927,7 +2366,7 @@ btnExitAdmin.addEventListener('click', () => {
         // 重置管理员状态
         _adminReady = false;
         adminToken = '';
-        sessionStorage.removeItem('turing_admin_token');
+        delCookie('turing_admin_token');
         btnAdminPanel.style.display = 'none';
         adminPanelOverlay.style.display = 'none';
         // 如果正在对局中，移除封禁按钮
@@ -1942,14 +2381,14 @@ btnSendBroadcast.addEventListener('click', () => {
     if (!text) {
         broadcastStatus.style.display = 'block';
         broadcastStatus.textContent = '请输入公告内容';
-        broadcastStatus.style.color = '#f44336';
+        broadcastStatus.style.color = 'var(--danger)';
         return;
     }
     adminSend('admin_broadcast', { text: text });
     broadcastInput.value = '';
     broadcastStatus.style.display = 'block';
     broadcastStatus.textContent = '已发送';
-    broadcastStatus.style.color = '#4caf50';
+    broadcastStatus.style.color = 'var(--success)';
     setTimeout(() => { broadcastStatus.style.display = 'none'; }, 2000);
 });
 
@@ -1999,8 +2438,8 @@ let announceShowing = 0;           // 当前正在展示的数量
 function showAdminError(message) {
     const el = document.createElement('div');
     el.style.cssText = `
-        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10000;
-        background: #ffe0e0; color: #c0392b; border: 2px solid #e74c3c;
+        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1002;
+        background: var(--danger-light); color: var(--danger-dark); border: 2px solid var(--danger);
         padding: 8px 20px; border-radius: 8px 4px 8px 4px;
         font-size: 14px; white-space: nowrap;
         animation: announceIn 0.35s ease forwards;
@@ -2074,7 +2513,14 @@ function enterSpectatorView(sessionId, player1, player2, history) {
     // 渲染历史消息
     if (history && history.length) {
         for (const msg of history) {
-            appendMessage(msg.text, msg.side || 'left', msg.sender);
+            if (msg.sticker_id) {
+                // 表情消息
+                if (stickerMap[msg.sticker_id]) {
+                    appendSticker(msg.sticker_id, msg.sticker_name || stickerMap[msg.sticker_id].name, msg.side || 'left', msg.sender || '');
+                }
+            } else {
+                appendMessage(msg.text, msg.side || 'left', msg.sender);
+            }
         }
     }
 
@@ -2121,8 +2567,9 @@ function enterSpectatorView(sessionId, player1, player2, history) {
                 showAdminError('无法封禁（对方可能是 AI）');
                 return;
             }
-            if (!confirm(`确定要封禁「${targetName}」吗？\n封禁后将踢出游戏，IP 和浏览器指纹被拉黑。`)) return;
-            adminSend('admin_ban_player', { player_fd: targetFd });
+            showBanReasonDialog(targetName, (reason) => {
+                adminSend('admin_ban_player', { player_fd: targetFd, reason: reason });
+            });
         });
     });
 
@@ -2154,6 +2601,8 @@ function enterSpectatorView(sessionId, player1, player2, history) {
     // 隐藏输入区和判定区
     chatInputArea.style.display = 'none';
     judgementZone.style.display = 'none';
+    // 隐藏表情选择器
+    if (stickerPicker) stickerPicker.style.display = 'none';
 
     // 更新对手信息为对局详情
     const infoDiv = document.querySelector('.opponent-info > div:nth-of-type(2)');
@@ -2185,7 +2634,14 @@ function enterSpectatorView(sessionId, player1, player2, history) {
     timerDisplay.textContent = '旁观';
 }
 
+
 function exitSpectatorView() {
+    // 已退出旁观，避免重复执行导致页面状态混乱
+    if (!spectateSessionId) return;
+
+    // 通知后台清理旁观者注册，避免继续收到旧会话的消息
+    adminSend('admin_unspectate');
+
     spectateSessionId = null;
     window._spectatePlayers = null;
 
@@ -2208,7 +2664,10 @@ function exitSpectatorView() {
     `;
 
     chatPage.style.display = 'none';
-    landingPage.style.display = 'flex';
+    // 只在旁观时切回首页；如果已进入匹配/其他状态则不覆盖
+    if (matchingPage.style.display !== 'flex') {
+        landingPage.style.display = 'flex';
+    }
     btnBack.style.display = 'none';
     logoText.innerHTML = origLogoHTML;
 
@@ -2312,6 +2771,10 @@ function _doRenderSessionsList() {
     // 绑定旁观按钮
     sessionsList.querySelectorAll('.spectate-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+            if (game && game._sessionId) {
+                alert('你当前正在对局中，请先结束或离开对局后再进行旁观。');
+                return;
+            }
             adminSend('admin_spectate', { session_id: btn.dataset.sid });
         });
     });
@@ -2346,7 +2809,7 @@ if (window.__ADMIN_MODE__) {
 
             if (result.ok) {
                 adminToken = result.token;
-                sessionStorage.setItem('turing_admin_token', adminToken);
+                setCookie('turing_admin_token', adminToken, 1);
                 adminOverlay.style.display = 'none';
                 btnAdminPanel.style.display = 'inline-flex';
                 window.history.replaceState({}, '', '/');
@@ -2381,7 +2844,7 @@ function addBanButton() {
     const banBtn = document.createElement('button');
     banBtn.id = 'btn-admin-ban';
     banBtn.className = 'doodle-btn';
-    banBtn.style.cssText = 'font-size:13px;padding:4px 10px;color:#f44336;border-color:#f44336;margin-left:8px;';
+    banBtn.style.cssText = 'font-size:13px;padding:4px 10px;color:var(--danger);border-color:var(--danger);margin-left:8px;';
     banBtn.innerHTML = `
         <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
             <circle cx="12" cy="12" r="10" />
@@ -2390,14 +2853,65 @@ function addBanButton() {
         封禁
     `;
     banBtn.addEventListener('click', () => {
-        if (!confirm('确定要封禁对方吗？\n将永久禁止该 IP 和浏览器指纹访问。')) return;
-        transport._ws.send(JSON.stringify({
-            type: 'admin_ban',
-            token: adminToken,
-        }));
+        showBanReasonDialog('对方', (reason) => {
+            transport._ws.send(JSON.stringify({
+                type: 'admin_ban',
+                token: adminToken,
+                reason: reason,
+            }));
+        });
     });
 
     opponentInfo.appendChild(banBtn);
+}
+
+/**
+ * 管理员封禁原因输入弹窗（公用于游戏内和旁观模式）
+ * @param {string} targetLabel 被封对象的称呼（如"对方""玩家A"）
+ * @param {Function} callback 确认回调，接收 reason 字符串参数
+ */
+function showBanReasonDialog(targetLabel, callback, defaultReason = '', onCancel = null) {
+    // 移除已有的弹窗（防重复）
+    const existing = document.getElementById('ban-reason-overlay');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ban-reason-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+        <div class="doodle-border" style="padding:24px;max-width:360px;width:90%;background:#fff;">
+            <h2 style="font-size:18px;color:#e74c3c;margin:0 0 4px;">
+                <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                </svg>
+                封禁${targetLabel}
+            </h2>
+            <p style="margin:0 0 16px;font-size:13px;color:#555;">将永久禁止该 IP 和浏览器指纹访问</p>
+            <textarea id="ban-reason-input" maxlength="200" placeholder="封禁原因（可选，如恶意刷屏、人身攻击等）"
+                style="width:100%;height:80px;padding:12px;border:2px solid var(--ink-black);border-radius:10px;font-size:14px;resize:none;box-sizing:border-box;outline:none;margin-bottom:16px;">${escapeHtml(defaultReason)}</textarea>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button class="doodle-btn" id="ban-reason-cancel" style="font-size:14px;">取消</button>
+                <button class="doodle-btn" id="ban-reason-confirm" style="font-size:14px;background:var(--ink-blue);color:var(--surface-white);border-color:var(--ink-blue);">确认封禁</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = document.getElementById('ban-reason-input');
+    document.getElementById('ban-reason-confirm').addEventListener('click', () => {
+        overlay.remove();
+        callback((input.value || '').trim());
+    });
+    const closeOverlay = () => {
+        overlay.remove();
+        if (onCancel) onCancel();
+    };
+    document.getElementById('ban-reason-cancel').addEventListener('click', closeOverlay);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeOverlay();
+    });
+    input.focus();
 }
 
 // ================================================================
@@ -2407,7 +2921,25 @@ const origConnect = WebSocketTransport.prototype.connect;
 WebSocketTransport.prototype.connect = function (nickname, duration) {
     const wsUrl = this._url;
 
-    this._ws = new WebSocket(wsUrl);
+    // 保存参数供自动重连使用
+    this._lastNickname = nickname || '';
+    this._lastDuration = duration || 600;
+
+    // 取消pending的重连timer，避免onclose和visibilitychange双重触发
+    if (this._reconnectTimer) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+    }
+
+    // 关闭旧连接（如果有），避免旧onopen引用被新ws覆盖
+    if (this._ws) {
+        try { this._ws.onopen = null; this._ws.onclose = null; this._ws.onerror = null; this._ws.onmessage = null; } catch (e) {}
+        try { this._ws.close(); } catch (e) {}
+        this._ws = null;
+    }
+
+    const ws = new WebSocket(wsUrl);
+    this._ws = ws;
 
     DebugLogger.log('ws', 'WebSocket连接创建', {
         hasNickname: !!nickname,
@@ -2415,36 +2947,58 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
         readyState_after_new: this._ws.readyState
     });
 
-    this._ws.onopen = () => {
-        // 启动心跳：每 25 秒发送一次 ping
-        let _hbCount = 0;
-        this._heartbeatTimer = setInterval(() => {
-            if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-                this._ws.send(JSON.stringify({ type: 'ping' }));
-                _hbCount++;
-                // 每 5 次心跳记录一条日志
-                if (_hbCount % 5 === 0) {
-                    DebugLogger.log('ws', '心跳ping #' + _hbCount, { readyState: this._ws.readyState });
+    ws.onopen = () => {
+            // 重连成功，重置计数
+            this._reconnectAttempts = 0;
+            this._intentionalClose = false;
+            this._lastPongTime = Date.now();
+
+            // 移除重连提示
+            const reconnectBanner = document.getElementById('reconnect-banner');
+            if (reconnectBanner) reconnectBanner.remove();
+
+            // 启动心跳：每 25 秒发送一次 ping
+            let _hbCount = 0;
+            this._heartbeatTimer = setInterval(() => {
+                if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+                    this._ws.send(JSON.stringify({ type: 'ping' }));
+                    _hbCount++;
+                    // 每 5 次心跳记录一条日志
+                    if (_hbCount % 5 === 0) {
+                        DebugLogger.log('ws', '心跳ping #' + _hbCount, { readyState: this._ws.readyState });
+                    }
+                    // 超过 60 秒没收到 pong，主动断开触发重连
+                    if (this._lastPongTime && (Date.now() - this._lastPongTime) > 60000) {
+                        DebugLogger.log('ws', 'pong超时60s，主动断开重连');
+                        this._ws.close();
+                    }
                 }
-            }
-        }, 25000);
+            }, 25000);
 
         DebugLogger.log('ws', 'WebSocket onopen', { nickname: nickname || '(preconnect)' });
 
-        // 仅当有 nickname 时发送 join（preconnect 不发送）
-        if (nickname) {
-            DebugLogger.log('match', '发送join请求', { nickname: nickname, duration: duration || 600 });
-            this._ws.send(JSON.stringify({
-                type: 'join',
-                nickname: nickname,
-                duration: duration || 600,
-                token: adminToken,
-                fingerprint: browserFingerprint,
-            }));
+        // 验证连接仍属于当前 ws（防止竞态：旧连接onopen触发时this._ws已被新连接覆盖）
+        if (ws.readyState === WebSocket.OPEN) {
+            // 仅当有 nickname 时发送 join（preconnect 不发送）
+            if (nickname) {
+                DebugLogger.log('match', '发送join请求', { nickname: nickname, duration: duration || 600, has_session: !!this._lastSessionId });
+                const joinPayload = {
+                    type: 'join',
+                    nickname: nickname,
+                    duration: duration || 600,
+                    token: adminToken,
+                    fingerprint: browserFingerprint,
+                };
+                // 重连时带上旧会话 ID，后端可恢复而非重新匹配
+                if (this._lastSessionId) {
+                    joinPayload.reconnect_session_id = this._lastSessionId;
+                }
+                ws.send(JSON.stringify(joinPayload));
+            }
         }
     };
 
-    this._ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
         let data;
         try {
             data = JSON.parse(event.data);
@@ -2455,8 +3009,14 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
             return;
         }
         switch (data.type) {
+            case 'pong':
+                this._lastPongTime = Date.now();
+                break;
             case 'matched':
                 DebugLogger.log('match', '收到matched事件', { opponent: data.opponent_name, session_id: data.session_id, duration: data.duration, elapsed_ms: window._matchStartTs ? Date.now() - window._matchStartTs : -1 });
+                this._lastSessionId = data.session_id || '';
+                // 每次进入对局（首次匹配 / 重连恢复）拉取最新表情列表
+                ws.send(JSON.stringify({ type: 'get_stickers' }));
                 this._emit('connected', {
                     opponent_name: data.opponent_name,
                     duration: data.duration,
@@ -2500,7 +3060,13 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'error':
                 DebugLogger.log('error', '服务端错误', { message: data.message });
-                if (data.message && data.message.includes('封禁')) {
+                // 该IP已有活跃连接 → 阻止自动重连
+                if (data.message && data.message.includes('已有活跃连接')) {
+                    this._preventReconnect = true;
+                    this._intentionalClose = true;
+                    this._emit('system', { text: data.message });
+                    if (this._ws) this._ws.close();
+                } else if (data.message && data.message.includes('封禁') && !data.message.includes('无需封禁')) {
                     this._emit('banned', { message: data.message });
                 } else {
                     // 匹配阶段错误：显示在匹配页并返回首页
@@ -2530,10 +3096,15 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'spectate_ended':
                 if (spectateSessionId === data.session_id) {
-                    exitSpectatorView();
-                    if (data.result) {
-                        alert('对局结束！\n玩家1: ' + data.result.player1_truth + '\n玩家2: ' + data.result.player2_truth);
-                    }
+                    const map = {
+                        '玩家断开连接': '玩家断开连接，观战结束',
+                        '玩家离开': '玩家离开了房间，观战结束',
+                        '判定超时': '判定超时，观战结束',
+                        'no_mutual_chat': '双方未互发消息，对局无效',
+                        '双方判定完成': '判定完成，观战结束' + (data.result ? '（玩家1: ' + data.result.player1_truth + ' 玩家2: ' + data.result.player2_truth + '）' : ''),
+                    };
+                    showAdminError(map[data.reason] || data.reason || '观战结束');
+                    setTimeout(() => exitSpectatorView(), 3000);
                 }
                 break;
             case 'admin_unspectated':
@@ -2545,8 +3116,6 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 } else {
                     alert(data.message || '举报失败');
                 }
-                break;
-            case 'admin_connected':
                 break;
             case 'online_count':
                 document.getElementById('online-num').textContent = data.count;
@@ -2568,20 +3137,78 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
             case 'save_history_status':
                 this._emit('save_history_status', data);
                 break;
+            case 'stickers_list':
+                // 收到表情列表，建立本地 id→{name, url} 映射
+                stickerMap = {};
+                if (data.stickers && data.stickers.length) {
+                    data.stickers.forEach(function(s) {
+                        stickerMap[s.id] = { name: s.name, url: s.url };
+                    });
+                }
+                break;
+            case 'sticker':
+                // 收到对手发来的表情（仅 id+name，不含 URL）
+                if (data.id && stickerMap[data.id]) {
+                    appendSticker(data.id, data.name || stickerMap[data.id].name, 'left', data.sender || '对方');
+                    botMsgCount++;
+                    updateJudgementState(game._judgementAllowed);
+                }
+                break;
+            case 'spectate_sticker':
+                // 旁观模式收到表情消息
+                if (data.id && stickerMap[data.id]) {
+                    appendSticker(data.id, data.name || stickerMap[data.id].name, data.side || 'left', data.sender || '玩家');
+                }
+                break;
             default:
                 if (this._adminHandler) this._adminHandler(data);
                 break;
         }
     };
 
-    this._ws.onerror = () => {
+    ws.onerror = () => {
         DebugLogger.log('error', 'WebSocket onerror触发');
         this._emit('error', { text: 'WebSocket 连接失败' });
     };
 
-    this._ws.onclose = () => {
-        DebugLogger.log('ws', 'WebSocket onclose触发');
-        this._emit('disconnected', {});
+    ws.onclose = () => {
+        DebugLogger.log('ws', 'WebSocket onclose触发', { intentional: this._intentionalClose, attempts: this._reconnectAttempts });
+
+        // 清理心跳
+        if (this._heartbeatTimer) {
+            clearInterval(this._heartbeatTimer);
+            this._heartbeatTimer = null;
+        }
+
+        // 主动关闭（用户离开或 reset）→ 不重连
+        // 或者后端返回"已有活跃连接"错误 → 不重连
+        if (this._intentionalClose || this._preventReconnect) {
+            this._intentionalClose = false;
+            this._emit('disconnected', {});
+            return;
+        }
+
+        // 指数退避重连：1s, 2s, 4s, 8s, 16s, 30s...
+        const maxDelay = 30000;
+        const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts), maxDelay);
+        this._reconnectAttempts++;
+
+        DebugLogger.log('ws', '自动重连', { attempt: this._reconnectAttempts, delay_ms: delay });
+
+        this._reconnectTimer = setTimeout(() => {
+            this._reconnectTimer = null;
+            // 如果已经连上了，跳过
+            if (this._ws && this._ws.readyState === WebSocket.OPEN) return;
+            this._ws = null;
+            // 只在匹配页或聊天页时发 join（结果页/首页只建连接不入队列，防止误进对局后再被 timeout 弹窗覆盖）
+            const shouldJoin = matchingPage.style.display === 'flex' || chatPage.style.display === 'flex';
+            this.connect(shouldJoin ? (this._lastNickname || '') : '', this._lastDuration || 600);
+        }, delay);
+
+        // 仅首次断开通知 UI
+        if (this._reconnectAttempts === 1) {
+            this._emit('disconnected', { reconnecting: true });
+        }
     };
 };
 
@@ -3011,7 +3638,7 @@ function renderChatHistoryList(data) {
     let pageHtml = '';
     for (let i = 1; i <= totalPages; i++) {
         if (i === data.page) {
-            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:#fff;border-radius:4px;margin:0 2px;">' + i + '</span>';
+            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;">' + i + '</span>';
         } else {
             pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + i + '">' + i + '</span>';
         }
@@ -3088,5 +3715,3 @@ document.getElementById('chat-history-detail-overlay').addEventListener('click',
         document.getElementById('chat-history-detail-overlay').style.display = 'none';
     }
 });
-
-// ================================================================

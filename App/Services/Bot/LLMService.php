@@ -1,7 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Bot;
 
+use App\Services\Infrastructure\Logger;
 use Config\Config;
 
 /**
@@ -232,7 +233,7 @@ class LLMService
     private static function getTokensFilePath(): ?string
     {
         if (self::$tokensFile === null) {
-            $candidate = realpath(__DIR__ . '/../../Storage/TOKENS.txt');
+            $candidate = realpath(__DIR__ . '/../../../Storage/TOKENS.txt');
             self::$tokensFile = $candidate !== false ? $candidate : null;
         }
         return self::$tokensFile;
@@ -243,7 +244,7 @@ class LLMService
      */
     private static function getCaBundlePath(): string
     {
-        $candidate = realpath(__DIR__ . '/../../Storage/cacert.pem');
+        $candidate = realpath(__DIR__ . '/../../../Storage/cacert.pem');
         return $candidate !== false ? $candidate : '';
     }
 }

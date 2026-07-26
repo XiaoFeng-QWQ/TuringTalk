@@ -7,11 +7,14 @@ use Swoole\WebSocket\Server as WebSocketServer;
 use App\Core\Http\HttpHandler;
 use App\Core\WebSocket\WebSocketHandler;
 use Config\Config;
-use App\Services\Logger;
-use App\Services\BanRepository;
-use App\Services\PlayerStatsRepository;
-use App\Services\ChatHistoryRepository;
-use App\Services\AsyncDbWriter;
+use App\Services\Infrastructure\Logger;
+use App\Services\Infrastructure\RedisService;
+use App\Services\Repository\BanRepository;
+use App\Services\Repository\PlayerStatsRepository;
+use App\Services\Repository\ChatHistoryRepository;
+use App\Services\Infrastructure\AsyncDbWriter;
+use App\Services\Infrastructure\StickerService;
+use App\Services\Repository\OnlineCountRepository;
 
 class Application
 {
@@ -78,11 +81,6 @@ class Application
 
         $this->registerServerEvents();
 
-        Logger::info('Server started', [
-            'host' => $this->server->host,
-            'port' => $this->server->port
-        ]);
-
         $this->server->start();
     }
 
@@ -93,10 +91,36 @@ class Application
         $this->server->on('WorkerStart', function (Server $server, int $workerId) use ($webSocketHandler) {
             Logger::info("Worker started", ['worker_id' => $workerId]);
 
+            // 启动时清理 Redis 死数据（服务器重启后旧连接全部失效）
+            try {
+                $result = RedisService::cleanupOnStartup();
+                Logger::info('Redis startup cleanup completed', $result);
+            } catch (\Throwable $e) {
+                Logger::warning('Redis startup cleanup failed', ['error' => $e->getMessage()]);
+            }
+
             // 启动异步 DB 写入队列（独立协程，500ms 消费一次）
             AsyncDbWriter::start();
 
-            // 每 60 秒清理一次过期聊天记录
+            // 启动表情包异步同步服务（Redis → SQLite）
+            StickerService::start();
+
+            // 初始化在线人数 SQLite 存储，启动时立即记录一次
+            OnlineCountRepository::initialize();
+            OnlineCountRepository::record($webSocketHandler->getGameHandler()->getGameService()->getOnlineCount());
+
+            // 每 30 分钟记录一次在线人数到 SQLite
+            \Swoole\Timer::tick(1800000, function () use ($webSocketHandler) {
+                try {
+                    $count = $webSocketHandler->getGameHandler()->getGameService()->getOnlineCount();
+                    OnlineCountRepository::record($count);
+                    Logger::debug('Online count recorded to SQLite', ['count' => $count]);
+                } catch (\Throwable $e) {
+                    Logger::error('Failed to record online count', ['error' => $e->getMessage()]);
+                }
+            });
+
+            // 每 60 秒清理一次过期数据
             \Swoole\Timer::tick(60000, function () use ($webSocketHandler) {
                 $webSocketHandler->getGameHandler()->getGameService()->sweepStaleHistory();
             });
@@ -109,7 +133,7 @@ class Application
                 $memoryMB = round(memory_get_usage(true) / 1048576, 2);
                 $peakMemoryMB = round(memory_get_peak_usage(true) / 1048576, 2);
 
-                Logger::info('[HEALTH] Worker health check', [
+                Logger::debug('[HEALTH] Worker health check', [
                     'worker_id' => $workerId,
                     'connections' => $stats['connection_num'] ?? 0,
                     'accept_count' => $stats['accept_count'] ?? 0,
@@ -146,7 +170,10 @@ class Application
         });
 
         $this->server->on('Start', function (Server $server) {
-            Logger::info("Master process started");
+            Logger::info("Server started", [
+                'host' => $server->host,
+                'port' => $server->port,
+            ]);
         });
 
         $this->server->on('Shutdown', function (Server $server) {

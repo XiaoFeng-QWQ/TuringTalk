@@ -1,7 +1,9 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Game;
 
+use App\Services\Infrastructure\RedisService;
+use App\Services\Infrastructure\Logger;
 use Swoole\Coroutine\Channel;
 use Config\Config;
 
@@ -292,16 +294,21 @@ class GameService
 
     // ==================== 聊天消息 ====================
 
-    public static function addSessionMessage(string $sessionId, string $sender, string $text, string $side = 'left'): void
+    public static function addSessionMessage(string $sessionId, string $sender, string $text, string $side = 'left', string $stickerId = '', string $stickerName = ''): void
     {
         $redis = RedisService::connect();
         $key = RedisService::KP_MSG . $sessionId;
-        $redis->rPush($key, json_encode([
+        $msg = [
             'sender' => mb_substr($sender, 0, 32),
             'text'   => mb_substr($text, 0, 500),
             'side'   => $side,
             'time'   => date('H:i:s'),
-        ], JSON_UNESCAPED_UNICODE));
+        ];
+        if ($stickerId !== '') {
+            $msg['sticker_id'] = $stickerId;
+            $msg['sticker_name'] = mb_substr($stickerName, 0, 32);
+        }
+        $redis->rPush($key, json_encode($msg, JSON_UNESCAPED_UNICODE));
 
         // 限制单会话最多 200 条消息
         if ($redis->lLen($key) > 200) {

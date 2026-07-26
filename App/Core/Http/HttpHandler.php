@@ -7,7 +7,7 @@ use Swoole\Http\Response;
 use App\Core\Router;
 use App\Core\Request as HttpRequest;
 use App\Core\Response as HttpResponse;
-use App\Services\Logger;
+use App\Services\Infrastructure\Logger;
 use Throwable;
 
 class HttpHandler

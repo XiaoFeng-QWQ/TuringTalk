@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Infrastructure;
 
 use Swoole\Coroutine;
 use Swoole\Timer;
@@ -11,12 +11,12 @@ use Swoole\Timer;
  * 对局结束时不再同步写 MySQL，改为 push 到 Redis 队列（微秒级）。
  * 独立协程定时消费队列批量写入 MySQL，彻底解耦游戏逻辑与 DB I/O。
  *
- * 队列 key: tg:write_queue
+ * 队列 key: tg:write:queue
  * 每条任务: {type: "stats"|"report_chat", data: {...}}
  */
 class AsyncDbWriter
 {
-    private const QUEUE_KEY = 'tg:write_queue';
+    private const QUEUE_KEY = 'tg:write:queue';
     private const BATCH_SIZE = 20;      // 每次最多消费 20 条
     private const DRAIN_INTERVAL_MS = 500; // 500ms 消费一次
 

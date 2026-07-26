@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Infrastructure;
 
 use Config\Config;
 use Swoole\Coroutine;
@@ -30,9 +30,6 @@ class RedisService
     public const KP_SPECTATOR  = self::PREFIX . 'spec:';     // spec:{sessId}    → set
     public const KP_MATCH_Q    = self::PREFIX . 'queue';     // queue            → list
     public const KP_MATCH_TIMER= self::PREFIX . 'timer:';    // timer:{fd}       → string
-    public const KP_ONLINE     = self::PREFIX . 'online';    // online           → hash (fd→name)
-    public const KP_IP         = self::PREFIX . 'ip:';       // ip:{fd}          → hash
-    public const KP_NAME       = self::PREFIX . 'name:';     // name:{fd}        → string
 
     /**
      * 获取当前协程专属的 Redis 连接
@@ -119,6 +116,50 @@ class RedisService
             if ($iterator == 0) break;
         }
         return $count;
+    }
+
+    /**
+     * 启动时清理死数据：服务器重启后所有旧连接已断开，
+     * 残留的会话、队列、计时器等 Redis 数据全部失效，需一次性清掉。
+     *
+     * @return array{scanned: int, deleted: int} 扫描到的 key 总数和删除数
+     */
+    public static function cleanupOnStartup(): array
+    {
+        $redis = self::connect();
+
+        // 1. 直接删除无通配符的 key
+        $redis->del(self::KP_MATCH_Q);                        // 匹配队列
+        $redis->del(self::PREFIX . 'write:queue');             // 异步写入队列
+
+        // 2. SCAN 批量删除带通配符的模式
+        // 注意：tg:sticker:sync 不受清理影响（不在 patterns 中）
+        $patterns = [
+            self::KP_SESSION,    // tg:sess:*
+            self::KP_PLAYER,     // tg:player:*
+            self::KP_MSG,        // tg:msg:*
+            self::KP_CODE,       // tg:code:*
+            self::KP_MATCH_TIMER,// tg:timer:*
+            self::KP_SPECTATOR,  // tg:spec:*
+        ];
+
+        $totalScanned = 0;
+        $totalDeleted = 0;
+
+        foreach ($patterns as $pattern) {
+            $iterator = null;
+            while (true) {
+                $arr = $redis->scan($iterator, $pattern . '*', 100);
+                if ($arr === false) break;
+                $totalScanned += count($arr);
+                foreach ($arr as $key) {
+                    $totalDeleted += $redis->del($key);
+                }
+                if ($iterator == 0) break;
+            }
+        }
+
+        return ['scanned' => $totalScanned, 'deleted' => $totalDeleted];
     }
 
     /**

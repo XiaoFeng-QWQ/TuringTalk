@@ -81,7 +81,7 @@
             </div>
 
             <div class="id-card doodle-border">
-                <div class="input-line">
+                <div class="input-line" id="nickname-input-line">
                     <label>
                         <svg class="icon" viewBox="0 0 24 24">
                             <path d="M12 20h9" />
@@ -91,13 +91,28 @@
                     </label>
                     <input id="nickname-input" type="text">
                 </div>
-                <div style="font-size: 12px; color: #888;">分配的系统编号: <span id="system-id"></span></div>
+                <div class="id-card-display" id="id-card-display"
+                    style="display:none;text-align:center;padding:16px 0;">
+                    <div id="id-card-nickname" style="font-size:18px;font-weight:bold;color:#2b2b2b;"></div>
+                    <div style="font-size:12px;color:#888;margin-top:4px;">系统编号: <span id="id-card-fingerprint"></span>
+                    </div>
+                </div>
+                <div id="system-id-line" style="font-size: 12px; color: #888;">分配的系统编号: <span id="system-id"></span>
+                </div>
                 <label class="auto-record-line">
                     <input type="checkbox" id="cb-auto-record">
                     <span>自动记录战局（开启后战绩自动记录，换设备可用恢复码找回）</span>
                 </label>
                 <div class="agreement-line">
                     开始即代表同意 <a href="javascript:void(0)" id="agreement-link">《用户协议》</a>
+                    <span style="margin:0 4px;color:#ccc;">·</span>
+                    <a href="https://wj.qq.com/s2/27408438/2137/" target="_blank" rel="noopener">
+                        <svg class="icon" viewBox="0 0 24 24" style="width:11px;height:11px;vertical-align:-1px;">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                            <polyline points="15 3 21 3 21 9" />
+                            <line x1="10" y1="14" x2="21" y2="3" />
+                        </svg>
+                        反馈 Bug</a>
                 </div>
                 <button class="doodle-btn start-btn" id="btn-start">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -109,9 +124,6 @@
                     马上开始匹配
                 </button>
             </div>
-
-            <!-- 先暂时留着吧
-            <div id="stats-section" style="display:none;width:100%;max-width:700px;"></div> -->
 
             <div class="rules-board">
                 <div class="rule-item doodle-border">
@@ -144,7 +156,9 @@
                     <span></span><span></span><span></span>
                 </div>
                 <p style="margin-top: 15px; font-size: 14px; color: #666;" id="matching-hint">稍等一下，马上就好</p>
-                <div id="match-error" style="display:none;margin-top:12px;padding:10px 14px;background:#fde2e4;color:#c62828;border:2px solid #e74c3c;border-radius:8px 4px 8px 4px;font-size:14px;font-weight:bold;text-align:center;"></div>
+                <div id="match-error"
+                    style="display:none;margin-top:12px;padding:10px 14px;background:#fde2e4;color:#c62828;border:2px solid #e74c3c;border-radius:8px 4px 8px 4px;font-size:14px;font-weight:bold;text-align:center;">
+                </div>
             </div>
         </section>
 
@@ -163,9 +177,21 @@
                             <strong style="font-size: 18px;">UNKNOWN_MFCH</strong>
                         </div>
                     </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 12px; color: #888;">剩余时间</div>
-                        <div class="timer-sketch" id="timer-display">10:00</div>
+                    <div style="text-align: right; display: flex; align-items: center; gap: 8px;">
+                        <button class="doodle-btn" id="btn-report" title="举报对方"
+                            style="border-color:#e74c3c;color:#e74c3c;padding:4px 6px;font-size:12px;">
+                            <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;">
+                                <path d="M12 2L1 21h22L12 2z" fill="none" stroke="currentColor" stroke-width="2"
+                                    stroke-linejoin="round" />
+                                <line x1="12" y1="10" x2="12" y2="15" stroke="currentColor" stroke-width="2"
+                                    stroke-linecap="round" />
+                                <circle cx="12" cy="18" r="1.2" fill="currentColor" />
+                            </svg>
+                        </button>
+                        <div>
+                            <div style="font-size: 12px; color: #888;">剩余时间</div>
+                            <div class="timer-sketch" id="timer-display">10:00</div>
+                        </div>
                     </div>
                 </div>
 
@@ -180,7 +206,17 @@
                 </div>
 
                 <div class="chat-input-area">
-                    <input type="text" id="chat-input" placeholder="写点什么试探一下..." autocomplete="off" maxlength="300">
+                    <div class="chat-input-wrap">
+                        <input type="text" id="chat-input" placeholder="写点什么试探一下..." autocomplete="off" maxlength="300">
+                        <button class="sticker-btn" id="btn-sticker-picker" title="发送表情">
+                            <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                                <rect x="3" y="3" width="18" height="18" rx="3" />
+                                <circle cx="8.5" cy="8.5" r="1.5" />
+                                <circle cx="15.5" cy="8.5" r="1.5" />
+                                <path d="M8 14c0 0 1.5 2 4 2s4-2 4-2" />
+                            </svg>
+                        </button>
+                    </div>
                     <span id="char-count"
                         style="font-size:11px;color:#999;margin-right:8px;white-space:nowrap;">0/300</span>
                     <button class="doodle-btn" id="btn-send">
@@ -188,14 +224,6 @@
                         <svg class="icon" viewBox="0 0 24 24">
                             <line x1="22" y1="2" x2="11" y2="13" />
                             <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                        </svg>
-                    </button>
-                    <button class="doodle-btn" id="btn-report" title="举报对方"
-                        style="border-color:#e74c3c;color:#e74c3c;padding:8px 6px;margin-left:4px;font-size:12px;">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;">
-                            <path d="M12 2L1 21h22L12 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                            <line x1="12" y1="10" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                            <circle cx="12" cy="18" r="1.2" fill="currentColor"/>
                         </svg>
                     </button>
                 </div>
@@ -331,7 +359,7 @@
                         互动音效
                     </h4>
                     <p>收到消息时的提示音</p>
-                    <div class="hand-checkbox active" onclick="this.classList.toggle('active')">
+                    <div class="hand-checkbox active" id="cb-sound-effect" onclick="this.classList.toggle('active')">
                         <div class="box">
                             <svg class="icon check-icon" viewBox="0 0 24 24">
                                 <polyline points="20 6 9 17 4 12" />
@@ -350,7 +378,8 @@
                         </svg>
                         战绩记录
                     </h4>
-                    <p id="lb-status-text" style="font-size:12px;color:var(--text-subtle);margin-bottom:8px;">开启后战绩自动记录，换设备可用恢复码找回</p>
+                    <p id="lb-status-text" style="font-size:12px;color:var(--text-subtle);margin-bottom:8px;">
+                        开启后战绩自动记录，换设备可用恢复码找回</p>
 
                     <div id="lb-recover-area">
                         <p style="font-size:11px;color:var(--text-subtle);margin-bottom:4px;">已有恢复码？在此处找回存档：</p>
@@ -396,6 +425,23 @@
                     </h4>
                     <div id="chat-history-list" style="max-height:300px;overflow-y:auto;"></div>
                     <div id="chat-history-pagination" style="text-align:center;margin-top:8px;"></div>
+                </div>
+
+                <div class="setting-row">
+                    <h4>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="16" y1="13" x2="8" y2="13" />
+                            <line x1="16" y1="17" x2="8" y2="17" />
+                        </svg>
+                        更新日志
+                    </h4>
+                    <p>查看各版本的更新记录</p>
+                    <button class="doodle-btn" id="btn-changelog"
+                        style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">
+                        查看更新日志
+                    </button>
                 </div>
 
                 <div class="setting-row">
@@ -449,14 +495,60 @@
         </div>
     </div>
 
+    <div id="changelog-overlay">
+        <div class="clipboard-drawer">
+            <div class="paper-content doodle-border">
+                <div class="drawer-header">
+                    <h2>更新日志</h2>
+                    <button class="doodle-btn" id="btn-close-changelog" style="padding: 4px 8px; border:none;">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="changelog-list">
+
+                    <div class="changelog-version">
+                        <div class="changelog-ver-header">v1.2.0 — 2026.07.26</div>
+                        <ul>
+                            <li>支持表情消息发送</li>
+                            <li>修复亿些已知bug</li>
+                        </ul>
+                    </div>
+                    <div class="changelog-version">
+                        <div class="changelog-ver-header">v1.1.0 — 2026.07.25</div>
+                        <ul>
+                            <li>支持人机 / 真人匹配对战</li>
+                            <li>管理员观战、封禁、公告功能</li>
+                            <li>举报审核系统</li>
+                            <li>战绩记录与恢复码</li>
+                        </ul>
+                    </div>
+                    <div class="changelog-version">
+                        <div class="changelog-ver-header">v1.0.0 — 2026.07.24</div>
+                        <ul>
+                            <li>初始版本上线</li>
+                        </ul>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="chat-history-detail-overlay" style="display:none;">
-        <div class="admin-overlay-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1100;display:flex;align-items:center;justify-content:center;">
-            <div class="doodle-border" style="padding:20px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;background:#fff;">
+        <div class="admin-overlay-bg"
+            style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1100;display:flex;align-items:center;justify-content:center;">
+            <div class="doodle-border"
+                style="padding:20px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;background:var(--surface-white);">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
                     <h3 id="chat-detail-title" style="font-size:16px;margin:0;">聊天记录详情</h3>
-                    <button class="doodle-btn" id="btn-chat-detail-close" style="padding:4px 10px;font-size:12px;">关闭</button>
+                    <button class="doodle-btn" id="btn-chat-detail-close"
+                        style="padding:4px 10px;font-size:12px;">关闭</button>
                 </div>
-                <div id="chat-detail-info" style="font-size:11px;color:#888;margin-bottom:10px;"></div>
+                <div id="chat-detail-info" style="font-size:11px;color:var(--text-subtle);margin-bottom:10px;"></div>
                 <div id="chat-detail-messages" style="max-height:50vh;overflow-y:auto;"></div>
             </div>
         </div>
@@ -466,7 +558,7 @@
         <div
             style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;">
             <div class="doodle-border"
-                style="padding:30px;max-width:360px;width:90%;background:#fff;text-align:center;">
+                style="padding:30px;max-width:360px;width:90%;background:var(--surface-white);text-align:center;">
                 <h2 style="margin-bottom:16px;">
                     <svg class="icon" viewBox="0 0 24 24" style="width:20px;height:20px;">
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -478,10 +570,10 @@
                     style="width:100%;padding:12px;border:2px solid var(--ink-black);border-radius:10px;font-size:16px;text-align:center;margin-bottom:16px;outline:none;">
                 <div style="display:flex;gap:10px;justify-content:center;">
                     <button class="doodle-btn" id="btn-admin-login"
-                        style="background:var(--ink-blue);color:#fff;border-color:var(--ink-blue);">登录</button>
+                        style="background:var(--ink-blue);color:var(--surface-white);border-color:var(--ink-blue);">登录</button>
                     <button class="doodle-btn" id="btn-admin-cancel">取消</button>
                 </div>
-                <div id="admin-error" style="color:#f44336;font-size:13px;margin-top:10px;display:none;"></div>
+                <div id="admin-error" style="color:var(--danger);font-size:13px;margin-top:10px;display:none;"></div>
             </div>
         </div>
     </div>
@@ -489,23 +581,22 @@
     <div id="report-overlay" style="display:none;">
         <div
             style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;">
-            <div class="doodle-border" style="padding:24px;max-width:380px;width:90%;background:#fff;">
-                <h2 style="font-size:18px;color:#e74c3c;margin-bottom:12px;">
+            <div class="doodle-border" style="padding:24px;max-width:380px;width:90%;background:var(--surface-white);">
+                <h2 style="font-size:18px;color:var(--danger);margin-bottom:12px;">
                     <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
                         <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                         <line x1="4" y1="22" x2="4" y2="15" />
                     </svg>
                     举报对方
                 </h2>
-                <p style="font-size:13px;color:#999;margin-bottom:12px;">请简要说明举报原因，一次对局限举报一次</p>
+                <p style="font-size:13px;color:var(--text-subtle);margin-bottom:12px;">请简要说明举报原因，一次对局限举报一次</p>
                 <textarea id="report-reason" placeholder="例如：对方发送骚扰信息、使用外挂等..." maxlength="100"
-                    style="width:100%;height:80px;padding:10px;border:2px solid #e74c3c;border-radius:8px;font-size:13px;resize:none;outline:none;box-sizing:border-box;"></textarea>
+                    style="width:100%;height:80px;padding:10px;border:2px solid var(--ink-black);border-radius:10px;font-size:13px;resize:none;outline:none;box-sizing:border-box;"></textarea>
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
                     <button class="doodle-btn" id="btn-report-cancel">取消</button>
-                    <button class="doodle-btn" id="btn-report-submit"
-                        style="background:#e74c3c;color:#fff;border-color:#e74c3c;">提交举报</button>
+                    <button class="doodle-btn danger" id="btn-report-submit">提交举报</button>
                 </div>
-                <div id="report-error" style="color:#f44336;font-size:12px;margin-top:8px;display:none;"></div>
+                <div id="report-error" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
             </div>
         </div>
     </div>
@@ -514,16 +605,15 @@
         <div
             style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1001;display:flex;align-items:center;justify-content:center;">
             <div class="doodle-border"
-                style="padding:20px;max-width:600px;width:90%;max-height:90vh;background:#fff;overflow-y:auto;">
-                <h2 id="report-detail-title" style="font-size:18px;color:#e74c3c;margin-bottom:12px;">举报详情</h2>
+                style="padding:20px;max-width:600px;width:90%;max-height:90vh;background:var(--surface-white);overflow-y:auto;">
+                <h2 id="report-detail-title" style="font-size:18px;color:var(--danger);margin-bottom:12px;">举报详情</h2>
                 <div id="report-detail-content" style="font-size:13px;color:#555;"></div>
                 <div id="report-detail-chat"
-                    style="margin-top:12px;max-height:300px;overflow-y:auto;background:#f9f8f5;border:1px solid #ddd;border-radius:8px;padding:10px;font-size:12px;">
+                    style="margin-top:12px;max-height:300px;overflow-y:auto;background:var(--bg-input);border:1px solid var(--border-light);border-radius:8px;padding:10px;font-size:12px;">
                 </div>
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
                     <button class="doodle-btn" id="btn-report-detail-close">关闭</button>
-                    <button class="doodle-btn" id="btn-report-detail-reviewed"
-                        style="background:#27ae60;color:#fff;border-color:#27ae60;">标记已审</button>
+                    <button class="doodle-btn success" id="btn-report-detail-reviewed">标记已审</button>
                 </div>
             </div>
         </div>
@@ -563,20 +653,15 @@
                     style="display:flex;gap:0;border:2px solid var(--ink-blue);border-radius:8px;overflow:hidden;margin-bottom:12px;">
                     <button class="admin-tab-btn active" id="tab-sessions"
                         style="flex:1;padding:6px 0;font-size:13px;border:none;background:#e8e0d4;color:var(--ink-blue);cursor:pointer;border-right:2px solid var(--ink-blue);">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                            <line x1="8" y1="21" x2="16" y2="21" />
-                            <line x1="12" y1="17" x2="12" y2="21" />
-                        </svg>
                         活跃对局
                     </button>
                     <button class="admin-tab-btn" id="tab-reports"
                         style="flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;">
-                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                            <line x1="4" y1="22" x2="4" y2="15" />
-                        </svg>
                         举报审核
+                    </button>
+                    <button class="admin-tab-btn" id="tab-stickers"
+                        style="flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;">
+                        自定义表情包
                     </button>
                 </div>
 
@@ -624,6 +709,53 @@
                     </div>
                 </div>
 
+                <div class="setting-row" id="panel-stickers" style="display:none;">
+                    <h4>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="3" y="3" width="18" height="18" rx="3" />
+                            <circle cx="8.5" cy="8.5" r="1.5" />
+                            <circle cx="15.5" cy="8.5" r="1.5" />
+                            <path d="M8 14c0 0 1.5 2 4 2s4-2 4-2" />
+                        </svg>
+                        自定义表情
+                    </h4>
+                    <div class="sticker-add-form">
+                        <label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">添加新表情</label>
+                        <div style="display:flex;gap:8px;margin-bottom:4px;flex-direction: column;">
+                            <input type="text" id="sticker-name-input" placeholder="表情名称（可选）" maxlength="20"
+                                style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
+                            <input type="text" id="sticker-url-input" placeholder="图片 URL 或点击下方上传" maxlength="500"
+                                style="flex:2;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
+                        </div>
+                        <div style="display:flex;gap:8px;margin-bottom:4px;align-items:center;">
+                            <label class="doodle-btn" id="btn-sticker-upload"
+                                style="flex:1;justify-content:center;font-size:12px;padding:6px 12px;cursor:pointer;">
+                                <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;margin-right:4px;">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="17 8 12 3 7 8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                                本地上传
+                            </label>
+                            <input type="file" id="sticker-file-input" accept="image/*" style="display:none;">
+                            <span id="sticker-upload-status" style="font-size:11px;color:#888;display:none;"></span>
+                        </div>
+                        <div id="sticker-preview" style="margin:4px 0;display:none;">
+                            <span style="font-size:11px;color:var(--text-subtle);">预览：</span>
+                            <img id="sticker-preview-img" src="" alt="预览"
+                                style="max-width:80px;max-height:80px;vertical-align:middle;border-radius:6px;border:1px solid #ddd;">
+                        </div>
+                        <button class="doodle-btn" id="btn-add-sticker"
+                            style="display:block;width:100%;margin-top:6px;justify-content:center;font-size:12px;padding:6px 12px;">
+                            添加表情
+                        </button>
+                    </div>
+                    <div class="sticker-list" id="sticker-list">
+                        <div style="font-size:12px;color:var(--text-subtle);text-align:center;" id="sticker-list-empty">
+                            暂无自定义表情</div>
+                    </div>
+                </div>
+
                 <div class="setting-row" id="spectate-info" style="display:none;">
                     <h4 style="color:#e65100;">
                         <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;">
@@ -639,7 +771,7 @@
                     </button>
                 </div>
 
-                <div style="margin-top:20px;padding-top:15px;border-top:2px dashed #ccc;">
+                <div style="margin-top:20px;padding-top:15px;border-top:2px dashed var(--border-light);">
                     <button class="doodle-btn" id="btn-exit-admin"
                         style="width:100%;justify-content:center;color:#f44336;border-color:#f44336;">
                         <svg class="icon" viewBox="0 0 24 24">
@@ -677,7 +809,7 @@
                         玩家之间发送的内容不代表本站立场。一经查实违规，本平台保留永久封禁并记录相关证据的权利。</p>
                 </div>
                 <button class="doodle-btn" id="btn-agree"
-                    style="width:100%;justify-content:center;margin-top:12px;background:var(--judge-bg);color:#fff;font-size:18px;padding:12px;border-radius:8px;">
+                    style="width:100%;justify-content:center;margin-top:12px;background:var(--judge-bg);color:var(--surface-white);font-size:18px;padding:12px;">
                     <svg class="icon" viewBox="0 0 24 24">
                         <polyline points="20 6 9 17 4 12" />
                     </svg>
@@ -687,9 +819,24 @@
         </div>
     </div>
 
-    <footer>
-        ✎ Handcrafted by XiaoFengQWQ // 随时随地，无需注册
-    </footer>
+    <div id="sticker-lightbox" style="display:none;">
+        <div class="sticker-lightbox-bg"></div>
+        <img id="sticker-lightbox-img" src="" alt="">
+        <button id="sticker-lightbox-close" class="doodle-btn"
+            style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
+    </div>
+
+    <div id="sticker-picker" class="sticker-picker" style="display:none;">
+        <div class="sticker-picker-header">
+            <span>选择表情</span>
+            <button class="doodle-btn" id="btn-close-sticker-picker"
+                style="padding:2px 8px;font-size:14px;">&times;</button>
+        </div>
+        <div class="sticker-picker-body" id="sticker-picker-body">
+            <div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情</div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 

@@ -1,7 +1,11 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Game;
 
+use App\Services\Bot\BotService;
+use App\Services\Bot\Persona;
+use App\Services\Infrastructure\RedisService;
+use App\Services\Infrastructure\Logger;
 use Swoole\Coroutine\Channel;
 use Swoole\Timer;
 use Swoole\WebSocket\Server;

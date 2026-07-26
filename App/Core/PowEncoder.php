@@ -3,7 +3,7 @@
 namespace App\Core;
 
 use Config\Config;
-use App\Services\Logger;
+use App\Services\Infrastructure\Logger;
 
 /**
  * 自定义 PoW 数据编码器（非标准算法，反逆向）

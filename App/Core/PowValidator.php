@@ -4,8 +4,8 @@ namespace App\Core;
 
 use Swoole\Table;
 use Config\Config;
-use App\Services\Logger;
-use App\Services\BanRepository;
+use App\Services\Infrastructure\Logger;
+use App\Services\Repository\BanRepository;
 
 /**
  * PoW 验证器（防重放 + 防暴力 + 自动封禁）

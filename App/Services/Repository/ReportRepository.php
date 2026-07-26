@@ -1,6 +1,9 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Repository;
+
+use App\Services\Infrastructure\Database;
+use App\Services\Infrastructure\Logger;
 
 /**
  * 举报记录存储服务（MySQL）

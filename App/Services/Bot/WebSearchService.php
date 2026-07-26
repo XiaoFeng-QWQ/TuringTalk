@@ -1,6 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Bot;
+
+use App\Services\Infrastructure\Logger;
 
 /**
  * 网页搜索服务

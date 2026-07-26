@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Infrastructure;
 
 use App\Enums\LogLevel;
 use Config\Config;
@@ -18,7 +18,7 @@ class Logger
 
     public static function initialize(): void
     {
-        $baseFile = Config::get('Server.Options.log_file', __DIR__ . '/../../Storage/Logs/app.log');
+        $baseFile = Config::get('Server.Options.log_file', __DIR__ . '/../../../Storage/Logs/app.log');
         $date = date('Y-m-d');
         $baseInfo = pathinfo($baseFile);
         self::$logFile = $baseInfo['dirname'] . '/' . $baseInfo['filename'] . '-' . $date . '.' . ($baseInfo['extension'] ?? 'log');

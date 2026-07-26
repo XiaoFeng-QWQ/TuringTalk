@@ -1,6 +1,9 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Repository;
+
+use App\Services\Infrastructure\Database;
+use App\Services\Infrastructure\Logger;
 
 /**
  * 玩家自行保存的聊天记录存储（MySQL）

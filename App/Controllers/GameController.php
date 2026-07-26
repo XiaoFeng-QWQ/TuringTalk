@@ -5,9 +5,8 @@ namespace App\Controllers;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Sanitizer;
-use App\Services\GameService;
-use App\Services\PlayerStatsRepository;
-use App\Services\ChatHistoryRepository;
+use App\Services\Repository\PlayerStatsRepository;
+use App\Services\Repository\ChatHistoryRepository;
 use Config\Config;
 
 class GameController

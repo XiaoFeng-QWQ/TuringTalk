@@ -1,7 +1,9 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Repository;
 
+use App\Services\Infrastructure\Logger;
+use App\Services\Infrastructure\SqliteHelper;
 use Swoole\Table;
 use PDO;
 
@@ -56,19 +58,58 @@ class BanRepository
     }
 
     /**
-     * 检查 IP 或指纹是否被封禁（纯内存查询，零 I/O）
+     * 检查 IP 或指纹是否被封禁（内存 Table 优先，SQLite 兜底）
      */
     public static function isBanned(string $ip, string $fingerprint): bool
     {
         if ((empty($ip) || $ip === 'unknown') && empty($fingerprint)) return false;
 
+        // 第一层：内存 Table（快，O(1)）
         if (!empty($ip) && $ip !== 'unknown' && self::$ipTable->exists($ip)) {
             return true;
         }
         if (!empty($fingerprint) && self::$fpTable->exists($fingerprint)) {
             return true;
         }
-        return false;
+
+        // 第二层：SQLite 兜底（Worker 重启后 Table 为空但 SQLite 有数据）
+        try {
+            $pdo = self::sqliteConnect();
+            $conditions = [];
+            $params = [];
+            if (!empty($ip) && $ip !== 'unknown') {
+                $conditions[] = 'ip = ?';
+                $params[] = $ip;
+            }
+            if (!empty($fingerprint)) {
+                $conditions[] = 'fingerprint = ?';
+                $params[] = $fingerprint;
+            }
+            if (empty($conditions)) {
+                $pdo = null;
+                return false;
+            }
+            $stmt = $pdo->prepare(
+                'SELECT 1 FROM bans WHERE ' . implode(' OR ', $conditions) . ' LIMIT 1'
+            );
+            $stmt->execute($params);
+            $found = (bool)$stmt->fetchColumn();
+            $pdo = null;
+
+            // 如果 SQLite 中有但 Table 中没有，补写回 Table（自愈）
+            if ($found && !empty($ip) && $ip !== 'unknown' && !self::$ipTable->exists($ip)) {
+                self::$ipTable->set($ip, ['present' => 1]);
+                Logger::debug('BanRepository: repopulated IP ban from SQLite', ['ip' => $ip]);
+            }
+            if ($found && !empty($fingerprint) && !self::$fpTable->exists($fingerprint)) {
+                self::$fpTable->set($fingerprint, ['present' => 1]);
+            }
+
+            return $found;
+        } catch (\Throwable $e) {
+            Logger::error('BanRepository: SQLite fallback failed', ['error' => $e->getMessage()]);
+            return false;
+        }
     }
 
     /**
@@ -136,15 +177,8 @@ class BanRepository
 
     private static function sqliteConnect(): PDO
     {
-        $dbPath = __DIR__ . '/../../Storage/banlist.db';
-        $pdo = new PDO('sqlite:' . $dbPath, null, null, [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]);
-        $pdo->exec('PRAGMA journal_mode=WAL');
-        $pdo->exec('PRAGMA busy_timeout=5000');
-        $pdo->exec('PRAGMA synchronous=NORMAL');
-        return $pdo;
+        $dbPath = __DIR__ . '/../../../Storage/banlist.db';
+        return SqliteHelper::open($dbPath);
     }
 
     private static function ensureSqliteTable(PDO $pdo): void
