@@ -906,27 +906,11 @@ const btnCloseSettings = document.getElementById('btn-close-settings');
 const changelogOverlay = document.getElementById('changelog-overlay');
 const btnChangelog = document.getElementById('btn-changelog');
 const btnCloseChangelog = document.getElementById('btn-close-changelog');
-// 自定义表情管理
-const stickerNameInput = document.getElementById('sticker-name-input');
-const stickerUrlInput = document.getElementById('sticker-url-input');
-const stickerPreview = document.getElementById('sticker-preview');
-const stickerPreviewImg = document.getElementById('sticker-preview-img');
-const btnAddSticker = document.getElementById('btn-add-sticker');
-const stickerList = document.getElementById('sticker-list');
-const stickerListEmpty = document.getElementById('sticker-list-empty');
-const stickerLightbox = document.getElementById('sticker-lightbox');
-const stickerLightboxImg = document.getElementById('sticker-lightbox-img');
-const stickerLightboxClose = document.getElementById('sticker-lightbox-close');
-const btnStickerUpload = document.getElementById('btn-sticker-upload');
-const stickerFileInput = document.getElementById('sticker-file-input');
-const stickerUploadStatus = document.getElementById('sticker-upload-status');
 // 对局内表情选择器
 const btnStickerPicker = document.getElementById('btn-sticker-picker');
 const stickerPicker = document.getElementById('sticker-picker');
 const stickerPickerBody = document.getElementById('sticker-picker-body');
 const btnCloseStickerPicker = document.getElementById('btn-close-sticker-picker');
-// 图床上传配置（登录后通过 WebSocket 从后端获取）
-let uploadConfig = null;
 // 表情列表（WS 连接后从服务端获取，id → {name, url}）
 let stickerMap = {};
 
@@ -1496,7 +1480,7 @@ async function exportChatImage(btn, verdict, reveal, isCorrect, guessLabel, trut
 
                 if (stickerImg && stickerImg.src) {
                     try {
-                        const proxyUrl = 'https://assets.xfcode.top/dev/proxy_image.php?url=' + encodeURIComponent(stickerImg.src);
+                        const proxyUrl = 'https://api-proxy_image.xfcode.top/proxy_image.php?url=' + encodeURIComponent(stickerImg.src);
                         const resp = await fetch(proxyUrl);
                         const blob = await resp.blob();
                         const blobUrl = URL.createObjectURL(blob);
@@ -1630,15 +1614,6 @@ chatInput.addEventListener('input', () => {
 
 btnBack.addEventListener('click', function (e) {
     if (chatPage.style.display === 'flex') {
-        // 旁观模式：退出旁观不走 resetState
-        if (spectateSessionId) {
-            if (confirm('确定退出旁观吗？')) {
-                DebugLogger.log('game', '退出旁观');
-                adminSend('admin_unspectate');
-                exitSpectatorView();
-            }
-            return;
-        }
         if (confirm('确定要离开当前对局吗？\n离开后将断开与对手的连接。')) {
             DebugLogger.log('game', '用户点击离开对局');
             resetState();
@@ -1690,7 +1665,7 @@ document.addEventListener('visibilitychange', function () {
 });
 
 btnSettings.addEventListener('click', () => {
-    settingsOverlay.style.display = 'block';
+    settingsOverlay.style.display = 'flex';
     // 更新日志条数显示
     DebugLogger.count().then(function(n) {
         var btn = document.getElementById('btn-export-debug');
@@ -1699,186 +1674,31 @@ btnSettings.addEventListener('click', () => {
 });
 
 btnCloseSettings.addEventListener('click', () => {
-    settingsOverlay.style.display = 'none';
+    closeOverlay(settingsOverlay);
 });
 
 settingsOverlay.addEventListener('click', (e) => {
     if (e.target === settingsOverlay) {
-        settingsOverlay.style.display = 'none';
+        closeOverlay(settingsOverlay);
     }
 });
 
 // --- 更新日志面板 ---
 btnChangelog.addEventListener('click', () => {
     settingsOverlay.style.display = 'none';
-    changelogOverlay.style.display = 'block';
+    changelogOverlay.style.display = 'flex';
 });
 
 btnCloseChangelog.addEventListener('click', () => {
-    changelogOverlay.style.display = 'none';
-    settingsOverlay.style.display = 'block';
+    closeOverlay(changelogOverlay);
+    settingsOverlay.style.display = 'flex';
 });
 
 changelogOverlay.addEventListener('click', (e) => {
     if (e.target === changelogOverlay) {
-        changelogOverlay.style.display = 'none';
-        settingsOverlay.style.display = 'block';
+        closeOverlay(changelogOverlay);
+        settingsOverlay.style.display = 'flex';
     }
-});
-
-// 表情 URL 预览
-stickerUrlInput.addEventListener('input', () => {
-    const url = stickerUrlInput.value.trim();
-    if (/^https?:\/\/.+\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(url)) {
-        stickerPreviewImg.src = url;
-        stickerPreviewImg.onerror = () => { stickerPreview.style.display = 'none'; };
-        stickerPreviewImg.onload = () => { stickerPreview.style.display = 'block'; };
-    } else {
-        stickerPreview.style.display = 'none';
-    }
-});
-
-// 添加表情
-btnAddSticker.addEventListener('click', () => {
-    const name = stickerNameInput.value.trim();
-    const url = stickerUrlInput.value.trim();
-    if (name.length > 20) { alert('表情名称最多20个字符'); return; }
-    if (!/^https?:\/\/.+\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(url)) {
-        alert('请输入有效的图片 URL（支持 png/jpg/gif/webp/svg）');
-        return;
-    }
-    ensureAdminConnected().then(() => {
-        adminSend('admin_sticker_add', { name, url });
-    });
-});
-
-// 删除表情（委托）
-stickerList.addEventListener('click', (e) => {
-    const btn = e.target.closest('.sticker-delete');
-    if (!btn) return;
-    const id = btn.dataset.stickerId;
-    if (!id) return;
-    if (!confirm('确定删除这个表情吗？')) return;
-    ensureAdminConnected().then(() => {
-        adminSend('admin_sticker_delete', { id });
-    });
-});
-
-// 加载表情列表
-function loadStickers() {
-    ensureAdminConnected().then(() => {
-        adminSend('admin_sticker_list', {});
-    });
-}
-
-// 渲染表情列表
-function renderStickerList(stickers) {
-    stickerList.innerHTML = '';
-    if (!stickers || stickers.length === 0) {
-        stickerList.appendChild(stickerListEmpty);
-        stickerListEmpty.style.display = 'block';
-        return;
-    }
-    stickerListEmpty.style.display = 'none';
-    stickers.forEach(s => {
-        const item = document.createElement('div');
-        item.className = 'sticker-item';
-        item.innerHTML =
-            '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">' +
-            '<span class="sticker-name">' + escapeHtml(s.name) + '</span>' +
-            '<button class="sticker-delete" data-sticker-id="' + escapeHtmlAttr(s.id) + '">删除</button>';
-        // 点击图片查看大图
-        item.querySelector('img').addEventListener('click', () => {
-            stickerLightboxImg.src = s.url;
-            stickerLightbox.style.display = 'flex';
-        });
-        stickerList.appendChild(item);
-    });
-}
-
-// 本地上传：触发文件选择
-btnStickerUpload.addEventListener('click', () => {
-    stickerFileInput.click();
-});
-
-// 文件选择后上传到图床
-stickerFileInput.addEventListener('change', async () => {
-    const file = stickerFileInput.files[0];
-    if (!file) return;
-
-    // 文件大小限制 10MB
-    if (file.size > 10 * 1024 * 1024) {
-        alert('图片大小不能超过 10MB');
-        stickerFileInput.value = '';
-        return;
-    }
-
-    stickerUploadStatus.style.display = 'block';
-    stickerUploadStatus.textContent = '上传中...';
-    stickerUploadStatus.style.color = '#888';
-
-    try {
-        if (!uploadConfig || !uploadConfig.upload_url) {
-            stickerUploadStatus.textContent = '上传配置未加载';
-            stickerUploadStatus.style.color = '#f44336';
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('backstage', uploadConfig.backstage);
-        formData.append('appid', uploadConfig.appid);
-        formData.append('key', uploadConfig.key);
-        formData.append('file', file);
-
-        // 执行自定义鉴权脚本（修改 headers/formData/upload_url）
-        const headers = {};
-        if (uploadConfig.request_script) {
-            try {
-                const fn = new Function('cfg', uploadConfig.request_script);
-                fn({ upload_url: uploadConfig.upload_url, headers, formData });
-            } catch (e) {
-                stickerUploadStatus.textContent = '鉴权脚本执行失败: ' + e.message;
-                stickerUploadStatus.style.color = '#f44336';
-                return;
-            }
-        }
-
-        const resp = await fetch(uploadConfig.upload_url, {
-            method: 'POST',
-            headers,
-            body: formData,
-        });
-        const result = await resp.json();
-
-        // 根据配置解析响应（兼容不同图床 API 的返回格式）
-        const success = resolvePath(result, uploadConfig.success_field || 'code');
-        const successValue = uploadConfig.success_value !== undefined ? uploadConfig.success_value : 1;
-        const url = resolvePath(result, uploadConfig.url_field || 'url');
-
-        if (success === successValue && url) {
-            stickerUrlInput.value = url;
-            stickerUrlInput.dispatchEvent(new Event('input'));
-            stickerUploadStatus.textContent = '上传成功';
-            stickerUploadStatus.style.color = '#4caf50';
-            setTimeout(() => { stickerUploadStatus.style.display = 'none'; }, 2000);
-        } else {
-            stickerUploadStatus.textContent = '上传失败: ' + (resolvePath(result, uploadConfig.error_field || 'msg') || '未知错误');
-            stickerUploadStatus.style.color = '#f44336';
-        }
-    } catch (e) {
-        stickerUploadStatus.textContent = '上传出错: ' + e.message;
-        stickerUploadStatus.style.color = '#f44336';
-    } finally {
-        stickerFileInput.value = '';
-    }
-});
-
-// 点击背景或关闭按钮关闭大图预览
-stickerLightboxClose.addEventListener('click', () => {
-    stickerLightbox.style.display = 'none';
-});
-stickerLightbox.querySelector('.sticker-lightbox-bg').addEventListener('click', () => {
-    stickerLightbox.style.display = 'none';
 });
 
 // 对局内表情选择器：打开/关闭
@@ -1961,26 +1781,24 @@ function delCookie(name) {
     document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;SameSite=Lax';
 }
 
+function closeOverlay(el) {
+    const drawer = el.querySelector('.clipboard-drawer');
+    el.style.animation = 'fadeOut 0.2s ease forwards';
+    if (drawer) drawer.style.animation = 'fadeScaleOut 0.2s ease forwards';
+    setTimeout(() => {
+        el.style.display = 'none';
+        el.style.animation = '';
+        if (drawer) drawer.style.animation = '';
+    }, 200);
+}
+
 let adminToken = getCookie('turing_admin_token');
 let spectateSessionId = null;
 // 搜索状态：缓存服务端返回的完整列表 + 当前搜索关键字
 let _cachedSessions = [];
 let _sessionSearchKeyword = '';
 
-// DOM 元素
-const adminPanelOverlay = document.getElementById('admin-panel-overlay');
-const btnAdminPanel = document.getElementById('btn-admin-panel');
-const btnCloseAdminPanel = document.getElementById('btn-close-admin-panel');
-const btnExitAdmin = document.getElementById('btn-exit-admin');
-const broadcastInput = document.getElementById('broadcast-input');
-const btnSendBroadcast = document.getElementById('btn-send-broadcast');
-const broadcastStatus = document.getElementById('broadcast-status');
-const btnRefreshSessions = document.getElementById('btn-refresh-sessions');
-const searchSessionsInput = document.getElementById('search-sessions-input');
-const sessionsList = document.getElementById('sessions-list');
-const spectateInfo = document.getElementById('spectate-info');
-const spectateDetail = document.getElementById('spectate-detail');
-const btnExitSpectate = document.getElementById('btn-exit-spectate');
+// 全服公告区域（用于 showDanmaku 渲染）
 const announcementArea = document.getElementById('announcement-area');
 
 // 举报相关
@@ -1991,440 +1809,6 @@ const btnReportCancel = document.getElementById('btn-report-cancel');
 const btnReportSubmit = document.getElementById('btn-report-submit');
 const reportError = document.getElementById('report-error');
 
-// 举报审核相关
-const tabSessions = document.getElementById('tab-sessions');
-const tabReports = document.getElementById('tab-reports');
-const tabStickers = document.getElementById('tab-stickers');
-const panelSessions = document.getElementById('panel-sessions');
-const panelReports = document.getElementById('panel-reports');
-const panelStickers = document.getElementById('panel-stickers');
-const reportsList = document.getElementById('reports-list');
-const reportsPagination = document.getElementById('reports-pagination');
-const reportDetailOverlay = document.getElementById('report-detail-overlay');
-const reportDetailTitle = document.getElementById('report-detail-title');
-const reportDetailContent = document.getElementById('report-detail-content');
-const reportDetailChat = document.getElementById('report-detail-chat');
-const btnReportDetailClose = document.getElementById('btn-report-detail-close');
-const btnReportDetailReviewed = document.getElementById('btn-report-detail-reviewed');
-// 举报审核状态
-let _reportsPage = 1;
-let _reportsFilter = ''; // ''=全部, '0'=未审, '1'=已审
-let _currentDetailReportId = null;
-let _currentDetailReason = '';
-
-// ==============================
-// 管理面板 - 标签切换
-// ==============================
-tabSessions.addEventListener('click', () => switchAdminTab('sessions'));
-tabReports.addEventListener('click', () => switchAdminTab('reports'));
-tabStickers.addEventListener('click', () => switchAdminTab('stickers'));
-
-function switchAdminTab(tab) {
-    const allTabs = [
-        { btn: tabSessions, panel: panelSessions, name: 'sessions' },
-        { btn: tabReports, panel: panelReports, name: 'reports' },
-        { btn: tabStickers, panel: panelStickers, name: 'stickers' },
-    ];
-    allTabs.forEach(t => {
-        const active = t.name === tab;
-        t.btn.classList.toggle('active', active);
-        t.btn.style.background = active ? '#e8e0d4' : 'transparent';
-        t.btn.style.color = active ? 'var(--ink-blue)' : '#999';
-        t.panel.style.display = active ? '' : 'none';
-    });
-
-    if (tab === 'reports') {
-        loadReports(1);
-    }
-    if (tab === 'stickers') {
-        loadStickers();
-    }
-}
-
-// ==============================
-// 举报审核 - 筛选按钮
-// ==============================
-document.querySelectorAll('.report-filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        document.querySelectorAll('.report-filter-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        _reportsFilter = btn.dataset.filter;
-        loadReports(1);
-    });
-});
-
-// ==============================
-// 举报审核 - 加载列表
-// ==============================
-function loadReports(page) {
-    _reportsPage = page;
-    reportsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">加载中...</div>';
-
-    if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) {
-        reportsList.innerHTML = '<div style="text-align:center;color:#f44336;padding:10px;">管理员连接未就绪</div>';
-        return;
-    }
-
-    adminSend('admin_reports', {
-        page: page,
-        page_size: 20,
-        reviewed: _reportsFilter || null,
-    });
-}
-
-function renderReportsList(reports, total, page, pageSize) {
-    if (!reports || reports.length === 0) {
-        const msg = _reportsFilter === '0' ? '暂无未审核的举报' : (_reportsFilter === '1' ? '暂无已审核的举报' : '暂无举报记录');
-        reportsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">' + msg + '</div>';
-        reportsPagination.innerHTML = '';
-        return;
-    }
-
-    const reviewedMap = { '1': '已审', '0': '未审' };
-
-    let html = '';
-    reports.forEach(r => {
-        const time = r.created_at ? r.created_at.substring(0, 16).replace('T', ' ') : '';
-        const reviewedBadge = r.reviewed == 1
-            ? '<span style="color:#27ae60;">已审</span>'
-            : '<span style="color:#e74c3c;">未审</span>';
-        html += `
-            <div class="session-row" style="flex-wrap:wrap;cursor:pointer;" data-rid="${r.id}">
-                <div class="session-info" style="flex:1;min-width:0;">
-                    <div style="font-size:12px;font-weight:bold;">
-                        ${escapeHtml(r.reporter_name || '?')} 举报 ${escapeHtml(r.target_name || '?')}
-                        <span style="font-size:10px;">${reviewedBadge}</span>
-                    </div>
-                    <div style="font-size:11px;color:#888;">${escapeHtml(r.reason || '无原因')} · ${time}</div>
-                </div>
-                <span style="font-size:10px;color:#aaa;white-space:nowrap;">${r.has_history > 0 ? '有记录' : '无记录'}</span>
-            </div>
-        `;
-    });
-    reportsList.innerHTML = html;
-
-    // 点击打开详情
-    reportsList.querySelectorAll('.session-row').forEach(row => {
-        row.addEventListener('click', () => {
-            const rid = parseInt(row.dataset.rid);
-            if (rid) openReportDetail(rid);
-        });
-    });
-
-    // 分页
-    const totalPages = Math.ceil(total / pageSize);
-    if (totalPages <= 1) {
-        reportsPagination.innerHTML = '';
-        return;
-    }
-    let pageHtml = '';
-    for (let i = 1; i <= totalPages; i++) {
-        if (i === page) {
-            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;">' + i + '</span>';
-        } else {
-            pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;" data-pg="' + i + '">' + i + '</span>';
-        }
-    }
-    reportsPagination.innerHTML = pageHtml;
-    reportsPagination.querySelectorAll('[data-pg]').forEach(el => {
-        el.addEventListener('click', () => loadReports(parseInt(el.dataset.pg)));
-    });
-}
-
-// ==============================
-// 举报审核 - 详情弹窗
-// ==============================
-function openReportDetail(reportId) {
-    _currentDetailReportId = reportId;
-    if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) return;
-
-    reportDetailContent.innerHTML = '加载中...';
-    reportDetailChat.innerHTML = '';
-    reportDetailOverlay.style.display = 'flex';
-
-    adminSend('admin_report_detail', { report_id: reportId });
-}
-
-function renderReportDetail(report) {
-    reportDetailTitle.textContent = '举报详情 #' + report.id;
-    const reviewedText = report.reviewed == 1 ? '已审核' : '未审核';
-    _currentDetailReason = report.reason || '';
-    _currentDetailReportId = report.id;
-
-    const banBtn = (ip, fp, label) => {
-        const fpShort = fp ? fp.substring(0, 12) + '...' : '(空)';
-        return `
-            <span>${label}</span>
-            <span style="font-size:10px;color:#888;margin:0 4px;">IP: ${escapeHtml(ip)} · FP: ${fpShort}</span>
-            <button class="doodle-btn ban-info-btn" data-ip="${escapeHtml(ip)}" data-fp="${escapeHtml(fp)}" data-label="${escapeHtml(label)}"
-                style="font-size:10px;padding:2px 8px;border-color:var(--danger);color:var(--danger);">封禁</button>
-        `;
-    };
-
-    reportDetailContent.innerHTML = `
-        <div style="margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-            ${banBtn(report.reporter_ip, report.reporter_fingerprint || '', '举报者: ' + escapeHtml(report.reporter_name || '?'))}
-        </div>
-        <div style="margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-            ${banBtn(report.target_ip, report.target_fingerprint || '', '被举报者: ' + escapeHtml(report.target_name || '?'))}
-        </div>
-        <p><b>原因：</b>${escapeHtml(report.reason || '无')}</p>
-        <p><b>时间：</b>${escapeHtml(report.created_at)}</p>
-        <p><b>状态：</b>${reviewedText}</p>
-    `;
-
-    btnReportDetailReviewed.style.display = report.reviewed == 1 ? 'none' : '';
-
-    // 绑定封禁按钮（复用旁观模式的封禁原因弹窗）
-    reportDetailContent.querySelectorAll('.ban-info-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const ip = btn.dataset.ip;
-            const fp = btn.dataset.fp;
-            const label = btn.dataset.label || '该用户';
-            // 隐藏举报详情，封禁原因弹窗关闭后恢复
-            reportDetailOverlay.style.display = 'none';
-            showBanReasonDialog(label, (reason) => {
-                const finalReason = reason || _currentDetailReason || '';
-                adminSend('admin_ban_by_info', { ip: ip, fingerprint: fp, reason: finalReason });
-            }, _currentDetailReason, () => {
-                reportDetailOverlay.style.display = 'flex';
-            });
-        });
-    });
-
-    // 渲染聊天记录
-    const chatHistory = report.chat_history;
-    if (chatHistory && chatHistory.messages && chatHistory.messages.length > 0) {
-        let chatHtml = '<div style="font-size:11px;color:#888;margin-bottom:4px;">'
-            + '对局：' + escapeHtml(chatHistory.player1) + ' vs ' + escapeHtml(chatHistory.player2)
-            + ' · ' + (chatHistory.duration || 0) + '秒</div>';
-        chatHistory.messages.forEach(msg => {
-            const cls = msg.role === 'system' ? 'color:#e74c3c;' : '';
-            chatHtml += '<div style="margin-bottom:6px;' + cls + '">'
-                + '<b>' + escapeHtml(msg.sender || msg.role || 'System') + '：</b>'
-                + escapeHtml(msg.text || msg.content || '')
-                + '</div>';
-        });
-        reportDetailChat.innerHTML = chatHtml;
-    } else {
-        reportDetailChat.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">无聊天记录（可能对局未被举报或已清理）</div>';
-    }
-}
-
-btnReportDetailClose.addEventListener('click', () => {
-    reportDetailOverlay.style.display = 'none';
-    _currentDetailReportId = null;
-});
-
-reportDetailOverlay.addEventListener('click', (e) => {
-    if (e.target === reportDetailOverlay) {
-        reportDetailOverlay.style.display = 'none';
-        _currentDetailReportId = null;
-    }
-});
-
-btnReportDetailReviewed.addEventListener('click', () => {
-    if (!_currentDetailReportId) return;
-    if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) return;
-
-    adminSend('admin_mark_reviewed', { report_id: _currentDetailReportId });
-});
-
-// ==============================
-// 初始化管理员 UI
-if (adminToken) {
-    btnAdminPanel.style.display = 'inline-flex';
-}
-
-// --- 管理员命令复用游戏 WebSocket（不新建连接）---
-let _adminReady = false;
-
-/**
- * 确保管理员模式在游戏 WS 上已激活
- * 发送 admin_connect 并等待 admin_connected 回执
- */
-function ensureAdminConnected() {
-    return new Promise((resolve) => {
-        if (_adminReady) { resolve(); return; }
-        if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) {
-            return; // 游戏 WS 未就绪，等下次
-        }
-
-        // 接管 transport 的 admin 消息处理
-        transport._adminHandler = (data) => {
-            switch (data.type) {
-                case 'admin_connected':
-                    _adminReady = true;
-                    resolve();
-                    // 获取图床上传配置
-                    adminSend('admin_get_upload_config', {});
-                    break;
-                case 'sessions_list':
-                    renderSessionsList(data.sessions);
-                    break;
-                case 'session_detail':
-                    enterSpectatorView(data.session_id, data.player1, data.player2, data.history || []);
-                    break;
-                case 'spectate_message':
-                    appendMessage(data.text, data.side || 'left', data.sender);
-                    break;
-                case 'spectate_system':
-                    if (typeof game !== 'undefined' && game._onSystem) {
-                        game._onSystem({ text: data.text });
-                    }
-                    break;
-                case 'spectate_ended':
-                    if (spectateSessionId === data.session_id) {
-                        const map = {
-                            '玩家断开连接': '玩家断开连接，观战结束',
-                            '玩家离开': '玩家离开了房间，观战结束',
-                            '判定超时': '判定超时，观战结束',
-                            'no_mutual_chat': '双方未互发消息，对局无效',
-                            '双方判定完成': '判定完成，观战结束' + (data.result ? '（玩家1: ' + data.result.player1_truth + ' 玩家2: ' + data.result.player2_truth + '）' : ''),
-                        };
-                        showAdminError(map[data.reason] || data.reason || '观战结束');
-                        setTimeout(() => exitSpectatorView(), 3000);
-                    }
-                    break;
-                case 'admin_unspectated':
-                    exitSpectatorView();
-                    break;
-                case 'admin_reports':
-                    renderReportsList(data.reports, data.total, data.page, data.page_size);
-                    break;
-                case 'admin_report_detail':
-                    renderReportDetail(data.report);
-                    break;
-                case 'admin_mark_reviewed':
-                    reportDetailOverlay.style.display = 'none';
-                    _currentDetailReportId = null;
-                    loadReports(_reportsPage);
-                    break;
-                case 'admin_banned_by_info':
-                    reportDetailOverlay.style.display = 'none';
-                    _currentDetailReportId = null;
-                    loadReports(_reportsPage);
-                    alert(data.message || '封禁完成');
-                    break;
-                case 'room_announce':
-                    showDanmaku(data.text, '管理警告');
-                    break;
-                case 'admin_stickers_list':
-                    renderStickerList(data.stickers || []);
-                    break;
-                case 'admin_sticker_added':
-                    stickerNameInput.value = '';
-                    stickerUrlInput.value = '';
-                    stickerPreview.style.display = 'none';
-                    loadStickers();
-                    break;
-                case 'admin_sticker_deleted':
-                    loadStickers();
-                    break;
-                case 'admin_upload_config':
-                    uploadConfig = data.config || {};
-                    break;
-                case 'error':
-                    showAdminError(data.message || '管理操作出错');
-                    break;
-            }
-        };
-
-        transport._ws.send(JSON.stringify({ type: 'admin_connect', token: adminToken }));
-    });
-}
-
-function adminSend(type, payload = {}) {
-    if (transport && transport._ws && transport._ws.readyState === WebSocket.OPEN) {
-        transport._ws.send(JSON.stringify({ type, token: adminToken, ...payload }));
-    }
-}
-
-// --- 管理员面板开关 ---
-btnAdminPanel.addEventListener('click', () => {
-    adminPanelOverlay.style.display = 'block';
-});
-
-btnCloseAdminPanel.addEventListener('click', () => {
-    adminPanelOverlay.style.display = 'none';
-});
-
-adminPanelOverlay.addEventListener('click', (e) => {
-    if (e.target === adminPanelOverlay) {
-        adminPanelOverlay.style.display = 'none';
-    }
-});
-
-// --- 退出管理模式 ---
-btnExitAdmin.addEventListener('click', () => {
-    if (confirm('确定退出管理模式吗？\nToken 将被清除，需要重新输入密码才能再次进入。')) {
-        // 退出旁观
-        if (spectateSessionId) {
-            adminSend('admin_unspectate');
-            exitSpectatorView();
-        }
-        // 重置管理员状态
-        _adminReady = false;
-        adminToken = '';
-        delCookie('turing_admin_token');
-        btnAdminPanel.style.display = 'none';
-        adminPanelOverlay.style.display = 'none';
-        // 如果正在对局中，移除封禁按钮
-        const banBtn = document.getElementById('btn-admin-ban');
-        if (banBtn) banBtn.remove();
-    }
-});
-
-// --- 全服公告 ---
-btnSendBroadcast.addEventListener('click', () => {
-    const text = broadcastInput.value.trim();
-    if (!text) {
-        broadcastStatus.style.display = 'block';
-        broadcastStatus.textContent = '请输入公告内容';
-        broadcastStatus.style.color = 'var(--danger)';
-        return;
-    }
-    adminSend('admin_broadcast', { text: text });
-    broadcastInput.value = '';
-    broadcastStatus.style.display = 'block';
-    broadcastStatus.textContent = '已发送';
-    broadcastStatus.style.color = 'var(--success)';
-    setTimeout(() => { broadcastStatus.style.display = 'none'; }, 2000);
-});
-
-broadcastInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') btnSendBroadcast.click();
-});
-
-// --- 刷新对局列表 ---
-btnRefreshSessions.addEventListener('click', () => {
-    sessionsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">连接中...</div>';
-    ensureAdminConnected().then(() => {
-        adminSend('admin_sessions');
-        sessionsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">加载中...</div>';
-    });
-});
-
-// --- 搜索对局 ---
-searchSessionsInput.addEventListener('input', () => {
-    _sessionSearchKeyword = searchSessionsInput.value;
-    _doRenderSessionsList();
-});
-
-// 打开面板时自动拉取一次
-btnAdminPanel.addEventListener('click', async () => {
-    await ensureAdminConnected();
-    btnRefreshSessions.click();
-});
-
-// --- 退出旁观 ---
-btnExitSpectate.addEventListener('click', () => {
-    if (spectateSessionId) {
-        adminSend('admin_unspectate');
-    }
-    exitSpectatorView();
-});
-
 // --- 全服公告横幅 ---
 const ANNOUNCE_DISPLAY_MS = 5000; // 每条公告展示时长
 const ANNOUNCE_MAX = 3;           // 最多同时展示条数
@@ -2433,25 +1817,47 @@ let announceQueue = [];            // 待展示队列
 let announceShowing = 0;           // 当前正在展示的数量
 
 /**
- * 管理员操作错误提示（红色小横幅，3s 自动消失，不走全服公告样式）
+ * 顶部 toast，5s 后自动淡出
+ * @param {string} message - 提示文本
+ * @param {boolean} [isError=true] - 是否为错误提示
  */
-function showAdminError(message) {
+function showTopToast(message, isError = true) {
     const el = document.createElement('div');
+    const bg = isError ? '#ffe0e0' : '#d4edda';
+    const color = isError ? '#c0392b' : '#155724';
+    const border = isError ? '#e74c3c' : '#28a745';
+    const offset = document.querySelectorAll('.top-toast').length * 48;
+    el.className = 'top-toast';
     el.style.cssText = `
-        position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1002;
-        background: var(--danger-light); color: var(--danger-dark); border: 2px solid var(--danger);
-        padding: 8px 20px; border-radius: 8px 4px 8px 4px;
-        font-size: 14px; white-space: nowrap;
+        position: fixed; top: ${12 + offset}px; left: 50%; transform: translateX(-50%); z-index: 1002;
+        max-width: min(90vw, 400px);
+        background: ${bg}; color: ${color}; border: 2px solid ${border};
+        padding: 8px 16px; border-radius: 8px 4px 8px 4px;
+        font-size: 14px;
         animation: announceIn 0.35s ease forwards;
         pointer-events: none;
     `;
-    el.textContent = '⚠ ' + message;
+    el.textContent = (isError ? '\u26A0 ' : '\u2714 ') + message;
     document.body.appendChild(el);
 
     setTimeout(() => {
         el.style.animation = 'announceOut 0.3s ease forwards';
-        el.addEventListener('animationend', () => el.remove(), { once: true });
-    }, 3000);
+        el.addEventListener('animationend', () => {
+            el.remove();
+            repositionToasts();
+        }, { once: true });
+    }, 5000);
+}
+
+/**
+ * 重新计算所有顶部 toast 的垂直位置（堆叠用）
+ * 注意：showAdminToast 在 admin.js 中也定义了一份同名函数，共用 .top-toast 类
+ */
+function repositionToasts() {
+    document.querySelectorAll('.top-toast').forEach((t, i) => {
+        t.style.top = (12 + i * 48) + 'px';
+        t.style.transition = 'top 0.25s ease';
+    });
 }
 
 function showDanmaku(text, label = '全服公告') {
@@ -2493,188 +1899,6 @@ function dequeueAnnounce() {
     }
 }
 
-// --- 旁观模式 ---
-function enterSpectatorView(sessionId, player1, player2, history) {
-    spectateSessionId = sessionId;
-
-    // 存下玩家 fd 信息，封禁时需要
-    window._spectatePlayers = { p1: player1, p2: player2 };
-
-    // 显示聊天页面
-    landingPage.style.display = 'none';
-    matchingPage.style.display = 'none';
-    chatPage.style.display = 'flex';
-    resultArea.style.display = 'none';
-    btnBack.style.display = 'inline-flex';
-
-    // 清理聊天区
-    chatBody.innerHTML = '';
-
-    // 渲染历史消息
-    if (history && history.length) {
-        for (const msg of history) {
-            if (msg.sticker_id) {
-                // 表情消息
-                if (stickerMap[msg.sticker_id]) {
-                    appendSticker(msg.sticker_id, msg.sticker_name || stickerMap[msg.sticker_id].name, msg.side || 'left', msg.sender || '');
-                }
-            } else {
-                appendMessage(msg.text, msg.side || 'left', msg.sender);
-            }
-        }
-    }
-
-    // 添加旁观横幅
-    let banner = document.getElementById('spectate-banner');
-    if (!banner) {
-        banner = document.createElement('div');
-        banner.id = 'spectate-banner';
-        const notebookContainer = document.querySelector('.notebook-container');
-        notebookContainer.insertBefore(banner, notebookContainer.firstChild);
-    }
-    banner.innerHTML = `
-        <div class="spec-row spec-header">你正在旁观对局</div>
-        <div class="spec-row">
-            <span class="spec-player">
-                <span style="color:#ffeb3b;">${escapeHtml(player1.nickname)}</span>
-                <span>是 <b>${player1.truth}</b></span>
-                ${player1.tag ? `<span class="spectate-tag">${escapeHtml(player1.tag)}</span>` : ''}
-            </span>
-            <button class="doodle-btn spectate-ban-btn" data-fd="${player1.fd}" data-name="${escapeHtml(player1.nickname)}" style="color:#ffeb3b;border-color:#ffeb3b;">封禁</button>
-            <span style="opacity:0.5;">|</span>
-            <span class="spec-player">
-                <span style="color:#ffeb3b;">${escapeHtml(player2.nickname)}</span>
-                <span>是 <b>${player2.truth}</b></span>
-                ${player2.tag ? `<span class="spectate-tag">${escapeHtml(player2.tag)}</span>` : ''}
-            </span>
-            <button class="doodle-btn spectate-ban-btn" data-fd="${player2.fd}" data-name="${escapeHtml(player2.nickname)}" style="color:#ffeb3b;border-color:#ffeb3b;">封禁</button>
-            <button class="doodle-btn" id="btn-spectate-leave" style="margin-left:auto;">退出旁观</button>
-        </div>
-        <div class="spec-row spec-warn-row">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11h2.586a1 1 0 0 1 .707.293l7.414 7.414A.5.5 0 0 0 14.5 18.35V5.65a.5.5 0 0 0-.793-.357L6.293 12.707a1 1 0 0 1-.707.293H3a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1z"/><path d="M16 9.5a4.5 4.5 0 0 1 0 5"/></svg>
-            <span style="font-size:12px;white-space:nowrap;opacity:0.85;">房间警告：</span>
-            <input type="text" id="room-broadcast-input" placeholder="输入警告内容..." maxlength="100">
-            <button class="doodle-btn" id="btn-send-room-broadcast" style="background:#d32f2f;border-color:#d32f2f;">发送</button>
-        </div>
-    `;
-
-    // 封禁按钮事件（事件委托）
-    banner.querySelectorAll('.spectate-ban-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const targetFd = parseInt(btn.dataset.fd);
-            const targetName = btn.dataset.name;
-            if (isNaN(targetFd) || targetFd <= 0) {
-                showAdminError('无法封禁（对方可能是 AI）');
-                return;
-            }
-            showBanReasonDialog(targetName, (reason) => {
-                adminSend('admin_ban_player', { player_fd: targetFd, reason: reason });
-            });
-        });
-    });
-
-    document.getElementById('btn-spectate-leave').addEventListener('click', () => {
-        if (spectateSessionId) {
-            adminSend('admin_unspectate');
-        }
-        exitSpectatorView();
-    });
-
-    // 房间公告发送按钮
-    const roomInput = document.getElementById('room-broadcast-input');
-    document.getElementById('btn-send-room-broadcast').addEventListener('click', () => {
-        const text = roomInput.value.trim();
-        if (!text) {
-            showAdminError('请输入房间公告内容');
-            return;
-        }
-        adminSend('admin_room_broadcast', { text });
-        roomInput.value = '';
-    });
-    roomInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            document.getElementById('btn-send-room-broadcast').click();
-        }
-    });
-
-    // 隐藏输入区和判定区
-    chatInputArea.style.display = 'none';
-    judgementZone.style.display = 'none';
-    // 隐藏表情选择器
-    if (stickerPicker) stickerPicker.style.display = 'none';
-
-    // 更新对手信息为对局详情
-    const infoDiv = document.querySelector('.opponent-info > div:nth-of-type(2)');
-    if (infoDiv) {
-        infoDiv.innerHTML = `
-            <div style="font-size:12px;color:#888;">旁观对局</div>
-            <strong style="font-size:15px;">${escapeHtml(player1.nickname)} vs ${escapeHtml(player2.nickname)}</strong>
-        `;
-    }
-
-    // 更新 Logo
-    logoText.innerHTML = `
-        <svg class="icon" viewBox="0 0 24 24">
-            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-            <circle cx="12" cy="12" r="3" />
-        </svg>
-        旁观模式
-    `;
-
-    // 更新管理面板
-    spectateInfo.style.display = 'block';
-    spectateDetail.innerHTML = `
-        <b>${escapeHtml(player1.nickname)}</b>: ${player1.truth}<br>
-        <b>${escapeHtml(player2.nickname)}</b>: ${player2.truth}
-    `;
-
-    // 停止计时器
-    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-    timerDisplay.textContent = '旁观';
-}
-
-
-function exitSpectatorView() {
-    // 已退出旁观，避免重复执行导致页面状态混乱
-    if (!spectateSessionId) return;
-
-    // 通知后台清理旁观者注册，避免继续收到旧会话的消息
-    adminSend('admin_unspectate');
-
-    spectateSessionId = null;
-    window._spectatePlayers = null;
-
-    // 移除旁观横幅
-    const banner = document.getElementById('spectate-banner');
-    if (banner) banner.remove();
-
-    // 恢复 UI
-    chatInputArea.style.display = '';
-    judgementZone.style.display = '';
-    chatBody.innerHTML = '';
-    chatBody.innerHTML = `
-        <div class="sys-msg">
-            <svg class="icon" viewBox="0 0 24 24">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            连线成功，对方身份未知，计时开始
-        </div>
-    `;
-
-    chatPage.style.display = 'none';
-    // 只在旁观时切回首页；如果已进入匹配/其他状态则不覆盖
-    if (matchingPage.style.display !== 'flex') {
-        landingPage.style.display = 'flex';
-    }
-    btnBack.style.display = 'none';
-    logoText.innerHTML = origLogoHTML;
-
-    spectateInfo.style.display = 'none';
-    spectateDetail.innerHTML = '';
-}
-
 // ================================================================
 // 举报功能
 // ================================================================
@@ -2713,125 +1937,6 @@ btnReportSubmit.addEventListener('click', () => {
         }
     }
 });
-
-// --- 渲染对局列表 ---
-function renderSessionsList(sessions) {
-    if (!sessions) return; // 不传 sessions 表示仅用缓存重新过滤
-
-    // 缓存原始列表
-    _cachedSessions = sessions;
-
-    _doRenderSessionsList();
-}
-
-function _doRenderSessionsList() {
-    const keyword = _sessionSearchKeyword.trim().toLowerCase();
-    const sessions = keyword
-        ? _cachedSessions.filter(s =>
-            (s.player1 && s.player1.toLowerCase().includes(keyword)) ||
-            (s.player2 && s.player2.toLowerCase().includes(keyword))
-        )
-        : _cachedSessions;
-
-    if (sessions.length === 0) {
-        if (_sessionSearchKeyword.trim()) {
-            sessionsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">没有匹配「' + escapeHtml(_sessionSearchKeyword) + '」的对局</div>';
-        } else if (_cachedSessions.length === 0) {
-            sessionsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">当前无活跃对局</div>';
-        } else {
-            sessionsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">当前无活跃对局</div>';
-        }
-        return;
-    }
-
-    const stateBadges = {
-        'chatting': '<span class="session-badge badge-chatting">聊天中</span>',
-        'judging': '<span class="session-badge badge-judging">判定中</span>',
-        'finished': '<span class="session-badge badge-finished">已结束</span>',
-    };
-
-    let html = '';
-    sessions.forEach(s => {
-        const badge = stateBadges[s.state] || s.state;
-        const shortId = s.id.substring(0, 12);
-        html += `
-            <div class="session-row">
-                <div class="session-info">
-                    <span style="font-weight:bold;">${escapeHtml(s.player1)} vs ${escapeHtml(s.player2)}</span>
-                    <span style="font-size:11px;color:#888;">${shortId}... ${badge}</span>
-                </div>
-                <button class="doodle-btn spectate-btn" data-sid="${escapeHtml(s.id)}" style="font-size:12px;padding:4px 10px;">
-                    旁观
-                </button>
-            </div>
-        `;
-    });
-    sessionsList.innerHTML = html;
-
-    // 绑定旁观按钮
-    sessionsList.querySelectorAll('.spectate-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (game && game._sessionId) {
-                alert('你当前正在对局中，请先结束或离开对局后再进行旁观。');
-                return;
-            }
-            adminSend('admin_spectate', { session_id: btn.dataset.sid });
-        });
-    });
-}
-
-// 管理员模式：访问特定路径时显示密码弹窗
-if (window.__ADMIN_MODE__) {
-    const adminOverlay = document.getElementById('admin-overlay');
-    const adminPasswordInput = document.getElementById('admin-password-input');
-    const btnAdminLogin = document.getElementById('btn-admin-login');
-    const btnAdminCancel = document.getElementById('btn-admin-cancel');
-    const adminError = document.getElementById('admin-error');
-
-    adminOverlay.style.display = 'block';
-    adminPasswordInput.focus();
-
-    async function doAdminLogin() {
-        const password = adminPasswordInput.value.trim();
-        if (!password) {
-            adminError.style.display = 'block';
-            adminError.textContent = '请输入密码';
-            return;
-        }
-
-        try {
-            const resp = await fetch('/api/admin/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password: password }),
-            });
-            const result = await resp.json();
-
-            if (result.ok) {
-                adminToken = result.token;
-                setCookie('turing_admin_token', adminToken, 1);
-                adminOverlay.style.display = 'none';
-                btnAdminPanel.style.display = 'inline-flex';
-                window.history.replaceState({}, '', '/');
-            } else {
-                adminError.style.display = 'block';
-                adminError.textContent = result.error || '登录失败';
-            }
-        } catch (e) {
-            adminError.style.display = 'block';
-            adminError.textContent = '网络错误，请重试';
-        }
-    }
-
-    btnAdminLogin.addEventListener('click', doAdminLogin);
-    adminPasswordInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') doAdminLogin();
-    });
-    btnAdminCancel.addEventListener('click', () => {
-        adminOverlay.style.display = 'none';
-        window.history.replaceState({}, '', '/');
-    });
-}
 
 // 封禁按钮（管理员专用）
 function addBanButton() {
@@ -3002,12 +2107,13 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
         let data;
         try {
             data = JSON.parse(event.data);
-            console.log('[WS] 收到消息:', data);
         } catch (e) {
             DebugLogger.log('error', 'WebSocket JSON解析失败', { raw_len: event.data ? event.data.length : 0, error: e.message });
             console.warn('[WS] JSON parse error, raw data:', event.data);
             return;
         }
+        // 管理员 token 验证回调（admin.js 注入 _adminHandler）
+        if (this._adminHandler && this._adminHandler(data)) return;
         switch (data.type) {
             case 'pong':
                 this._lastPongTime = Date.now();
@@ -3077,39 +2183,6 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     }
                 }
                 break;
-            case 'room_announce':
-                DebugLogger.log('game', '广播通知', { text: data.text });
-                showDanmaku(data.text, '管理警告');
-                break;
-            // ===== 管理员消息 =====
-            case 'sessions_list':
-                renderSessionsList(data.sessions);
-                break;
-            case 'session_detail':
-                enterSpectatorView(data.session_id, data.player1, data.player2, data.history || []);
-                break;
-            case 'spectate_message':
-                appendMessage(data.text, data.side || 'left', data.sender);
-                break;
-            case 'spectate_system':
-                this._emit('system', { text: data.text });
-                break;
-            case 'spectate_ended':
-                if (spectateSessionId === data.session_id) {
-                    const map = {
-                        '玩家断开连接': '玩家断开连接，观战结束',
-                        '玩家离开': '玩家离开了房间，观战结束',
-                        '判定超时': '判定超时，观战结束',
-                        'no_mutual_chat': '双方未互发消息，对局无效',
-                        '双方判定完成': '判定完成，观战结束' + (data.result ? '（玩家1: ' + data.result.player1_truth + ' 玩家2: ' + data.result.player2_truth + '）' : ''),
-                    };
-                    showAdminError(map[data.reason] || data.reason || '观战结束');
-                    setTimeout(() => exitSpectatorView(), 3000);
-                }
-                break;
-            case 'admin_unspectated':
-                exitSpectatorView();
-                break;
             case 'report_result':
                 if (data.success) {
                     alert(data.message || '举报已提交');
@@ -3124,7 +2197,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 showDanmaku(data.text);
                 break;
             case 'banned':
-                alert(data.text);
+                showTopToast(data.text);
                 break;
             case 'opponent_banned':
                 stopChat();
@@ -3154,14 +2227,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     updateJudgementState(game._judgementAllowed);
                 }
                 break;
-            case 'spectate_sticker':
-                // 旁观模式收到表情消息
-                if (data.id && stickerMap[data.id]) {
-                    appendSticker(data.id, data.name || stickerMap[data.id].name, data.side || 'left', data.sender || '玩家');
-                }
-                break;
             default:
-                if (this._adminHandler) this._adminHandler(data);
                 break;
         }
     };

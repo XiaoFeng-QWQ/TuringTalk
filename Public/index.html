@@ -10,7 +10,8 @@
     <meta name="theme-color" content="#2c3e50">
     <link href="https://fonts.googleapis.com/css2?family=Pangolin&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=">
+    <link rel="stylesheet" href="admin.css?v=">
 </head>
 
 <body>
@@ -521,7 +522,7 @@
                         <div class="changelog-ver-header">v1.1.0 — 2026.07.25</div>
                         <ul>
                             <li>支持人机 / 真人匹配对战</li>
-                            <li>管理员观战、封禁、公告功能</li>
+                            <li>完整的管理员系统</li>
                             <li>举报审核系统</li>
                             <li>战绩记录与恢复码</li>
                         </ul>
@@ -566,6 +567,7 @@
                     </svg>
                     管理员登录
                 </h2>
+                <input type="text" id="admin-username-input" placeholder="用户名" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;margin-bottom:8px;box-sizing:border-box;">
                 <input type="password" id="admin-password-input" placeholder="请输入管理密码" autocomplete="off"
                     style="width:100%;padding:12px;border:2px solid var(--ink-black);border-radius:10px;font-size:16px;text-align:center;margin-bottom:16px;outline:none;">
                 <div style="display:flex;gap:10px;justify-content:center;">
@@ -663,6 +665,8 @@
                         style="flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;">
                         自定义表情包
                     </button>
+                    <button class="nav-btn" data-tab="admin-mgmt" id="tab-admin-mgmt" style="display:none;">管理员管理</button>
+                    <button class="nav-btn" data-tab="admin-logs" id="tab-admin-logs" style="display:none;">操作日志</button>
                 </div>
 
                 <div class="setting-row" id="panel-sessions">
@@ -756,6 +760,36 @@
                     </div>
                 </div>
 
+                <div class="setting-row" id="panel-admin-mgmt" style="display:none;">
+                    <div id="admin-online-bar" class="admin-online-bar"></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                        <span style="font-size:14px;font-weight:600;">管理员列表</span>
+                        <button id="btn-refresh-admins" class="doodle-btn" style="margin:0;padding:2px 8px;font-size:11px;">刷新</button>
+                    </div>
+                    <div id="admin-list-wrap" class="admin-table-wrap"></div>
+                    <div id="admin-add-form" style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:6px;">
+                        <input type="text" id="new-admin-username" placeholder="用户名" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:3px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">
+                        <input type="password" id="new-admin-password" placeholder="密码" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:3px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">
+                        <div style="display:flex;gap:6px;">
+                            <button id="btn-confirm-add-admin" class="doodle-btn" style="margin:0;padding:4px 12px;">确认添加</button>
+                            <button id="btn-cancel-add-admin" class="doodle-btn" style="margin:0;padding:4px 12px;background:#fff;color:#666;border-color:#ccc;">取消</button>
+                        </div>
+                        <div id="admin-add-error" style="color:#ef4444;font-size:11px;margin-top:4px;"></div>
+                    </div>
+                    <button id="btn-show-add-admin" class="doodle-btn" style="margin-top:8px;padding:4px 12px;font-size:12px;">+ 添加管理员</button>
+                </div>
+                <div class="setting-row" id="panel-admin-logs" style="display:none;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                        <span style="font-size:14px;font-weight:600;">操作日志</span>
+                        <select id="log-scope" style="padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;">
+                            <option value="self">我的操作</option>
+                        </select>
+                        <button id="btn-refresh-logs" class="doodle-btn" style="margin:0;padding:2px 8px;font-size:11px;">刷新</button>
+                    </div>
+                    <div id="log-list-wrap" class="log-table-wrap"></div>
+                    <div id="log-pagination" class="log-pagination"></div>
+                </div>
+
                 <div class="setting-row" id="spectate-info" style="display:none;">
                     <h4 style="color:#e65100;">
                         <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;">
@@ -837,7 +871,8 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v="></script>
+    <script src="admin.js?v="></script>
 </body>
 
 </html>

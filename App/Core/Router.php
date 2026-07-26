@@ -24,22 +24,24 @@ class Router
                 '/script.js' => [GameController::class, 'script'],
                 '/style.css' => [GameController::class, 'style'],
                 '/favicon.svg' => [GameController::class, 'favicon'],
+                '/admin.js' => [GameController::class, 'adminScript'],
+                '/admin.css' => [GameController::class, 'adminStyle'],
                 '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/generate-code' => [GameController::class, 'generateCode'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
                 '/api/chat-history/detail' => [GameController::class, 'chatHistoryDetail'],
             ],
             'POST' => [
-                '/api/admin/login' => [GameController::class, 'adminLogin'],
                 '/api/join-leaderboard' => [GameController::class, 'joinLeaderboard'],
                 '/api/leaderboard-join' => [GameController::class, 'leaderboardJoin'],
                 '/api/save-chat-history' => [GameController::class, 'saveChatHistory'],
             ],
         ];
 
-        // 动态添加管理员页面路由
+        // 动态添加管理员路由
         if ($adminPath !== '/') {
             $this->routes['GET'][$adminPath] = [GameController::class, 'adminPage'];
+            $this->routes['POST'][$adminPath . '/api/login'] = [GameController::class, 'adminLogin'];
         }
     }
 

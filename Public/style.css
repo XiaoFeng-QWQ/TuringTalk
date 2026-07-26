@@ -553,21 +553,6 @@ main {
     align-items: center;
 }
 
-#broadcast-input {
-    flex: 1;
-    border: 2px solid var(--border-light);
-    border-radius: 10px;
-    font-size: 14px;
-    outline: none;
-    background: transparent;
-    color: var(--ink-black);
-    text-align: center;
-}
-
-#broadcast-input:focus {
-    border-color: var(--ink-blue);
-}
-
 .chat-input-area input:focus {
     border-color: var(--ink-blue);
 }
@@ -663,7 +648,8 @@ main {
 }
 
 #settings-overlay,
-#changelog-overlay {
+#changelog-overlay,
+#admin-panel-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -672,45 +658,56 @@ main {
     background: var(--overlay-bg);
     backdrop-filter: blur(2px);
     display: none;
-    z-index: 100;
-}
-
-#admin-panel-overlay,
-#report-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: var(--overlay-bg);
-    backdrop-filter: blur(2px);
-    display: none;
+    align-items: center;
+    justify-content: center;
     z-index: 100;
 }
 
 .clipboard-drawer {
-    position: absolute;
-    right: 20px;
-    top: 20px;
-    width: min(320px, 90vw);
-    height: calc(100vh - 40px);
+    position: relative;
+    width: min(650px, 92vw);
     background: var(--bg-clipboard);
     border-radius: 10px;
     padding: 15px;
-    box-shadow: -5px 10px 20px var(--shadow-lg);
-    animation: swingIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-    transform-origin: top center;
+    box-shadow: 0 4px 20px var(--shadow-lg);
+    animation: fadeScaleIn 0.3s ease forwards;
 }
 
-@keyframes swingIn {
+@keyframes fadeScaleIn {
     from {
-        transform: translateX(120%) rotate(10deg);
+        opacity: 0;
+        transform: scale(0.92);
     }
 
     to {
-        transform: translateX(0) rotate(0deg);
+        opacity: 1;
+        transform: scale(1);
     }
 }
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes fadeScaleOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+}
+
+.clipboard-drawer .paper-content {}
 
 .clipboard-drawer::before {
     content: '';
@@ -732,8 +729,9 @@ main {
     height: 100%;
     border-radius: 5px;
     padding: 25px 20px;
-    overflow-y: auto;
+    overflow-y: scroll;
     position: relative;
+    max-height: calc(100vh - 100px);
 }
 
 .drawer-header {
@@ -1074,8 +1072,15 @@ main {
 }
 
 @keyframes slideDown {
-    0% { opacity: 0; transform: translateY(-100%); }
-    100% { opacity: 1; transform: translateY(0); }
+    0% {
+        opacity: 0;
+        transform: translateY(-100%);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes announceOut {
@@ -1110,126 +1115,6 @@ main {
 .announcement-banner.room-warn .ann-label {
     background: #e74c3c;
     color: #fff;
-}
-
-/* 旁观模式样式 */
-#spectate-banner {
-    background: linear-gradient(135deg, #e65100, #ff9800);
-    color: #fff;
-    padding: 10px 18px;
-    font-size: 14px;
-    font-weight: bold;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-#spectate-banner .spec-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-#spectate-banner .spec-row.spec-header {
-    font-size: 12px;
-    opacity: 0.8;
-    font-weight: normal;
-}
-
-#spectate-banner .spec-player {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(255, 255, 255, 0.12);
-    padding: 4px 12px;
-    border-radius: 8px 3px 8px 3px;
-    font-size: 13px;
-}
-
-#spectate-banner .doodle-btn {
-    color: #fff;
-    border-color: #fff;
-    padding: 3px 12px;
-    font-size: 12px;
-}
-
-#spectate-banner .spec-warn-row {
-    border-top: 1px dashed rgba(255, 255, 255, 0.3);
-    padding-top: 6px;
-}
-
-#spectate-banner .spec-warn-row input {
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    border-radius: 6px;
-    color: #fff;
-    padding: 4px 10px;
-    font-size: 12px;
-    outline: none;
-    flex: 1;
-    min-width: 120px;
-}
-
-#spectate-banner .spec-warn-row input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-}
-
-.spectate-tag {
-    display: inline-block;
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
-    padding: 0 6px;
-    border-radius: 10px 3px 10px 3px;
-    font-size: 11px;
-    margin-left: 2px;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-/* 管理员对局列表 */
-.session-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px dashed var(--border-light);
-}
-
-.session-row:last-child {
-    border-bottom: none;
-}
-
-.session-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.session-info span {
-    display: block;
-    line-height: 1.5;
-}
-
-.session-badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
-    font-weight: bold;
-}
-
-.badge-chatting {
-    background: var(--badge-chatting-bg);
-    color: var(--badge-chatting-text);
-}
-
-.badge-judging {
-    background: var(--badge-judging-bg);
-    color: var(--badge-judging-text);
-}
-
-.badge-finished {
-    background: var(--badge-finished-bg);
-    color: var(--badge-finished-text);
 }
 
 @keyframes wiggle {
@@ -1320,8 +1205,25 @@ main {
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.login-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 2px;
 }
 
 @media (max-width: 768px) {
@@ -1497,9 +1399,7 @@ main {
     }
 
     .clipboard-drawer {
-        right: 5px;
-        top: 10px;
-        height: calc(100vh - 20px);
+        width: 98%;
     }
 
     #settings-overlay .clipboard-drawer {
@@ -1538,67 +1438,6 @@ main {
     color: var(--ink-blue);
 }
 
-/* 自定义表情管理 */
-.sticker-add-form {
-    margin-bottom: 8px;
-}
-
-#sticker-list {
-    margin-top: 16px;
-    border-top: 1px dashed var(--ink-blue);
-    padding-top: 12px;
-    max-height: 300px;
-    overflow-y: auto;
-}
-
-#sticker-list-empty {
-    font-size: 12px;
-    color: var(--text-subtle);
-    text-align: center;
-}
-
-.sticker-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    margin-bottom: 6px;
-    border-radius: 8px 3px 8px 3px;
-}
-
-.sticker-item img {
-    width: 40px;
-    height: 40px;
-    object-fit: contain;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-    background: var(--surface-white);
-    cursor: pointer;
-}
-
-.sticker-item .sticker-name {
-    flex: 1;
-    font-size: 13px;
-    font-weight: bold;
-    color: var(--ink-black);
-}
-
-.sticker-item .sticker-delete {
-    flex-shrink: 0;
-    padding: 4px 8px;
-    font-size: 11px;
-    border: 1px solid var(--danger);
-    background: var(--surface-white);
-    color: var(--danger);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-.sticker-item .sticker-delete:hover {
-    background: var(--danger);
-    color: var(--surface-white);
-}
-
 /* 表情大图预览 */
 #sticker-lightbox {
     position: fixed;
@@ -1611,12 +1450,14 @@ main {
     align-items: center;
     justify-content: center;
 }
+
 .sticker-lightbox-bg {
     position: absolute;
     inset: 0;
-    background: rgba(0,0,0,0.7);
+    background: rgba(0, 0, 0, 0.7);
     cursor: pointer;
 }
+
 #sticker-lightbox-img {
     position: relative;
     z-index: 1;
@@ -1624,7 +1465,7 @@ main {
     max-height: 80vh;
     object-fit: contain;
     border-radius: 8px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 /* 对局内表情发送按钮（嵌入输入框内） */
@@ -1646,11 +1487,11 @@ main {
 }
 
 .sticker-btn:hover {
-    background: rgba(0,0,0,0.06) !important;
+    background: rgba(0, 0, 0, 0.06) !important;
 }
 
 .sticker-btn:active {
-    background: rgba(0,0,0,0.1) !important;
+    background: rgba(0, 0, 0, 0.1) !important;
 }
 
 /* 对局内表情选择器 */
@@ -1660,7 +1501,7 @@ main {
     background: var(--surface-white);
     border: 2px solid var(--ink-blue);
     border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     z-index: 50;
     max-height: 220px;
     display: flex;

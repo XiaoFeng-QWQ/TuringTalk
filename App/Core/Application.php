@@ -15,6 +15,7 @@ use App\Services\Repository\ChatHistoryRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Infrastructure\StickerService;
 use App\Services\Repository\OnlineCountRepository;
+use App\Admin\Repository\AdminRepository;
 
 class Application
 {
@@ -36,6 +37,7 @@ class Application
         BanRepository::initialize();
         PlayerStatsRepository::initialize();
         ChatHistoryRepository::ensureTable();
+        AdminRepository::initialize();
 
         $host = Config::get('Server.Host', '0.0.0.0');
         $port = Config::get('Server.Port', 9502);

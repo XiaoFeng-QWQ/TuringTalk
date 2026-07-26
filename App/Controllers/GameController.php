@@ -7,6 +7,7 @@ use App\Core\Response;
 use App\Core\Sanitizer;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
+use App\Admin\Repository\AdminRepository;
 use Config\Config;
 
 class GameController
@@ -21,19 +22,7 @@ class GameController
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
 
-        $cssHash = $this->getFileVersionHash('style.css');
-        $jsHash  = $this->getFileVersionHash('script.js');
-
-        $html = str_replace(
-            'href="style.css"',
-            'href="style.css?v=' . $cssHash . '"',
-            $html
-        );
-        $html = str_replace(
-            'src="script.js"',
-            'src="script.js?v=' . $jsHash . '"',
-            $html
-        );
+        $this->injectVersionHashes($html);
 
         $response->setContent($html);
         $response->send();
@@ -57,6 +46,19 @@ class GameController
         return $hash;
     }
 
+    private function injectVersionHashes(string &$html): void
+    {
+        $files = ['style.css', 'admin.css', 'script.js', 'admin.js'];
+        foreach ($files as $file) {
+            $hash = $this->getFileVersionHash($file);
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $hash,
+                $html
+            );
+        }
+    }
+
     public function script(Request $request, Response $response): void
     {
         $this->serveStaticFile('script.js', 'application/javascript', $request, $response);
@@ -65,6 +67,16 @@ class GameController
     public function style(Request $request, Response $response): void
     {
         $this->serveStaticFile('style.css', 'text/css', $request, $response);
+    }
+
+    public function adminScript(Request $request, Response $response): void
+    {
+        $this->serveStaticFile('admin.js', 'application/javascript', $request, $response);
+    }
+
+    public function adminStyle(Request $request, Response $response): void
+    {
+        $this->serveStaticFile('admin.css', 'text/css', $request, $response);
     }
 
     public function favicon(Request $request, Response $response): void
@@ -357,23 +369,16 @@ class GameController
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
 
-        $cssHash = $this->getFileVersionHash('style.css');
-        $jsHash  = $this->getFileVersionHash('script.js');
+        $this->injectVersionHashes($html);
 
-        $html = str_replace(
-            'href="style.css"',
-            'href="style.css?v=' . $cssHash . '"',
-            $html
-        );
-        $html = str_replace(
-            'src="script.js"',
-            'src="script.js?v=' . $jsHash . '"',
-            $html
-        );
-
-        // 注入管理模式标记
+        // 注入管理员配置
+        $adminPath = trim(Config::get('Admin.Path', 'admin'), '/');
+        $adminConfig = json_encode([
+            'ws_url'    => '/' . $adminPath . '/ws',
+            'api_login' => '/' . $adminPath . '/api/login',
+        ], JSON_UNESCAPED_SLASHES);
         $html = str_replace('</head>',
-            '<script>window.__ADMIN_MODE__=true;</script></head>',
+            '<script>window.__ADMIN_CONFIG__=' . $adminConfig . ';</script></head>',
             $html
         );
 
@@ -387,30 +392,47 @@ class GameController
     public function adminLogin(Request $request, Response $response): void
     {
         $body = json_decode($request->getRawContent(), true);
+        $username = $body['username'] ?? '';
         $password = $body['password'] ?? '';
-        $configPassword = Config::get('Admin.Password', '');
+        $clientIp = $request->getClientIp();
 
-        if (empty($configPassword)) {
-            $response->json(['ok' => false, 'error' => '管理员功能未配置']);
+        if (empty($username) || empty($password)) {
+            $response->json(['ok' => false, 'error' => '用户名和密码不能为空']);
             return;
         }
 
-        if ($password !== $configPassword) {
-            $response->json(['ok' => false, 'error' => '密码错误']);
+        $admin = AdminRepository::findByUsername($username);
+        if (!$admin || !password_verify($password, $admin['password_hash'])) {
+            AdminRepository::writeLog(0, $username, 'login_failed', null, null,
+                '用户名或密码错误', $clientIp);
+            $response->json(['ok' => false, 'error' => '用户名或密码错误']);
             return;
         }
 
-        $token = self::generateAdminToken();
-        $response->json(['ok' => true, 'token' => $token]);
+        if (((int)($admin['status'] ?? 1)) !== 1) {
+            AdminRepository::writeLog((int)$admin['id'], $username, 'login_failed', null, null,
+                '账号已被禁用', $clientIp);
+            $response->json(['ok' => false, 'error' => '该账号已被禁用']);
+            return;
+        }
+
+        AdminRepository::updateLastLogin((int)$admin['id']);
+        AdminRepository::writeLog((int)$admin['id'], $username, 'login', null, null,
+            "登录成功 IP:{$clientIp}", $clientIp);
+
+        $token = self::generateAdminToken((int)$admin['id'], $username, $admin['role']);
+        $response->json(['ok' => true, 'token' => $token, 'username' => $username, 'role' => $admin['role']]);
     }
 
     /**
-     * 生成管理员临时 Token（HMAC-SHA256，24小时有效）
+     * 生成管理员 Token（HMAC-SHA256，24小时有效）
      */
-    public static function generateAdminToken(): string
+    public static function generateAdminToken(int $adminId = 0, string $username = '', string $role = 'admin'): string
     {
         $payload = [
-            'role' => 'admin',
+            'admin_id' => $adminId,
+            'username' => $username,
+            'role' => $role,
             'exp' => time() + 86400,
             'iat' => time(),
             'jti' => bin2hex(random_bytes(8)),
@@ -422,22 +444,35 @@ class GameController
     }
 
     /**
-     * 验证管理员 Token
+     * 验证管理员 Token，通过返回 true
      */
     public static function verifyAdminToken(string $token): bool
     {
+        return self::verifyAdminTokenPayload($token) !== null;
+    }
+
+    /**
+     * 验证并返回 Token payload，失败返回 null
+     */
+    public static function verifyAdminTokenPayload(string $token): ?array
+    {
         $parts = explode('.', $token);
-        if (count($parts) !== 2) return false;
+        if (count($parts) !== 2) return null;
 
         $payloadJson = base64_decode($parts[0]);
-        if ($payloadJson === false) return false;
+        if ($payloadJson === false) return null;
 
         $payload = json_decode($payloadJson, true);
-        if (!$payload || ($payload['role'] ?? '') !== 'admin') return false;
-        if (($payload['exp'] ?? 0) < time()) return false;
+        if (!$payload) return null;
+
+        $role = $payload['role'] ?? '';
+        if ($role !== 'admin' && $role !== 'super_admin') return null;
+        if (($payload['exp'] ?? 0) < time()) return null;
 
         $secret = Config::get('Admin.Password', '');
         $expectedSig = hash_hmac('sha256', $payloadJson, $secret);
-        return hash_equals($expectedSig, $parts[1]);
+        if (!hash_equals($expectedSig, $parts[1])) return null;
+
+        return $payload;
     }
 }

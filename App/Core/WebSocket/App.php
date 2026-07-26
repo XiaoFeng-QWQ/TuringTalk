@@ -1,10 +1,11 @@
-<?php
+﻿<?php
 
 use App\Enums\LogLevel;
 
 return [
     'Server' => [
         'Host' => '0.0.0.0',
+        'DenyMultiConnection' => false,  // 禁止同 IP 多开页面；穿透测试时设 false
         'Port' => 9502,
         'Options' => [
             'worker_num' => 1,  // 单 Worker 消除跨进程竞态，依赖协程并发
@@ -13,7 +14,7 @@ return [
             'pid_file' => __DIR__ . '/../Storage/swoole.pid',
             // 不限制请求数，避免 Worker 重启导致所有 WebSocket 玩家掉线
             'max_request' => 0,
-            // 心跳检测：120 秒无消息则判定连接死亡
+            // 心跳检测：100 秒无消息则判定连接死亡
             'heartbeat_idle_time' => 120,
             'heartbeat_check_interval' => 30,
             // Worker 退出前等待 3 秒，给客户端重连窗口
@@ -43,14 +44,14 @@ return [
     ],
     // 通用 LLM 配置（OpenAI 兼容 HTTP 接口）
     'LLM' => [
-        'Enable' => false,
+        'Enable' => true,
         // DeepSeek: https://api.deepseek.com/v1
         // 豆包:    https://ark.cn-beijing.volces.com/api/v3
         // 通义千问: https://dashscope.aliyuncs.com/compatible-mode/v1
         // 智谱:    https://open.bigmodel.cn/api/paas/v4
         // OpenAI:  https://api.openai.com/v1
-        'ApiBase' => 'https://api.deepseek.com/v1',
-        'Model' => 'deepseek-chat',
+        'ApiBase' => 'https://api.ltzy.top/v1',
+        'Model' => 'deepseek-ai/deepseek-v4-flash',
         'MaxTokens' => 200,
         'Temperature' => 0.8,
         'Timeout' => 15,
@@ -64,11 +65,11 @@ return [
     // 管理后台配置
     'Admin' => [
         // 访问管理后台的路径，例如 /admin9527
-        'Path' => 'admin',
+        'Path' => '58e7fee3-b69a-4778-8be8-c77a07de50ae',
         // 初始超级管理员用户名（首次启动自动创建，已有管理员则忽略）
         'Username' => 'admin',
         // 初始超级管理员密码（首次启动自动创建，已有管理员则忽略）
-        'Password' => '',
+        'Password' => '83d6e44f-1f07-49ed-9851-66f29c45a90c',
     ],
     // 图床上传配置（管理后台添自定义表情时使用）
     // 通过 SuccessField/SuccessValue/UrlField 兼容不同 API 的返回格式：
@@ -77,10 +78,10 @@ return [
     // RequestScript: 请求前执行的 JS 代码，可修改 headers/formData 完成自定义鉴权
     //   可用的变量：cfg.upload_url, cfg.headers(obj), cfg.formData(FormData实例)
     'ImageHosting' => [
-        'UploadUrl'    => 'https://your-upload-api.example.com/upload',
-        'Backstage'    => '',
-        'AppId'        => '',
-        'Key'          => '',
+        'UploadUrl'    => 'https://yuju.99kpk.top:81/FileUpload.php',
+        'Backstage'    => '3764594081',
+        'AppId'        => '1335',
+        'Key'          => '1785040538',
         // 响应解析规则（支持点号分隔的多级路径，如 data.url）
         'SuccessField' => 'code',
         'SuccessValue' => 1,
@@ -95,10 +96,11 @@ return [
     'MySQL' => [
         'Host' => '127.0.0.1',
         'Port' => 3306,
-        'Database' => 'turing_game',
-        'Username' => 'root',
-        'Password' => '',
+        'Database' => 'xiaofengqwq',
+        'Username' => 'xiaofengqwq',
+        'Password' => 'EtEGBeEXMJCFeJRe',
         'Charset' => 'utf8mb4',
+        'PoolSize' => 10,
     ],
     // Redis 配置（状态存储：会话、队列、在线状态）
     'Redis' => [
