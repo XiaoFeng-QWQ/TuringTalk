@@ -41,6 +41,28 @@ return [
         // 聊天结束后等待判定的超时时间（秒）
         'JudgementTimeout' => 60,
     ],
+    // 人类 vs AI 模式配置
+    'WhoisAI' => [
+        // 最小/最大玩家数（不含AI Bot）
+        'MinPlayers' => 4,
+        'MaxPlayers' => 8,
+        // AI Bot 数量（AI Bot 始终分配到人类阵营）
+        'AiBotCount' => 2,
+        // 人类总数（含 AI Bot）
+        'WhoisAICount' => 2,
+        // 各阶段时长（秒）
+        'NightDuration' => 15,
+        'DayDiscussDuration' => 90,
+        'DayVoteDuration' => 30,
+        // 房间邀请码长度（数字）
+        'RoomCodeLength' => 4,
+        // 房间清理超时（秒），lobby 状态超时自动关闭
+        'RoomExpireSeconds' => 300,
+        // AI Bot 决策超时（秒），超时随机选择
+        'AiDecisionTimeout' => 10,
+        // 人类 vs AI 专用 LLM Prompt
+        'SystemPrompt' => '',
+    ],
     // 通用 LLM 配置（OpenAI 兼容 HTTP 接口）
     'LLM' => [
         'Enable' => false,

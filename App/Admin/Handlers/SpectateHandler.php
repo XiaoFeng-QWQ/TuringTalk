@@ -32,8 +32,10 @@ class SpectateHandler
             return;
         }
 
-        $this->game->addSpectatorFd($sessionId, $fd);
-
+        // 先获取历史消息快照，再注册旁观者。
+        // 如果先注册旁观者再取历史，getSessionMessages() 内的 Redis I/O 会让出协程，
+        // 期间 Bot 可能推送 spectate_message 到客户端，而客户端 enterSpectatorView 会
+        // 清空 chatBody 重新渲染历史，导致先到达的消息丢失。
         $p2Label = $session['player2_fd'] > 0 ? $session['player2_nickname'] : 'Bot(AI)';
         $p2Truth = $session['player2_fd'] > 0 ? '人类' : 'AI';
 
@@ -55,6 +57,9 @@ class SpectateHandler
                 'tag'      => $session['player2_tag'] ?? '',
             ],
         ]);
+
+        // 历史记录已发送完毕，此时才注册旁观者接收实时消息转发
+        $this->game->addSpectatorFd($sessionId, $fd);
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);

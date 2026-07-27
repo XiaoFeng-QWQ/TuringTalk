@@ -24,17 +24,20 @@ class Router
                 '/script.js' => [GameController::class, 'script'],
                 '/style.css' => [GameController::class, 'style'],
                 '/favicon.svg' => [GameController::class, 'favicon'],
+                '/shared.js' => [GameController::class, 'shared'],
                 '/admin.js' => [GameController::class, 'adminScript'],
                 '/admin.css' => [GameController::class, 'adminStyle'],
-                '/api/player-stats' => [GameController::class, 'playerStats'],
+                '/WhoisAI' => [GameController::class, 'WhoisAIIndex'],
+                '/whoisai_style.css' => [GameController::class, 'WhoisAIStyle'],
+                '/whoisai_script.js' => [GameController::class, 'WhoisAIScript'],
                 '/api/generate-code' => [GameController::class, 'generateCode'],
+                '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
                 '/api/chat-history/detail' => [GameController::class, 'chatHistoryDetail'],
             ],
             'POST' => [
-                '/api/join-leaderboard' => [GameController::class, 'joinLeaderboard'],
-                '/api/leaderboard-join' => [GameController::class, 'leaderboardJoin'],
                 '/api/save-chat-history' => [GameController::class, 'saveChatHistory'],
+                '/api/upload-userdata' => [GameController::class, 'uploadUserData'],
             ],
         ];
 

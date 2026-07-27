@@ -81,6 +81,27 @@ class Sanitizer
     }
 
     /**
+     * 清理玩家昵称
+     * 移除 HTML/控制字符，trim 并截断
+     */
+    public static function nickname(?string $value, int $maxLen = 12): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        $value = strip_tags($value);
+        $value = str_replace(["\0", "\r", "\n", "\x0b", "\x0c"], '', $value);
+        $value = trim($value);
+
+        if ($maxLen > 0 && mb_strlen($value) > $maxLen) {
+            $value = mb_substr($value, 0, $maxLen);
+        }
+
+        return $value;
+    }
+
+    /**
      * 递归清理数组中的所有字符串值
      */
     public static function recursive(array $data, string $method = 'text'): array

@@ -25,7 +25,8 @@
     z-index: 100;
 }
 
-#spectate-banner {
+#spectate-banner,
+#WhoisAI-spectate-banner {
     background: linear-gradient(135deg, #e65100, #ff9800);
     color: #fff;
     padding: 10px 18px;
@@ -36,20 +37,23 @@
     gap: 8px;
 }
 
-#spectate-banner .spec-row {
+#spectate-banner .spec-row,
+#WhoisAI-spectate-banner .spec-row {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
 }
 
-#spectate-banner .spec-row.spec-header {
+#spectate-banner .spec-row.spec-header,
+#WhoisAI-spectate-banner .spec-row.spec-header {
     font-size: 12px;
     opacity: 0.8;
     font-weight: normal;
 }
 
-#spectate-banner .spec-player {
+#spectate-banner .spec-player,
+#WhoisAI-spectate-banner .spec-player {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -59,7 +63,8 @@
     font-size: 13px;
 }
 
-#spectate-banner .doodle-btn {
+#spectate-banner .doodle-btn,
+#WhoisAI-spectate-banner .doodle-btn {
     color: #fff;
     border-color: #fff;
     padding: 3px 12px;
@@ -97,6 +102,12 @@
     margin-left: 2px;
     border: 1px solid rgba(255, 255, 255, 0.3);
 }
+
+/* ==================== 谁是AI 旁观横幅 ==================== */
+
+/* 沿用 #spectate-banner 样式 */
+
+/* 角色色点 */
 
 .session-row {
     display: flex;

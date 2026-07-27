@@ -127,6 +127,11 @@ class Application
                 $webSocketHandler->getGameHandler()->getGameService()->sweepStaleHistory();
             });
 
+            // 每 60 秒清理一次过期人类 vs AI 房间
+            \Swoole\Timer::tick(60000, function () use ($webSocketHandler) {
+                $webSocketHandler->getWhoisAIHandler()->getWhoisAIService()->sweepExpiredRooms();
+            });
+
             // 健康检查（每 30 秒）
             \Swoole\Timer::tick(30000, function () use ($server, $workerId, $webSocketHandler) {
                 $gameService = $webSocketHandler->getGameHandler()->getGameService();

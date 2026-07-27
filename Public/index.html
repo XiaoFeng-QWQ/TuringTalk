@@ -33,13 +33,6 @@
             图灵测试小游戏
         </div>
         <div class="header-actions">
-            <span id="online-count"
-                style="display:flex;align-items:center;gap:4px;font-size:13px;color:#666;padding:5px 6px;">
-                <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                    <circle cx="12" cy="12" r="10" fill="#4caf50" stroke="none" />
-                </svg>
-                <span id="online-num">...</span>
-            </span>
             <button class="doodle-btn" id="btn-theme" title="主题切换" style="padding:8px 8px;">
                 <svg class="icon" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="5" />
@@ -94,16 +87,25 @@
                 </div>
                 <div class="id-card-display" id="id-card-display"
                     style="display:none;text-align:center;padding:16px 0;">
-                    <div id="id-card-nickname" style="font-size:18px;font-weight:bold;color:#2b2b2b;"></div>
+                    <div style="display:flex;align-items:center;justify-content:center;gap:8px;">
+                        <div id="id-card-nickname" style="font-size:18px;font-weight:bold"></div>
+                        <button id="btn-edit-nickname" class="doodle-btn" style="padding:2px 8px;font-size:11px;"
+                            title="修改昵称（每月一次）">修改</button>
+                    </div>
                     <div style="font-size:12px;color:#888;margin-top:4px;">系统编号: <span id="id-card-fingerprint"></span>
                     </div>
                 </div>
                 <div id="system-id-line" style="font-size: 12px; color: #888;">分配的系统编号: <span id="system-id"></span>
                 </div>
-                <label class="auto-record-line">
-                    <input type="checkbox" id="cb-auto-record">
-                    <span>自动记录战局（开启后战绩自动记录，换设备可用恢复码找回）</span>
-                </label>
+                <div class="input-line" id="recover-line" style="margin-top:10px;">
+                    <label style="font-size:12px;color:var(--text-subtle);">输入恢复码找回历史数据：</label>
+                    <div style="display:flex;gap:6px;">
+                        <input id="recover-input-main" type="text" placeholder="如 ore-yea-woo-jay"
+                            style="flex:1;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:14px;">
+                        <button class="doodle-btn" id="btn-recover-main"
+                            style="font-size:13px;padding:6px 14px;white-space:nowrap;">恢复</button>
+                    </div>
+                </div>
                 <div class="agreement-line">
                     开始即代表同意 <a href="javascript:void(0)" id="agreement-link">《用户协议》</a>
                     <span style="margin:0 4px;color:#ccc;">·</span>
@@ -114,6 +116,10 @@
                             <line x1="10" y1="14" x2="21" y2="3" />
                         </svg>
                         反馈 Bug</a>
+                </div>
+                <div id="online-count"
+                    style="text-align:center;font-size:14px;color:var(--ink-blue);padding:6px 0;cursor:default;">
+                    <span id="online-num">🔥棍母名玩家激战中🔥</span>
                 </div>
                 <button class="doodle-btn start-btn" id="btn-start">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -127,6 +133,18 @@
             </div>
 
             <div class="rules-board">
+                <a href="/WhoisAI" class="rule-item doodle-border WhoisAI-rule-item">
+                    <h3>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
+                        </svg>
+                        <span class="WhoisAI-entry-badge">NEW</span>
+                        ?! 谁是AI !?
+                    </h3>
+                    <p>匹配对战 · 多人混战找出隐藏的AI · 投票淘汰</p>
+                </a>
                 <div class="rule-item doodle-border">
                     <h3>
                         <svg class="icon" viewBox="0 0 24 24">
@@ -373,47 +391,34 @@
                 <div class="setting-row" id="leaderboard-section">
                     <h4>
                         <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M12 20V10" />
-                            <path d="M18 20V4" />
-                            <path d="M6 20v-4" />
+                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+                            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+                            <path d="M4 22h16" />
+                            <path d="M10 22V8c0-.6.4-1 1-1h2c.6 0 1 .4 1 1v14" />
                         </svg>
-                        战绩记录
+                        我的战绩
                     </h4>
-                    <p id="lb-status-text" style="font-size:12px;color:var(--text-subtle);margin-bottom:8px;">
-                        开启后战绩自动记录，换设备可用恢复码找回</p>
-
-                    <div id="lb-recover-area">
-                        <p style="font-size:11px;color:var(--text-subtle);margin-bottom:4px;">已有恢复码？在此处找回存档：</p>
-                        <div style="display:flex;gap:8px;">
-                            <input type="text" id="lb-recover-input" placeholder="例如: cat-dog-sun-sky" maxlength="20"
-                                style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;text-align:center;outline:none;">
-                            <button class="doodle-btn" id="btn-recover-lb"
-                                style="white-space:nowrap;font-size:13px;padding:6px 12px;">
-                                找回
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="lb-my-stats"
-                        style="display:none;margin-top:10px;padding:12px;background:var(--note-green);border:2px solid var(--ink-black);border-radius:10px 3px 10px 3px;">
-                        <div style="font-size:12px;color:var(--text-subtle);margin-bottom:4px;">我的战绩（恢复码：<span
-                                id="lb-my-code"
-                                style="font-weight:bold;color:var(--ink-blue);user-select: text;"></span>）</div>
-                        <div
-                            style="display:flex;justify-content:space-around;text-align:center;gap:4px;flex-wrap:wrap;">
-                            <div><strong id="lb-my-wins">0</strong><span
-                                    style="font-size:10px;color:var(--text-subtle);display:block;">胜</span></div>
-                            <div><strong id="lb-my-losses">0</strong><span
-                                    style="font-size:10px;color:var(--text-subtle);display:block;">负</span></div>
-                            <div><strong id="lb-my-games">0</strong><span
-                                    style="font-size:10px;color:var(--text-subtle);display:block;">场</span></div>
-                            <div><strong id="lb-my-rate">-</strong><span
-                                    style="font-size:10px;color:var(--text-subtle);display:block;">胜率</span></div>
+                    <div id="lb-my-stats" style="display:none;">
+                        <p style="font-size:12px;">恢复码：<span id="lb-my-code" style="font-weight:bold;"></span></p>
+                        <div style="display:flex;gap:10px;margin-top:6px;font-size:13px;">
+                            <span>胜：<b id="lb-my-wins">0</b></span>
+                            <span>负：<b id="lb-my-losses">0</b></span>
+                            <span>总场：<b id="lb-my-games">0</b></span>
+                            <span>胜率：<b id="lb-my-rate">-</b></span>
                         </div>
                         <button class="doodle-btn" id="btn-export-stats"
                             style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">
-                            导出图片
+                            导出战绩图
                         </button>
+                    </div>
+                    <div id="lb-recover-area" style="display:none;">
+                        <p style="font-size:12px;">已有恢复码？在此输入：</p>
+                        <div style="display:flex;gap:6px;">
+                            <input type="text" id="lb-recover-input" placeholder="输入恢复码"
+                                style="flex:1;padding:4px 8px;border:2px solid var(--ink-black);border-radius:6px;font-size:12px;">
+                            <button class="doodle-btn" id="btn-recover-lb"
+                                style="font-size:12px;padding:4px 12px;">恢复</button>
+                        </div>
                     </div>
                 </div>
 
@@ -467,14 +472,31 @@
                 <div class="setting-row">
                     <h4>
                         <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
                         </svg>
-                        调试工具
+                        上传数据到服务器
                     </h4>
-                    <p>导出浏览器端调试日志，用于排查匹配卡顿等问题</p>
-                    <button class="doodle-btn" id="btn-export-debug"
+                    <p>将本地的昵称、恢复码和战绩上传到服务器保存</p>
+                    <button class="doodle-btn" id="btn-upload-userdata"
                         style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">
-                        导出调试日志
+                        上传我的数据
+                    </button>
+                </div>
+
+                <div class="setting-row">
+                    <h4>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                        清除本地数据
+                    </h4>
+                    <p>删除浏览器中保存的昵称、恢复码和战绩记录</p>
+                    <button class="doodle-btn" id="btn-clear-local-data"
+                        style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;color:#e74c3c;border-color:#e74c3c;">
+                        清除所有本地数据
                     </button>
                 </div>
 
@@ -511,6 +533,13 @@
 
                 <div class="changelog-list">
 
+                    <div class="changelog-version">
+                        <div class="changelog-ver-header">v1.3.0 — 2026.07.27</div>
+                        <ul>
+                            <li>新增 “?! 谁是AI !?” 模式</li>
+                            <li>修复亿些已知bug</li>
+                        </ul>
+                    </div>
                     <div class="changelog-version">
                         <div class="changelog-ver-header">v1.2.0 — 2026.07.26</div>
                         <ul>
@@ -567,7 +596,8 @@
                     </svg>
                     管理员登录
                 </h2>
-                <input type="text" id="admin-username-input" placeholder="用户名" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;margin-bottom:8px;box-sizing:border-box;">
+                <input type="text" id="admin-username-input" placeholder="用户名"
+                    style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;margin-bottom:8px;box-sizing:border-box;">
                 <input type="password" id="admin-password-input" placeholder="请输入管理密码" autocomplete="off"
                     style="width:100%;padding:12px;border:2px solid var(--ink-black);border-radius:10px;font-size:16px;text-align:center;margin-bottom:16px;outline:none;">
                 <div style="display:flex;gap:10px;justify-content:center;">
@@ -626,6 +656,7 @@
             <div class="paper-content doodle-border">
                 <div class="drawer-header">
                     <h2 style="color:var(--ink-blue);">管理模式</h2>
+                    <span id="admin-online-info" style="font-size:12px;color:#888;display:none;"></span>
                     <button class="doodle-btn" id="btn-close-admin-panel" style="padding: 4px 8px; border:none;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <line x1="18" y1="6" x2="6" y2="18" />
@@ -665,19 +696,14 @@
                         style="flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;">
                         自定义表情包
                     </button>
-                    <button class="nav-btn" data-tab="admin-mgmt" id="tab-admin-mgmt" style="display:none;">管理员管理</button>
-                    <button class="nav-btn" data-tab="admin-logs" id="tab-admin-logs" style="display:none;">操作日志</button>
+                    <button class="nav-btn" data-tab="admin-mgmt" id="tab-admin-mgmt"
+                        style="display:none;">管理员管理</button>
+                    <button class="nav-btn" data-tab="admin-logs" id="tab-admin-logs"
+                        style="display:none;">操作日志</button>
                 </div>
 
                 <div class="setting-row" id="panel-sessions">
-                    <h4>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                            <line x1="8" y1="21" x2="16" y2="21" />
-                            <line x1="12" y1="17" x2="12" y2="21" />
-                        </svg>
-                        活跃对局
-                    </h4>
+                    <h4>活跃对局</h4>
                     <input type="text" id="search-sessions-input" placeholder="搜索玩家昵称..."
                         style="width:100%;padding:6px 10px;font-size:13px;border:2px solid var(--ink-blue);border-radius:6px;margin-bottom:8px;box-sizing:border-box;background:var(--bg-light);color:var(--ink-blue);text-align: center;">
                     <button class="doodle-btn" id="btn-refresh-sessions"
@@ -690,13 +716,7 @@
                 </div>
 
                 <div class="setting-row" id="panel-reports" style="display:none;">
-                    <h4>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                            <line x1="4" y1="22" x2="4" y2="15" />
-                        </svg>
-                        举报审核
-                    </h4>
+                    <h4>举报审核</h4>
                     <div style="display:flex;gap:6px;margin-bottom:8px;">
                         <button class="doodle-btn report-filter-btn active" data-filter=""
                             style="flex:1;font-size:11px;padding:4px 0;justify-content:center;">全部</button>
@@ -714,15 +734,7 @@
                 </div>
 
                 <div class="setting-row" id="panel-stickers" style="display:none;">
-                    <h4>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <rect x="3" y="3" width="18" height="18" rx="3" />
-                            <circle cx="8.5" cy="8.5" r="1.5" />
-                            <circle cx="15.5" cy="8.5" r="1.5" />
-                            <path d="M8 14c0 0 1.5 2 4 2s4-2 4-2" />
-                        </svg>
-                        自定义表情
-                    </h4>
+                    <h4>自定义表情</h4>
                     <div class="sticker-add-form">
                         <label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">添加新表情</label>
                         <div style="display:flex;gap:8px;margin-bottom:4px;flex-direction: column;">
@@ -764,27 +776,36 @@
                     <div id="admin-online-bar" class="admin-online-bar"></div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                         <span style="font-size:14px;font-weight:600;">管理员列表</span>
-                        <button id="btn-refresh-admins" class="doodle-btn" style="margin:0;padding:2px 8px;font-size:11px;">刷新</button>
+                        <button id="btn-refresh-admins" class="doodle-btn"
+                            style="margin:0;padding:2px 8px;font-size:11px;">刷新</button>
                     </div>
                     <div id="admin-list-wrap" class="admin-table-wrap"></div>
-                    <div id="admin-add-form" style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:6px;">
-                        <input type="text" id="new-admin-username" placeholder="用户名" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:3px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">
-                        <input type="password" id="new-admin-password" placeholder="密码" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:3px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">
+                    <div id="admin-add-form"
+                        style="display:none;margin-top:10px;padding:10px;background:#f9fafb;border-radius:6px;">
+                        <input type="text" id="new-admin-username" placeholder="用户名"
+                            style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:3px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">
+                        <input type="password" id="new-admin-password" placeholder="密码"
+                            style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:3px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">
                         <div style="display:flex;gap:6px;">
-                            <button id="btn-confirm-add-admin" class="doodle-btn" style="margin:0;padding:4px 12px;">确认添加</button>
-                            <button id="btn-cancel-add-admin" class="doodle-btn" style="margin:0;padding:4px 12px;background:#fff;color:#666;border-color:#ccc;">取消</button>
+                            <button id="btn-confirm-add-admin" class="doodle-btn"
+                                style="margin:0;padding:4px 12px;">确认添加</button>
+                            <button id="btn-cancel-add-admin" class="doodle-btn"
+                                style="margin:0;padding:4px 12px;background:#fff;color:#666;border-color:#ccc;">取消</button>
                         </div>
                         <div id="admin-add-error" style="color:#ef4444;font-size:11px;margin-top:4px;"></div>
                     </div>
-                    <button id="btn-show-add-admin" class="doodle-btn" style="margin-top:8px;padding:4px 12px;font-size:12px;">+ 添加管理员</button>
+                    <button id="btn-show-add-admin" class="doodle-btn"
+                        style="margin-top:8px;padding:4px 12px;font-size:12px;">+ 添加管理员</button>
                 </div>
                 <div class="setting-row" id="panel-admin-logs" style="display:none;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
                         <span style="font-size:14px;font-weight:600;">操作日志</span>
-                        <select id="log-scope" style="padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;">
+                        <select id="log-scope"
+                            style="padding:3px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;">
                             <option value="self">我的操作</option>
                         </select>
-                        <button id="btn-refresh-logs" class="doodle-btn" style="margin:0;padding:2px 8px;font-size:11px;">刷新</button>
+                        <button id="btn-refresh-logs" class="doodle-btn"
+                            style="margin:0;padding:2px 8px;font-size:11px;">刷新</button>
                     </div>
                     <div id="log-list-wrap" class="log-table-wrap"></div>
                     <div id="log-pagination" class="log-pagination"></div>
@@ -843,7 +864,7 @@
                         玩家之间发送的内容不代表本站立场。一经查实违规，本平台保留永久封禁并记录相关证据的权利。</p>
                 </div>
                 <button class="doodle-btn" id="btn-agree"
-                    style="width:100%;justify-content:center;margin-top:12px;background:var(--judge-bg);color:var(--surface-white);font-size:18px;padding:12px;">
+                    style="width:100%;justify-content:center;margin-top:12px;font-size:18px;padding:12px;">
                     <svg class="icon" viewBox="0 0 24 24">
                         <polyline points="20 6 9 17 4 12" />
                     </svg>
@@ -871,6 +892,7 @@
         </div>
     </div>
 
+    <script src="shared.js?v="></script>
     <script src="script.js?v="></script>
     <script src="admin.js?v="></script>
 </body>

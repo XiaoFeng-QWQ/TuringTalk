@@ -1,0 +1,653 @@
+/* ================================================================
+   人类 vs AI 法庭
+   复用主站设计变量：--surface-white, --ink-black, --note-*, --border-* 等
+   ================================================================ */
+
+/* ==================== 匹配面板 ==================== */
+#whoisai-match-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 25px;
+    width: 100%;
+    max-width: 700px;
+}
+
+.whoisai-match-card {
+    text-align: center;
+    max-width: 400px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 28px 36px;
+    min-height: 200px;
+}
+
+/* ==================== 匹配状态 ==================== */
+.whoisai-match-status {
+    margin-top: 14px;
+    font-size: 13px;
+    min-height: 20px;
+    color: var(--text-secondary);
+}
+
+.whoisai-match-status.info {
+    color: var(--ink-blue);
+}
+
+.whoisai-match-status.error {
+    color: var(--danger);
+}
+
+/* ==================== 匹配池列表 ==================== */
+.whoisai-pool-list {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+}
+
+.whoisai-pool-list span {
+    background: var(--note-green);
+    color: var(--ink-black);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+}
+
+/* ==================== 对局面板 ==================== */
+.whoisai-game-panel {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: calc(100vh - 80px);
+}
+
+.whoisai-notebook {
+    width: 100vw;
+    max-width: 1300px;
+    height: 100%;
+    background: var(--surface-white);
+    border: 2px solid var(--border-light);
+    border-radius: 5px 15px 15px 5px;
+    box-shadow: 8px 8px 20px var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ---------- 顶部状态栏 ---------- */
+.whoisai-game-header {
+    padding: 12px 20px;
+    border-bottom: 2px dashed var(--border-lighter);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--note-yellow);
+    flex-shrink: 0;
+}
+
+.whoisai-timer {
+    font-size: 26px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-black);
+    background: linear-gradient(180deg, transparent 60%, var(--highlighter) 60%);
+}
+
+.whoisai-timer.warning {
+    color: var(--danger);
+    animation: whoisai-pulse 1s infinite;
+}
+
+@keyframes whoisai-pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.whoisai-round {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink-blue);
+}
+
+#whoisai-identity-badge {
+    font-size: 13px;
+    padding: 4px 14px;
+    border-radius: 20px;
+    border: 2px solid var(--ink-black);
+    background: var(--surface-white);
+    color: var(--ink-black);
+}
+
+/* ---------- 主区域 ---------- */
+.whoisai-main {
+    display: flex;
+    gap: 0;
+    flex: 1;
+    min-height: 0;
+}
+
+/* ---- 玩家列表 ---- */
+.whoisai-player-panel {
+    width: 180px;
+    flex-shrink: 0;
+    background: var(--note-pink);
+    border-right: 2px dashed var(--border-light);
+    padding: 14px 10px;
+    overflow-y: auto;
+}
+
+.whoisai-player-panel h3 {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.whoisai-player-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 14px;
+    transition: background 0.15s;
+    background: var(--surface-white);
+    border: 1.5px solid transparent;
+}
+
+.whoisai-player-item:hover {
+    border-color: var(--ink-black);
+}
+
+.whoisai-player-item.dead {
+    opacity: 0.4;
+}
+
+.whoisai-player-item.you {
+    background: var(--note-yellow);
+    border-color: var(--ink-black);
+}
+
+.whoisai-player-name {
+    color: var(--ink-black);
+}
+
+.whoisai-player-item.dead .whoisai-player-name {
+    text-decoration: line-through;
+    color: var(--text-subtle);
+}
+
+/* ---- 内容区 ---- */
+.whoisai-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* 聊天区 */
+.whoisai-chat-box {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background-image:
+        linear-gradient(transparent 95%, var(--chat-grid) 95%);
+    background-size: 100% 28px;
+}
+
+.whoisai-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    line-height: 28px;
+}
+
+/* 消息气泡 */
+.whoisai-chat-msg {
+    max-width: 75%;
+    padding: 6px 14px;
+    margin-bottom: 14px;
+    position: relative;
+    word-break: break-word;
+    border: 2px solid var(--ink-black);
+}
+
+.whoisai-chat-msg.mine {
+    margin-left: auto;
+    background: var(--note-blue);
+    border-radius: 14px 14px 0 14px;
+}
+
+.whoisai-chat-msg:not(.mine) {
+    background: var(--note-yellow);
+    border-radius: 14px 14px 14px 0;
+}
+
+.whoisai-chat-sender {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-blue);
+}
+
+.whoisai-chat-text {
+    font-size: 14px;
+    color: var(--ink-black);
+    margin-top: 2px;
+    line-height: 1.5;
+}
+
+/* 系统消息 */
+.whoisai-chat-system {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-subtle);
+    padding: 8px 0;
+    font-style: italic;
+    animation: fadeIn 0.5s ease-out both;
+}
+
+/* 输入区 */
+.whoisai-input-area {
+    padding: 12px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    border-top: 2px dashed var(--border-lighter);
+    background: var(--bg-input);
+    flex-shrink: 0;
+}
+
+.whoisai-input-area input {
+    flex: 1;
+    background: transparent;
+    border: 2px solid var(--border-light);
+    border-radius: 15px;
+    padding: 8px 14px;
+    font-size: 15px;
+    color: var(--ink-blue);
+    outline: none;
+}
+
+.whoisai-input-area input:focus {
+    border-color: var(--ink-blue);
+}
+
+.whoisai-input-area input::placeholder {
+    color: var(--text-subtle);
+    font-style: italic;
+}
+
+.whoisai-input-area button {
+    padding: 8px 14px;
+    font-size: 14px;
+}
+
+/* ---------- 投票面板 ---------- */
+.whoisai-vote-panel {
+    padding: 14px 20px;
+    background: var(--judge-bg);
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.whoisai-vote-panel h3 {
+    font-size: 15px;
+    color: #fff;
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.whoisai-vote-panel h3 svg {
+    stroke: #fff;
+}
+
+.whoisai-vote-candidates {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.whoisai-vote-btn {
+    padding: 8px 18px;
+    border: 2px solid #fff;
+    border-radius: 20px;
+    background: transparent;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.whoisai-vote-btn:hover:not(:disabled) {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+}
+
+.whoisai-vote-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.whoisai-vote-btn.selected {
+    background: var(--danger);
+    border-color: var(--danger);
+}
+
+.whoisai-vote-status {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* ==================== 结束面板 ==================== */
+.whoisai-end-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-bg);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.whoisai-end-card {
+    width: min(420px, 90vw);
+    max-height: 85vh;
+}
+
+.whoisai-end-card .paper-content {
+    padding: 20px;
+    text-align: center;
+    overflow-y: auto;
+    max-height: calc(85vh - 30px);
+}
+
+.whoisai-end-card h2 {
+    font-size: 26px;
+    margin: 0 0 6px;
+    color: var(--ink-blue);
+}
+
+.whoisai-end-card .whoisai-end-text {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 16px;
+}
+
+.whoisai-end-card .whoisai-end-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+.whoisai-end-card .whoisai-end-table th {
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--ink-black);
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink-black);
+}
+
+.whoisai-end-card .whoisai-end-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-lighter);
+}
+
+.whoisai-end-card .whoisai-end-table tr.ai td {
+    color: var(--danger-dark);
+}
+
+.whoisai-end-card .whoisai-end-table tr.human td {
+    color: var(--success);
+}
+
+.whoisai-end-card .whoisai-end-btns {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.whoisai-end-card .whoisai-end-return {
+    padding: 10px 28px;
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background: var(--surface-white);
+    color: var(--ink-black);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.whoisai-end-card .whoisai-end-return:hover {
+    transform: scale(1.05) rotate(-2deg);
+    background: var(--highlighter);
+}
+
+/* 再来一局按钮不同配色 */
+.whoisai-end-card .whoisai-end-again {
+    background: var(--ink-blue);
+    color: var(--surface-white);
+}
+.whoisai-end-card .whoisai-end-again:hover {
+    background: var(--ink-black);
+}
+
+/* ==================== 历史记录弹窗 ==================== */
+.whoisai-history-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.2s ease;
+}
+
+.whoisai-history-card {
+    width: min(500px, 92vw);
+    max-height: 80vh;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 5px 20px 5px 20px;
+    box-shadow: 8px 8px 20px var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.whoisai-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 2px dashed var(--border-lighter);
+    background: var(--note-yellow);
+    flex-shrink: 0;
+}
+
+.whoisai-history-header h3 {
+    margin: 0;
+    font-size: 17px;
+    color: var(--ink-blue);
+}
+
+.whoisai-history-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--ink-black);
+    padding: 4px;
+    line-height: 0;
+    border-radius: 50%;
+}
+.whoisai-history-close:hover {
+    background: var(--surface-white);
+}
+
+.whoisai-history-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 18px;
+    min-height: 0;
+}
+
+.whoisai-history-empty {
+    text-align: center;
+    color: var(--text-subtle);
+    padding: 30px;
+    font-size: 14px;
+    font-style: italic;
+}
+
+.whoisai-history-msg {
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    background: var(--note-green);
+    border: 1.5px solid var(--border-light);
+    border-radius: 8px 3px 8px 3px;
+}
+
+.whoisai-history-meta {
+    font-size: 12px;
+    color: var(--ink-blue);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.whoisai-history-text {
+    font-size: 14px;
+    color: var(--ink-black);
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.whoisai-history-footer {
+    padding: 12px 18px;
+    border-top: 2px dashed var(--border-lighter);
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.whoisai-history-footer .whoisai-end-return {
+    width: 100%;
+}
+
+/* ==================== 返回链接 ==================== */
+.back-link {
+    font-size: 14px;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.back-link:hover {
+    color: var(--ink-black);
+    text-decoration: underline wavy var(--ink-blue);
+}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 768px) {
+    .whoisai-game-panel {
+        height: calc(100vh - 50px);
+        padding: 10px;
+    }
+
+    .whoisai-notebook {
+        height: 100%;
+    }
+}
+
+@media (max-width: 640px) {
+    .whoisai-game-panel {
+        height: calc(100vh - 40px);
+        padding: 6px;
+    }
+
+    .whoisai-notebook {
+        height: 100%;
+    }
+
+    .whoisai-match-card {
+        padding: 24px 18px;
+    }
+
+    .whoisai-notebook {
+        border-radius: 0;
+    }
+
+    .whoisai-main {
+        flex-direction: column;
+    }
+
+    .whoisai-player-panel {
+        width: 100%;
+        max-height: 70px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-right: none;
+        border-bottom: 2px dashed var(--border-light);
+        padding: 8px 10px;
+    }
+
+    .whoisai-player-panel h3 {
+        display: none;
+    }
+
+    #whoisai-player-list {
+        display: flex;
+        gap: 6px;
+    }
+
+    .whoisai-player-item {
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .whoisai-game-header {
+        padding: 8px 12px;
+    }
+
+    .whoisai-timer {
+        font-size: 20px;
+    }
+
+    .whoisai-round {
+        font-size: 13px;
+    }
+
+    .whoisai-vote-panel {
+        padding: 10px 12px;
+    }
+}

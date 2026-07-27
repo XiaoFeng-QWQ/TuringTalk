@@ -28,6 +28,13 @@ let _currentLogAdminId = null;
 // 举报筛选
 let _reportsFilter = 'all';
 
+// 旁观请求标志：仅当管理员主动点击旁观按钮后才允许进入观战视图
+let _spectateRequested = false;
+
+// 谁是AI 旁观状态
+let _WhoisAISpectateRoomId = null;
+let _WhoisAISpectateRequested = false;
+
 // ==================== DOM 引用（所有引用在 DOMContentLoaded 初始化）====================
 // 管理面板
 let adminPanelOverlay, btnAdminPanel, btnCloseAdminPanel, btnExitAdmin;
@@ -40,6 +47,8 @@ let spectateInfo, spectateDetail, btnExitSpectate;
 // 标签
 let tabSessions, tabReports, tabStickers;
 let panelSessions, panelReports, panelStickers;
+// 谁是AI
+let tabWhoisAI, panelWhoisAI, WhoisAIRoomsList;
 // 举报审核
 let reportsList, reportsPagination;
 let reportDetailOverlay, reportDetailTitle, reportDetailContent, reportDetailChat;
@@ -78,7 +87,6 @@ function connectAdminWS(url) {
 
     ws.onopen = () => {
         _wsRetryCount = 0;  // 连接成功，重置重试计数
-        DebugLogger.log('admin', '管理 WS 已连接');
         // 如果有 token，直接发送 admin_connect
         if (adminToken) {
             _adminConnecting = true;
@@ -94,7 +102,6 @@ function connectAdminWS(url) {
     };
 
     ws.onerror = () => {
-        DebugLogger.log('admin', '管理 WS 连接错误');
     };
 
     ws.onclose = () => {
@@ -104,7 +111,6 @@ function connectAdminWS(url) {
         // 判断是否被动断开（网络异常等），而非主动 disconnect
         const wasUnexpected = adminTransport && adminTransport._ws === ws;
 
-        DebugLogger.log('admin', '管理 WS 已断开');
         _adminConnected = false;
         _adminReady = false;
         _adminConnecting = false;
@@ -115,7 +121,6 @@ function connectAdminWS(url) {
         if (wasUnexpected && _wsRetryCount < _WS_MAX_RETRIES) {
             _wsRetryCount++;
             const delay = _WS_RETRY_BASE_MS * Math.pow(2, _wsRetryCount - 1);
-            DebugLogger.log('admin', `管理 WS 将在 ${delay}ms 后重试 (${_wsRetryCount}/${_WS_MAX_RETRIES})`);
             _wsRetryTimer = setTimeout(() => connectAdminWS(url), delay);
         }
     };
@@ -370,22 +375,28 @@ function handleAdminMessage(data) {
             break;
 
         case 'session_detail':
+            // 仅当管理员主动请求旁观时才进入观战视图，防止延迟消息覆盖当前页面
+            if (!_spectateRequested) break;
+            _spectateRequested = false;
             enterSpectatorView(data.session_id, data.player1, data.player2, data.history || []);
             break;
 
         case 'spectate_message':
+            if (!spectateSessionId) break;
             if (typeof appendMessage === 'function') {
                 appendMessage(data.text, data.side || 'left', data.sender);
             }
             break;
 
         case 'spectate_system':
+            if (!spectateSessionId) break;
             if (typeof game !== 'undefined' && game._onSystem) {
                 game._onSystem({ text: data.text });
             }
             break;
 
         case 'spectate_sticker':
+            if (!spectateSessionId) break;
             if (typeof appendSticker === 'function' && data.id && stickerMap && stickerMap[data.id]) {
                 appendSticker(data.id, data.name || stickerMap[data.id].name, data.side || 'left', data.sender || '玩家');
             }
@@ -407,6 +418,75 @@ function handleAdminMessage(data) {
 
         case 'admin_unspectated':
             exitSpectatorView();
+            break;
+
+        // 谁是AI 管理消息
+        case 'WhoisAI_rooms_list':
+            renderWhoisAIRoomsList(data.rooms);
+            break;
+
+        case 'WhoisAI_spectate_detail':
+            if (!_WhoisAISpectateRequested) break;
+            _WhoisAISpectateRequested = false;
+            enterWhoisAISpectatorView(data);
+            break;
+
+        case 'WhoisAI_unspectated':
+            exitWhoisAISpectatorView();
+            break;
+
+        // 谁是AI 旁观实时消息转发
+        case 'WhoisAI_message':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateMessage(data);
+            }
+            break;
+
+        case 'WhoisAI_system':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateSystem(data.text || data.message || '');
+            }
+            break;
+
+        case 'WhoisAI_phase_discussion':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateSystem('【第 ' + data.round + ' 轮讨论开始】');
+                if (data.players) updateWhoisAISpectatePlayers(data.players);
+            }
+            break;
+
+        case 'WhoisAI_phase_voting':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateSystem('【第 ' + data.round + ' 轮投票】');
+                if (data.players) updateWhoisAISpectatePlayers(data.players);
+            }
+            break;
+
+        case 'WhoisAI_vote_result':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateSystem('【投票结果】' + (data.text || ''));
+                if (data.players) updateWhoisAISpectatePlayers(data.players);
+            }
+            break;
+
+        case 'WhoisAI_vote_progress':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateSystem('投票进度: ' + (data.voted_count || 0) + '/' + (data.alive_count || 0));
+            }
+            break;
+
+        case 'WhoisAI_player_list':
+            if (_WhoisAISpectateRoomId && data.players) {
+                updateWhoisAISpectatePlayers(data.players);
+            }
+            break;
+
+        case 'WhoisAI_game_over':
+            if (_WhoisAISpectateRoomId) {
+                appendWhoisAISpectateSystem('【游戏结束】' + (data.text || ''));
+                if (data.players) updateWhoisAISpectatePlayers(data.players);
+                setTimeout(() => exitWhoisAISpectatorView(), 10000);
+            }
             break;
 
         case 'broadcast_result':
@@ -533,6 +613,7 @@ function closeAdminPanel() {
 function switchAdminTab(tab) {
     const allTabs = [
         { btn: tabSessions, panel: panelSessions, name: 'sessions' },
+        { btn: tabWhoisAI, panel: panelWhoisAI, name: 'WhoisAI' },
         { btn: tabReports, panel: panelReports, name: 'reports' },
         { btn: tabStickers, panel: panelStickers, name: 'stickers' },
     ];
@@ -555,6 +636,9 @@ function switchAdminTab(tab) {
     if (tab === 'reports') {
         loadReports(1);
     }
+    if (tab === 'WhoisAI') {
+        loadWhoisAIRooms();
+    }
     if (tab === 'stickers') {
         loadStickers();
     }
@@ -576,6 +660,39 @@ function updateAdminTabs() {
     // 获取或创建 admin/logs 标签
     const tabContainer = tabSessions.parentElement;
     if (!tabContainer) return;
+
+    // 创建谁是AI 标签（所有管理员可见）
+    if (!tabWhoisAI) {
+        tabWhoisAI = document.createElement('button');
+        tabWhoisAI.className = 'admin-tab-btn';
+        tabWhoisAI.id = 'tab-WhoisAI';
+        tabWhoisAI.style.cssText = 'flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;';
+        tabWhoisAI.textContent = '谁是AI';
+        tabWhoisAI.addEventListener('click', () => switchAdminTab('WhoisAI'));
+        // 插入到 sessions 之后、reports 之前
+        if (tabReports) {
+            tabContainer.insertBefore(tabWhoisAI, tabReports);
+        } else {
+            tabContainer.appendChild(tabWhoisAI);
+        }
+    }
+
+    if (!panelWhoisAI) {
+        const panelContainer = adminPanelOverlay.querySelector('.paper-content');
+        if (panelContainer) {
+            panelWhoisAI = createWhoisAIRoomsPanel();
+            // 插入到 sessions 面板之后
+            if (panelReports) {
+                panelContainer.insertBefore(panelWhoisAI, panelReports);
+            } else {
+                panelContainer.appendChild(panelWhoisAI);
+            }
+            // 刷新动态创建的 DOM 引用
+            WhoisAIRoomsList = document.getElementById('WhoisAI-rooms-list');
+        }
+    }
+    if (tabWhoisAI) tabWhoisAI.style.display = '';
+    if (panelWhoisAI) panelWhoisAI.style.display = 'none';
 
     if (_isSuperAdmin) {
         if (!tabAdmin) {
@@ -715,6 +832,7 @@ function _doRenderSessionsList() {
                 return;
             }
             closeOverlay(adminPanelOverlay);
+            _spectateRequested = true;
             adminSend('admin_spectate', { session_id: btn.dataset.sid });
         });
     });
@@ -739,7 +857,7 @@ function enterSpectatorView(sessionId, player1, player2, history) {
     const matchingPage = document.getElementById('matching-page');
     const chatPage = document.getElementById('chat-page');
     const chatBody = document.getElementById('chat-body');
-    const chatInputArea = document.getElementById('chat-input-area');
+    const chatInputArea = document.querySelector('.chat-input-area');
     const judgementZone = document.getElementById('judgement-zone');
     const resultArea = document.getElementById('result-area');
     const btnBack = document.getElementById('btn-back');
@@ -853,10 +971,12 @@ function enterSpectatorView(sessionId, player1, player2, history) {
         });
     }
 
-    // 隐藏输入区和判定区
+    // 隐藏输入区、判定区、举报按钮
     if (chatInputArea) chatInputArea.style.display = 'none';
     if (judgementZone) judgementZone.style.display = 'none';
     if (stickerPicker) stickerPicker.style.display = 'none';
+    const btnReport = document.getElementById('btn-report');
+    if (btnReport) btnReport.style.display = 'none';
 
     // 更新对手信息
     const infoDiv = document.querySelector('.opponent-info > div:nth-of-type(2)');
@@ -908,13 +1028,14 @@ function exitSpectatorView() {
 
     spectateSessionId = null;
     window._spectatePlayers = null;
+    _spectateRequested = false;
 
     // 移除旁观横幅
     const banner = document.getElementById('spectate-banner');
     if (banner) banner.remove();
 
     // 恢复 UI
-    const chatInputArea = document.getElementById('chat-input-area');
+    const chatInputArea = document.querySelector('.chat-input-area');
     const judgementZone = document.getElementById('judgement-zone');
     const chatBody = document.getElementById('chat-body');
     const chatPage = document.getElementById('chat-page');
@@ -927,6 +1048,8 @@ function exitSpectatorView() {
 
     if (chatInputArea) chatInputArea.style.display = '';
     if (judgementZone) judgementZone.style.display = '';
+    const btnReport = document.getElementById('btn-report');
+    if (btnReport) btnReport.style.display = '';
     if (chatBody) {
         chatBody.innerHTML = `
             <div class="sys-msg">
@@ -1196,15 +1319,7 @@ function createAdminManagementPanel() {
     panel.id = 'panel-admin';
     panel.style.display = 'none';
     panel.innerHTML = `
-        <h4>
-            <svg class="icon" viewBox="0 0 24 24">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-            管理员列表
-        </h4>
+        <h4>管理员列表</h4>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
             <input type="text" id="admin-add-username" placeholder="用户名"
                 style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
@@ -1243,15 +1358,7 @@ function createAdminLogsPanel() {
     panel.id = 'panel-logs';
     panel.style.display = 'none';
     panel.innerHTML = `
-        <h4>
-            <svg class="icon" viewBox="0 0 24 24">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-                <line x1="16" y1="13" x2="8" y2="13" />
-                <line x1="16" y1="17" x2="8" y2="17" />
-            </svg>
-            操作日志
-        </h4>
+        <h4>操作日志</h4>
         <div style="display:flex;gap:6px;margin-bottom:8px;">
             <button class="doodle-btn log-filter-btn active" data-filter="my"
                 style="flex:1;font-size:11px;padding:4px 0;justify-content:center;">我的操作</button>
@@ -1428,7 +1535,7 @@ function initOnlineStatus() {
     panel.id = 'online-status-dropdown';
     panel.style.cssText = `
         display:none;
-        position:absolute;top:100%;right:0;margin-top:6px;
+        position:absolute;top:100%;left:50%;transform:translateX(-50%) rotate(-1deg);margin-top:6px;
         background:var(--surface-white);border:2px solid var(--ink-black);
         border-radius:10px;padding:10px 12px;min-width:170px;
         max-height:240px;overflow-y:auto;font-size:12px;
@@ -1475,7 +1582,9 @@ function updateOnlinePlayerCount() {
     const numEl = document.getElementById('online-num');
     const dropdownEl = document.getElementById('dropdown-player-count');
     if (numEl && dropdownEl) {
-        dropdownEl.textContent = '在线玩家: ' + (numEl.textContent || '...');
+        // 提取纯数字（online-num 现在是 "🔥N名玩家激战中🔥"）
+        const match = numEl.textContent.match(/\d+/);
+        dropdownEl.textContent = '在线玩家: ' + (match ? match[0] : '...') + '人';
     }
 }
 
@@ -1485,6 +1594,7 @@ function updateOnlinePlayerCount() {
 function updateOnlineStatusBar() {
     const countEl = document.getElementById('online-count');
     const adminListEl = document.getElementById('dropdown-admin-list');
+    const adminOnlineInfo = document.getElementById('admin-online-info');
 
     if (_adminConnected) {
         if (countEl) countEl.style.cursor = 'pointer';
@@ -1493,6 +1603,7 @@ function updateOnlineStatusBar() {
         if (adminListEl) {
             adminListEl.innerHTML = '<div style="color:#888;text-align:center;">仅管理员可见</div>';
         }
+        if (adminOnlineInfo) adminOnlineInfo.style.display = 'none';
         // 关闭下拉面板
         if (onlineStatusList) onlineStatusList.style.display = 'none';
     }
@@ -1504,6 +1615,7 @@ function updateOnlineStatusBar() {
  */
 function renderOnlineList(list) {
     const adminListEl = document.getElementById('dropdown-admin-list');
+
     if (!adminListEl) return;
 
     // 管理员焦点切换光标
@@ -1584,6 +1696,314 @@ function repositionToasts() {
     });
 }
 
+// ==================== 谁是AI 管理 ====================
+
+/**
+ * 创建谁是AI 房间列表面板
+ * @returns {HTMLElement}
+ */
+function createWhoisAIRoomsPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'setting-row';
+    panel.id = 'panel-WhoisAI';
+    panel.style.display = 'none';
+    panel.innerHTML = `
+        <h4>谁是AI 房间</h4>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+            <button class="doodle-btn" id="btn-refresh-WhoisAI-rooms"
+                style="font-size:12px;padding:4px 10px;">刷新</button>
+        </div>
+        <div id="WhoisAI-rooms-list" style="max-height:300px;overflow-y:auto;font-size:13px;">
+            <div style="text-align:center;color:#999;padding:10px;">点击刷新获取房间列表</div>
+        </div>
+    `;
+    // 事件绑定延迟到 panel 插入 DOM 后
+    setTimeout(() => {
+        const btnRefresh = document.getElementById('btn-refresh-WhoisAI-rooms');
+        if (btnRefresh) {
+            btnRefresh.addEventListener('click', () => loadWhoisAIRooms());
+        }
+    }, 0);
+    return panel;
+}
+
+/**
+ * 加载谁是AI 房间列表
+ */
+function loadWhoisAIRooms() {
+    if (!_adminConnected) {
+        if (WhoisAIRoomsList) WhoisAIRoomsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">管理连接未就绪</div>';
+        return;
+    }
+    if (WhoisAIRoomsList) WhoisAIRoomsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">加载中...</div>';
+    adminSend('admin_WhoisAI_rooms');
+}
+
+/**
+ * 渲染谁是AI 房间列表
+ * @param {Array} rooms
+ */
+function renderWhoisAIRoomsList(rooms) {
+    if (!WhoisAIRoomsList) return;
+    if (!rooms || rooms.length === 0) {
+        WhoisAIRoomsList.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">当前无活跃房间</div>';
+        return;
+    }
+
+    const stateColors = {
+        'matchmaking': '#3498db',
+        'connect_check': '#f39c12',
+        'discussion': '#27ae60',
+        'voting': '#e67e22',
+        'game_over': '#95a5a6',
+    };
+
+    const stateLabels = {
+        'matchmaking': '匹配', 'connect_check': '连接检查',
+        'discussion': '讨论', 'voting': '投票', 'game_over': '结束',
+    };
+
+    let html = '';
+    rooms.forEach(r => {
+        const color = stateColors[r.state] || '#999';
+        const sLabel = stateLabels[r.state] || r.state_label || r.state || '?';
+        const shortId = r.id ? r.id.substring(0, 12) : '';
+        const playerCount = r.player_count || '?';
+        html += `
+            <div class="session-row">
+                <div class="session-info">
+                    <span style="font-weight:bold;">${escapeHtml(r.code || '????')}</span>
+                    <span style="font-size:11px;color:${color};margin-left:4px;">[${sLabel}]</span>
+                    <span style="font-size:11px;color:#888;display:block;">${shortId}... · ${playerCount}人 · 第${r.round}轮</span>
+                </div>
+                <button class="doodle-btn WhoisAI-spectate-btn" data-rid="${escapeHtml(r.id)}" style="font-size:12px;padding:4px 10px;">
+                    旁观
+                </button>
+            </div>
+        `;
+    });
+    WhoisAIRoomsList.innerHTML = html;
+
+    WhoisAIRoomsList.querySelectorAll('.WhoisAI-spectate-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (typeof game !== 'undefined' && game && game._sessionId) {
+                alert('你当前正在对局中，请先结束或离开对局后再进行旁观。');
+                return;
+            }
+            if (spectateSessionId) {
+                adminSend('admin_unspectate');
+                exitSpectatorView();
+            }
+            if (_WhoisAISpectateRoomId) {
+                adminSend('admin_WhoisAI_unspectate');
+            }
+            closeOverlay(adminPanelOverlay);
+            _WhoisAISpectateRequested = true;
+            adminSend('admin_WhoisAI_spectate', { room_id: btn.dataset.rid });
+        });
+    });
+}
+
+// ==================== 谁是AI 旁观视图 ====================
+
+/**
+ * 进入谁是AI 旁观视图
+ * @param {Object} data - WhoisAI_spectate_detail 数据
+ */
+function enterWhoisAISpectatorView(data) {
+    _WhoisAISpectateRoomId = data.room_id;
+
+    // 切换到聊天页面
+    const landingPage = document.getElementById('landing-page');
+    const matchingPage = document.getElementById('matching-page');
+    const chatPage = document.getElementById('chat-page');
+    const chatBody = document.getElementById('chat-body');
+    const chatInputArea = document.querySelector('.chat-input-area');
+    const judgementZone = document.getElementById('judgement-zone');
+    const stickerPicker = document.getElementById('sticker-picker');
+    const btnBack = document.getElementById('btn-back');
+    const logoText = document.getElementById('logo-text');
+    const timerDisplay = document.getElementById('timer-display');
+    const resultArea = document.getElementById('result-area');
+
+    if (landingPage) landingPage.style.display = 'none';
+    if (matchingPage) matchingPage.style.display = 'none';
+    if (chatPage) chatPage.style.display = 'flex';
+    if (resultArea) resultArea.style.display = 'none';
+    if (btnBack) btnBack.style.display = 'inline-flex';
+    if (chatInputArea) chatInputArea.style.display = 'none';
+    if (judgementZone) judgementZone.style.display = 'none';
+    if (stickerPicker) stickerPicker.style.display = 'none';
+    const btnReport = document.getElementById('btn-report');
+    if (btnReport) btnReport.style.display = 'none';
+
+    if (chatBody) chatBody.innerHTML = '';
+
+    // 渲染历史消息
+    if (data.messages && data.messages.length) {
+        data.messages.forEach(msg => {
+            appendWhoisAISpectateMessage({
+                sender_seat: msg.sender_seat,
+                sender_name: msg.sender_name,
+                text: msg.text,
+                time: msg.time,
+            });
+        });
+    }
+
+    // 创建旁观横幅
+    const notebookContainer = document.querySelector('.notebook-container');
+    let banner = document.getElementById('WhoisAI-spectate-banner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'WhoisAI-spectate-banner';
+    }
+    banner.innerHTML = renderWhoisAISpectateBanner(data);
+    if (notebookContainer) {
+        notebookContainer.insertBefore(banner, notebookContainer.firstChild);
+    }
+
+    // 更新 Timer 显示
+    if (timerDisplay) {
+        if (typeof timerInterval !== 'undefined' && timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        timerDisplay.textContent = '旁观';
+    }
+}
+
+/**
+ * 渲染谁是AI 旁观横幅 HTML
+ * @param {Object} data
+ * @returns {string}
+ */
+function renderWhoisAISpectateBanner(data) {
+    const stateLabel = {
+        'matchmaking': '匹配', 'connect_check': '连接检查',
+        'discussion': '讨论中', 'voting': '投票中', 'game_over': '已结束',
+    };
+
+    let playerHtml = '';
+    if (data.players) {
+        data.players.forEach(p => {
+            const statusSvg = p.alive !== undefined
+                ? (p.alive
+                    ? '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:#27ae60 !important;flex-shrink:0;"><circle cx="12" cy="12" r="10" fill="currentColor"/><polyline points="7 12 11 16 17 8" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+                    : '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:#e74c3c !important;flex-shrink:0;"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="8" x2="16" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="8" x2="8" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>')
+                : '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:#95a5a6 !important;flex-shrink:0;"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+            const aiSuffix = p.is_ai ? ' <span class="spectate-tag">AI</span>' : '';
+            playerHtml += '<span class="spec-player">' + statusSvg + ' ' + escapeHtml(p.nickname) + aiSuffix + '</span>';
+        });
+    }
+
+    return `
+        <div class="spec-row spec-header">谁是AI 旁观 · ${escapeHtml(data.code || '')}  <span style="opacity:0.6;">${stateLabel[data.state] || data.state} · 第${data.round}轮</span></div>
+        <div class="spec-row">${playerHtml}</div>
+    `;
+}
+
+/**
+ * 退出谁是AI 旁观视图
+ */
+function exitWhoisAISpectatorView() {
+    _WhoisAISpectateRoomId = null;
+    _WhoisAISpectateRequested = false;
+
+    const banner = document.getElementById('WhoisAI-spectate-banner');
+    if (banner) banner.remove();
+
+    const chatInputArea = document.querySelector('.chat-input-area');
+    const judgementZone = document.getElementById('judgement-zone');
+    const chatBody = document.getElementById('chat-body');
+    const chatPage = document.getElementById('chat-page');
+    const landingPage = document.getElementById('landing-page');
+    const btnBack = document.getElementById('btn-back');
+    const timerDisplay = document.getElementById('timer-display');
+    const resultArea = document.getElementById('result-area');
+
+    if (chatInputArea) chatInputArea.style.display = '';
+    if (judgementZone) judgementZone.style.display = '';
+    const btnReport = document.getElementById('btn-report');
+    if (btnReport) btnReport.style.display = '';
+    if (chatPage) chatPage.style.display = 'none';
+    if (landingPage) landingPage.style.display = 'flex';
+    if (btnBack) btnBack.style.display = 'none';
+    if (timerDisplay) timerDisplay.textContent = '';
+    if (resultArea) resultArea.style.display = '';
+    if (chatBody) chatBody.innerHTML = '';
+
+    const stickerPicker = document.getElementById('sticker-picker');
+    if (stickerPicker) stickerPicker.style.display = '';
+}
+
+/**
+ * 向旁观者聊天区追加一条聊天消息
+ * @param {Object} msg - { sender_seat, sender_name, text, time }
+ */
+function appendWhoisAISpectateMessage(msg) {
+    const chatBody = document.getElementById('chat-body');
+    if (!chatBody) return;
+
+    const sender = msg.sender_name || (msg.sender_seat + '号');
+    const time = msg.time || '';
+
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.innerHTML = `
+        <div class="msg-meta">
+            <span class="msg-sender" style="font-weight:bold;color:var(--ink-blue);">${escapeHtml(sender)}</span>
+            ${time ? '<span class="msg-time" style="font-size:10px;color:#888;margin-left:6px;">' + escapeHtml(time) + '</span>' : ''}
+        </div>
+        <div class="msg-bubble msg-left" style="max-width:80%;word-break:break-word;">${escapeHtml(msg.text)}</div>
+    `;
+    chatBody.appendChild(div);
+    chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+/**
+ * 向旁观者聊天区追加系统消息
+ * @param {string} text
+ */
+function appendWhoisAISpectateSystem(text) {
+    const chatBody = document.getElementById('chat-body');
+    if (!chatBody) return;
+
+    const div = document.createElement('div');
+    div.className = 'sys-msg';
+    div.style.cssText = 'text-align:center;font-size:12px;color:#888;padding:6px 0;';
+    div.textContent = text;
+    chatBody.appendChild(div);
+    chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+/**
+ * 更新旁观横幅中的玩家列表
+ * @param {Array} players
+ */
+function updateWhoisAISpectatePlayers(players) {
+    const banner = document.getElementById('WhoisAI-spectate-banner');
+    if (!banner) return;
+
+    let playerHtml = '';
+    if (players && players.length) {
+        players.forEach(p => {
+            const statusSvg = p.alive !== undefined
+                ? (p.alive
+                    ? '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:#27ae60;flex-shrink:0;"><circle cx="12" cy="12" r="10" fill="currentColor"/><polyline points="7 12 11 16 17 8" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+                    : '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:#e74c3c;flex-shrink:0;"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="8" x2="16" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="16" y1="8" x2="8" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>')
+                : '<svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;color:#95a5a6;flex-shrink:0;"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+            const aiSuffix = p.is_ai ? ' <span class="spectate-tag">AI</span>' : '';
+            playerHtml += '<span class="spec-player">' + statusSvg + ' ' + escapeHtml(p.nickname) + aiSuffix + '</span>';
+        });
+    }
+
+    const playerRow = banner.querySelector('.spec-row:nth-of-type(2)');
+    if (playerRow) {
+        playerRow.innerHTML = playerHtml;
+    }
+}
+
 // ==================== 初始化入口 ====================
 
 /**
@@ -1606,9 +2026,12 @@ function initAdminDOMRefs() {
     tabSessions = document.getElementById('tab-sessions');
     tabReports = document.getElementById('tab-reports');
     tabStickers = document.getElementById('tab-stickers');
+    tabWhoisAI = document.getElementById('tab-WhoisAI');
     panelSessions = document.getElementById('panel-sessions');
     panelReports = document.getElementById('panel-reports');
     panelStickers = document.getElementById('panel-stickers');
+    panelWhoisAI = document.getElementById('panel-WhoisAI');
+    WhoisAIRoomsList = document.getElementById('WhoisAI-rooms-list');
     reportsList = document.getElementById('reports-list');
     reportsPagination = document.getElementById('reports-pagination');
     reportDetailOverlay = document.getElementById('report-detail-overlay');
@@ -1656,6 +2079,10 @@ function initAdminEvents() {
                 if (spectateSessionId) {
                     adminSend('admin_unspectate');
                     exitSpectatorView();
+                }
+                if (_WhoisAISpectateRoomId) {
+                    adminSend('admin_WhoisAI_unspectate');
+                    exitWhoisAISpectatorView();
                 }
                 _adminReady = false;
                 _adminConnected = false;

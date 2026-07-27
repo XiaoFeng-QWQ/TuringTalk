@@ -59,6 +59,19 @@ class GameController
         }
     }
 
+    private function injectWhoisAIVersionHashes(string &$html): void
+    {
+        $files = ['style.css', 'whoisai_style.css', 'whoisai_script.js', 'shared.js'];
+        foreach ($files as $file) {
+            $hash = $this->getFileVersionHash($file);
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $hash,
+                $html
+            );
+        }
+    }
+
     public function script(Request $request, Response $response): void
     {
         $this->serveStaticFile('script.js', 'application/javascript', $request, $response);
@@ -79,9 +92,32 @@ class GameController
         $this->serveStaticFile('admin.css', 'text/css', $request, $response);
     }
 
+    public function WhoisAIIndex(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'whoisai.html');
+        $this->injectWhoisAIVersionHashes($html);
+        $response->setContent($html);
+        $response->send();
+    }
+
+    public function WhoisAIStyle(Request $request, Response $response): void
+    {
+        $this->serveStaticFile('whoisai_style.css', 'text/css', $request, $response);
+    }
+
+    public function WhoisAIScript(Request $request, Response $response): void
+    {
+        $this->serveStaticFile('whoisai_script.js', 'application/javascript', $request, $response);
+    }
+
     public function favicon(Request $request, Response $response): void
     {
         $this->serveStaticFile('favicon.svg', 'image/svg+xml', $request, $response);
+    }
+
+    public function shared(Request $request, Response $response): void
+    {
+        $this->serveStaticFile('shared.js', 'application/javascript', $request, $response);
     }
 
     private function serveStaticFile(string $filename, string $contentType, Request $request, Response $response): void
@@ -134,23 +170,25 @@ class GameController
         return false;
     }
 
+    // ==================== 恢复码 ====================
+
     /**
-     * 生成恢复码（纯随机，无需 WS）
-     * 同一设备（IP+指纹）不重复生成，返回已有码
+     * 生成恢复码（同一设备IP+指纹不重复生成）
      */
     public function generateCode(Request $request, Response $response): void
     {
         $fp = Sanitizer::identifier($request->get('fp', ''));
+        $nickname = Sanitizer::text($request->get('nickname', ''));
         $ip = $request->getClientIp();
         $response->setHeader('Content-Type', 'application/json');
 
-        // 同一设备已有记录 → 复用已有码
         if (!empty($fp)) {
             $existing = PlayerStatsRepository::findByIpFingerprint($ip, $fp);
             if ($existing) {
+                $stats = PlayerStatsRepository::getPlayerStats($existing['code']);
                 $response->setContent(json_encode([
                     'code' => $existing['code'],
-                    'recovered' => true,
+                    'stats' => $stats,
                 ]));
                 $response->send();
                 return;
@@ -158,127 +196,88 @@ class GameController
         }
 
         $code = PlayerStatsRepository::generateCode();
-        $response->setContent(json_encode(['code' => $code, 'recovered' => false]));
-        $response->send();
-    }
-
-    /**
-     * 确认上榜（HTTP POST，替代 WS join_leaderboard）
-     */
-    public function joinLeaderboard(Request $request, Response $response): void
-    {
-        $body = $request->getJsonBody();
-        $code = Sanitizer::identifier($body['code'] ?? '');
-        $nickname = Sanitizer::text($body['nickname'] ?? '', 16);
-        $fp = Sanitizer::identifier($body['fp'] ?? '');
-        $ip = $request->getClientIp();
-
-        $response->setHeader('Content-Type', 'application/json');
-
-        if (empty($code) || empty($nickname)) {
-            $response->setContent(json_encode(['error' => '恢复码和昵称不能为空']));
-            $response->send();
-            return;
+        if (!empty($nickname) && !empty($fp)) {
+            PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
         }
-
-        $existing = PlayerStatsRepository::findByCode($code);
-        if ($existing) {
-            PlayerStatsRepository::updateNickname($code, $nickname, $ip, $fp);
-            $stats = PlayerStatsRepository::getPlayerStats($code);
-            $response->setContent(json_encode([
-                'code' => $code,
-                'stats' => $stats,
-                'recovered' => true,
-            ]));
-            $response->send();
-            return;
-        }
-
-        PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
+        $stats = PlayerStatsRepository::getPlayerStats($code);
         $response->setContent(json_encode([
             'code' => $code,
-            'stats' => PlayerStatsRepository::getPlayerStats($code),
-            'recovered' => false,
+            'stats' => $stats,
         ]));
         $response->send();
     }
 
     /**
-     * 一键上榜：生成恢复码 + 确认上榜，单次 POST
-     */
-    public function leaderboardJoin(Request $request, Response $response): void
-    {
-        $body = $request->getJsonBody();
-        $nickname = Sanitizer::text($body['nickname'] ?? '', 16);
-        $fp = Sanitizer::identifier($body['fp'] ?? '');
-        $ip = $request->getClientIp();
-
-        $response->setHeader('Content-Type', 'application/json');
-
-        if (empty($nickname)) {
-            $response->setContent(json_encode(['error' => '昵称不能为空']));
-            $response->send();
-            return;
-        }
-        if (mb_strlen($nickname) > 16) {
-            $response->setContent(json_encode(['error' => '昵称不能超过16个字符']));
-            $response->send();
-            return;
-        }
-
-        // IP+指纹去重：同设备复用已有码
-        if (!empty($fp)) {
-            $existing = PlayerStatsRepository::findByIpFingerprint($ip, $fp);
-            if ($existing) {
-                PlayerStatsRepository::updateNickname($existing['code'], $nickname, $ip, $fp);
-                $response->setContent(json_encode([
-                    'code' => $existing['code'],
-                    'stats' => PlayerStatsRepository::getPlayerStats($existing['code']),
-                ]));
-                $response->send();
-                return;
-            }
-        }
-
-        $code = PlayerStatsRepository::generateCode();
-        PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
-        $response->setContent(json_encode([
-            'code' => $code,
-            'stats' => PlayerStatsRepository::getPlayerStats($code),
-        ]));
-        $response->send();
-    }
-
-    /**
-     * 个人战绩查询（通过恢复码，无需 WS）
+     * 查询战绩（通过恢复码）
      */
     public function playerStats(Request $request, Response $response): void
     {
         $code = Sanitizer::identifier($request->get('code', ''));
+        $nickname = Sanitizer::text($request->get('nickname', ''), 16);
         $response->setHeader('Content-Type', 'application/json');
 
         if (empty($code)) {
-            $response->setContent(json_encode(['error' => '恢复码不能为空']));
+            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if (empty($nickname)) {
+            $response->setContent(json_encode(['error' => '昵称不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 昵称 + 恢复码双重校验
+        $byCode = PlayerStatsRepository::findByCode($code);
+        if (!$byCode) {
+            $response->setContent(json_encode(['error' => '恢复码不存在'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if ($byCode['nickname'] !== $nickname) {
+            $response->setContent(json_encode(['error' => '昵称与恢复码不匹配'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
         $stats = PlayerStatsRepository::getPlayerStats($code);
-        if (!$stats) {
-            $response->setContent(json_encode(['error' => '未找到该恢复码对应的存档']));
-            $response->send();
-            return;
-        }
-
-        $response->setContent(json_encode([
-            'code' => $code,
-            'nickname' => $stats['nickname'],
-            'stats' => $stats,
-        ], JSON_UNESCAPED_UNICODE));
+        $response->setContent(json_encode($stats));
         $response->send();
     }
 
     // ==================== 聊天记录保存 ====================
+
+    /**
+     * POST /api/upload-userdata
+     * 上传本地 UserData 到服务端（设置页按钮触发）
+     */
+    public function uploadUserData(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $response->setHeader('Content-Type', 'application/json');
+
+        $code = Sanitizer::identifier($body['recovery_code'] ?? '');
+        if (empty($code)) {
+            $response->setContent(json_encode(['error' => '恢复码不能为空，请先在首页创建或恢复'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $nickname = Sanitizer::text($body['nickname'] ?? '', 16);
+        $fp = Sanitizer::identifier($body['fp'] ?? '');
+        $ip = $request->getClientIp();
+        $stats = $body['stats'] ?? [];
+
+        if (!is_array($stats)) $stats = [];
+
+        try {
+            PlayerStatsRepository::syncUserData($code, $nickname, $ip, $fp, $stats);
+            $response->setContent(json_encode(['success' => true, 'message' => '数据上传成功'], JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) {
+            $response->setContent(json_encode(['error' => '上传失败: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE));
+        }
+        $response->send();
+    }
 
     /**
      * POST /api/save-chat-history

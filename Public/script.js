@@ -1,185 +1,7 @@
 // ================================================================
-// 调试日志器
-// ================================================================
-const DebugLogger = (() => {
-    const DB_NAME = 'turing_debug';
-    const DB_VERSION = 1;
-    const STORE_NAME = 'logs';
-    const MAX_LOGS = 5000;
-
-    let _db = null, _ready = false, _openPromise = null, _pendingLogs = [];
-
-    function openDB() {
-        if (_openPromise) return _openPromise;
-        _openPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open(DB_NAME, DB_VERSION);
-            req.onupgradeneeded = (e) => {
-                const db = e.target.result;
-                if (!db.objectStoreNames.contains(STORE_NAME)) {
-                    const store = db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
-                    store.createIndex('ts', 'ts', { unique: false });
-                    store.createIndex('category', 'category', { unique: false });
-                }
-            };
-            req.onsuccess = (e) => {
-                _db = e.target.result;
-                _ready = true;
-                resolve(_db);
-                if (_pendingLogs.length > 0) {
-                    const batch = _pendingLogs.splice(0);
-                    batch.forEach(function(e) { _writeLog(e); });
-                }
-            };
-            req.onerror = function() {
-                console.warn('[DebugLogger] IndexedDB open failed, logging disabled');
-                _ready = false;
-                reject(req.error);
-            };
-        });
-        return _openPromise;
-    }
-
-    function _writeLog(entry) {
-        if (!_db || !_ready) {
-            _pendingLogs.push(entry);
-            if (_pendingLogs.length > 200) _pendingLogs.shift();
-            return;
-        }
-        try {
-            var tx = _db.transaction(STORE_NAME, 'readwrite');
-            var store = tx.objectStore(STORE_NAME);
-            store.add(entry);
-        } catch (e) {
-            _pendingLogs.push(entry);
-        }
-    }
-
-    function _prune() {
-        if (!_db || !_ready) return;
-        try {
-            var tx2 = _db.transaction(STORE_NAME, 'readwrite');
-            var store2 = tx2.objectStore(STORE_NAME);
-            var countReq = store2.count();
-            countReq.onsuccess = function() {
-                var excess = countReq.result - MAX_LOGS;
-                if (excess <= 0) return;
-                var idx = store2.index('ts');
-                var cursorReq = idx.openCursor();
-                var deleted = 0;
-                cursorReq.onsuccess = function(e) {
-                    var cursor = e.target.result;
-                    if (cursor && deleted < excess) {
-                        cursor.delete();
-                        deleted++;
-                        cursor.continue();
-                    }
-                };
-            };
-        } catch (e) { /* ignore */ }
-    }
-
-    /** @param {string} category - ws/match/game/error/lifecycle/timer/network */
-    /** @param {string} message */
-    /** @param {*} [data] */
-    function log(category, message, data) {
-        var entry = {
-            ts: Date.now(),
-            category: String(category),
-            message: String(message),
-            data: data !== undefined && data !== null ? JSON.stringify(data) : null
-        };
-        if (!_ready) { openDB().catch(function(){}); }
-        if (_ready) {
-            _writeLog(entry);
-            if (Math.random() < 0.05) _prune();
-        } else {
-            _pendingLogs.push(entry);
-            if (_pendingLogs.length > 200) _pendingLogs.shift();
-        }
-    }
-
-    function exportJSON() {
-        return new Promise(function(resolve, reject) {
-            if (!_db || !_ready) { resolve(JSON.stringify(_pendingLogs, null, 2)); return; }
-            var tx3 = _db.transaction(STORE_NAME, 'readonly');
-            var store3 = tx3.objectStore(STORE_NAME);
-            var req = store3.getAll();
-            req.onsuccess = function() { resolve(JSON.stringify(req.result, null, 2)); };
-            req.onerror = function() { reject(req.error); };
-        });
-    }
-
-    async function download() {
-        try {
-            var json = await exportJSON();
-            var encoder = new TextEncoder();
-            var uint8 = encoder.encode(json);
-            var blob;
-            if (typeof CompressionStream !== 'undefined') {
-                var cs = new CompressionStream('gzip');
-                var writer = cs.writable.getWriter();
-                writer.write(uint8);
-                writer.close();
-                var reader = cs.readable.getReader();
-                var chunks = [];
-                while (true) {
-                    var chunk = await reader.read();
-                    if (chunk.done) break;
-                    chunks.push(chunk.value);
-                }
-                var totalLen = 0;
-                for (var i = 0; i < chunks.length; i++) totalLen += chunks[i].length;
-                var combined = new Uint8Array(totalLen);
-                var offset = 0;
-                for (var i2 = 0; i2 < chunks.length; i2++) {
-                    combined.set(chunks[i2], offset);
-                    offset += chunks[i2].length;
-                }
-                blob = new Blob([combined], { type: 'application/gzip' });
-            } else {
-                blob = new Blob([uint8], { type: 'application/json' });
-            }
-            var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-            var ext = (typeof CompressionStream !== 'undefined') ? '.json.gz' : '.json';
-            var url = URL.createObjectURL(blob);
-            var a = document.createElement('a');
-            a.href = url;
-            a.download = 'turing-debug-' + ts + ext;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            return { count: (json.match(/"ts"/g) || []).length };
-        } catch (e) {
-            console.error('[DebugLogger] Export failed:', e);
-            throw e;
-        }
-    }
-
-    async function getCount() {
-        if (!_db || !_ready) return _pendingLogs.length;
-        return new Promise(function(resolve) {
-            var tx4 = _db.transaction(STORE_NAME, 'readonly');
-            var req2 = tx4.objectStore(STORE_NAME).count();
-            req2.onsuccess = function() { resolve(req2.result); };
-            req2.onerror = function() { resolve(0); };
-        });
-    }
-
-    openDB().catch(function(){});
-    setInterval(function() {
-        if (_ready && _pendingLogs.length > 0) {
-            var batch = _pendingLogs.splice(0);
-            for (var j = 0; j < batch.length; j++) _writeLog(batch[j]);
-        }
-    }, 5000);
-
-    return { log: log, exportJSON: exportJSON, download: download, count: getCount };
-})();
-
-// ================================================================
 // 传输层基类
 // ================================================================
+const DebugLogger = { log: function() {}, count: async function() { return 0; }, download: async function() { return { count: 0 }; } };
 class ChatTransport {
     constructor() {
         this._handlers = {};
@@ -334,7 +156,8 @@ class GameClient {
 
         DebugLogger.log('game', 'GameClient.start', { nickname: this._nickname });
 
-        localStorage.setItem('turing_nickname', this._nickname);
+        localStorage.setItem('turing_nickname', this._nickname); // @compat
+        setUserNickname(this._nickname);
 
         landingPage.style.display = 'none';
         matchingPage.style.display = 'flex';
@@ -500,7 +323,7 @@ class GameClient {
         if (this._sessionId) {
             this._transport.sendLeaveResult(this._sessionId);
         }
-        const nickname = localStorage.getItem('turing_nickname') || 'You';
+        const nickname = getUserNickname() || 'You';
         const durationSelect = document.getElementById('duration-select');
         const duration = parseInt(durationSelect?.value) || 600;
         this._nickname = nickname;
@@ -906,6 +729,8 @@ const btnCloseSettings = document.getElementById('btn-close-settings');
 const changelogOverlay = document.getElementById('changelog-overlay');
 const btnChangelog = document.getElementById('btn-changelog');
 const btnCloseChangelog = document.getElementById('btn-close-changelog');
+const btnClearLocalData = document.getElementById('btn-clear-local-data');
+const btnUploadUserData = document.getElementById('btn-upload-userdata');
 // 对局内表情选择器
 const btnStickerPicker = document.getElementById('btn-sticker-picker');
 const stickerPicker = document.getElementById('sticker-picker');
@@ -942,19 +767,22 @@ function generateFingerprint() {
 const browserFingerprint = generateFingerprint();
 
 const nicknameInput = document.getElementById('nickname-input');
-const savedNickname = localStorage.getItem('turing_nickname');
+// 迁移旧存储到统一的 userdata 结构（临时，下个版本移除）
+// USERDATA_KEY 已在 shared.js 中声明
+let _chatHistoryPage = 1;
+migrateLegacyData();
+
+const savedNickname = getUserNickname();
 if (savedNickname) {
     nicknameInput.value = savedNickname;
 
-    // 非首次访问：显示只读 ID 卡，隐藏昵称输入、系统编号行、自动记录复选框
+    // 非首次访问：显示只读 ID 卡，隐藏昵称输入、系统编号行
     const inputLine = document.getElementById('nickname-input-line');
     const systemIdLine = document.getElementById('system-id-line');
-    const autoRecordLine = document.querySelector('.auto-record-line');
     const idCardDisplay = document.getElementById('id-card-display');
 
     if (inputLine) inputLine.style.display = 'none';
     if (systemIdLine) systemIdLine.style.display = 'none';
-    if (autoRecordLine) autoRecordLine.style.display = 'none';
 
     // 显示 ID 卡展示区
     if (idCardDisplay) {
@@ -962,7 +790,106 @@ if (savedNickname) {
         document.getElementById('id-card-nickname').textContent = savedNickname;
         document.getElementById('id-card-fingerprint').textContent = browserFingerprint;
     }
+
+    // 有恢复码时隐藏首页恢复码输入框（数据已在本地，无需恢复）
+    const recoverLine = document.getElementById('recover-line');
+    if (recoverLine && getLbCode()) {
+        recoverLine.style.display = 'none';
+    }
 }
+
+// 首页恢复码入口
+document.getElementById('btn-recover-main').addEventListener('click', () => {
+    const input = document.getElementById('recover-input-main');
+    const code = input.value.trim();
+    if (!code) { showTopToast('请输入恢复码'); return; }
+    const nickname = nicknameInput.value.trim();
+    if (!nickname) { showTopToast('请先填写昵称'); return; }
+    fetch('/api/player-stats?code=' + encodeURIComponent(code) + '&nickname=' + encodeURIComponent(nickname))
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showTopToast(data.error); return; }
+            saveLbCode(data.code);
+            updateLbUI();
+            updateLbMyStats(data);
+            mergeServerStats(data);
+            input.value = '';
+            showTopToast('战绩已恢复！', false);
+
+            // 切换到 ID 卡展示模式（与页面加载时有数据时一致）
+            setUserNickname(nickname);
+            const inputLine = document.getElementById('nickname-input-line');
+            const systemIdLine = document.getElementById('system-id-line');
+            const idCardDisplay = document.getElementById('id-card-display');
+            if (inputLine) inputLine.style.display = 'none';
+            if (systemIdLine) systemIdLine.style.display = 'none';
+            if (idCardDisplay) {
+                idCardDisplay.style.display = 'block';
+                document.getElementById('id-card-nickname').textContent = nickname;
+                document.getElementById('id-card-fingerprint').textContent = browserFingerprint;
+            }
+
+            // 恢复成功后隐藏首页恢复码输入框
+            const recoverLine = document.getElementById('recover-line');
+            if (recoverLine) recoverLine.style.display = 'none';
+        })
+        .catch(() => showTopToast('网络错误，请稍后重试'));
+});
+
+document.getElementById('recover-input-main').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-recover-main').click();
+});
+
+// 昵称修改（每月一次限制）
+document.getElementById('btn-edit-nickname').addEventListener('click', () => {
+    const now = new Date();
+    const currentYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    const lastUpdate = getUserNicknameUpdatedAt();
+
+    if (lastUpdate === currentYM) {
+        showTopToast('本月已修改过昵称，每月仅可修改一次');
+        return;
+    }
+
+    const newNick = prompt('输入新昵称（每月限改一次，当前：' + getUserNickname() + '）', getUserNickname());
+    if (!newNick || !newNick.trim()) return;
+    const trimmed = newNick.trim();
+    if (trimmed.length > 16) {
+        showTopToast('昵称不能超过16个字符');
+        return;
+    }
+    if (trimmed === getUserNickname()) return;
+
+    // 如果有恢复码，通过 WS 同步更新到后端，等待响应后再决定是否本地更新
+    const code = getLbCode();
+    if (code) {
+        try {
+            const onResult = (e) => {
+                document.removeEventListener('nickname_update_result', onResult);
+                if (e.detail.error) {
+                    showTopToast('昵称更新失败：' + e.detail.error);
+                    return;
+                }
+                setUserNickname(trimmed);
+                setUserNicknameUpdatedAt(currentYM);
+                document.getElementById('id-card-nickname').textContent = trimmed;
+                document.getElementById('nickname-input').value = trimmed;
+                showTopToast('昵称已修改为：' + trimmed, false);
+            };
+            document.addEventListener('nickname_update_result', onResult);
+            transport.send('update_nickname', { code, nickname: trimmed, fp: browserFingerprint });
+            return;
+        } catch (e) {
+            // WS 未连接时静默降级，仅更新本地
+        }
+    }
+
+    setUserNickname(trimmed);
+    setUserNicknameUpdatedAt(currentYM);
+    document.getElementById('id-card-nickname').textContent = trimmed;
+    document.getElementById('nickname-input').value = trimmed;
+    showTopToast('昵称已修改为：' + trimmed, false);
+});
 
 btnStart.disabled = true;
 btnStart.textContent = '初始化中...';
@@ -1030,7 +957,7 @@ const thinkAudio = new Audio('https://yuju.99kpk.top:81/pan/1335/a682b90cd2276dc
 thinkAudio.preload = 'auto';
 
 function getNickname() {
-    return localStorage.getItem('turing_nickname') || 'You';
+    return getUserNickname() || 'You';
 }
 
 function formatTime(s) {
@@ -1382,23 +1309,100 @@ function resetGame() {
 }
 
 // ================================================================
+//  统一用户数据存储（v2：整合 turing_nickname / turing_player_code / turing_stats）
+// ================================================================
+
+function getUserdata() {
+    try {
+        const raw = localStorage.getItem(USERDATA_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch (_) { return {}; }
+}
+
+function saveUserdata(d) {
+    try {
+        localStorage.setItem(USERDATA_KEY, JSON.stringify(d));
+    } catch (_) {}
+}
+
+function clearUserdata() {
+    try {
+        localStorage.removeItem(USERDATA_KEY);
+    } catch (_) {}
+}
+
+/**
+ * 旧数据迁移（临时，下个版本移除）
+ * 1. 旧 key: turing_nickname / turing_player_code / turing_stats → UserData
+ * 2. 旧 key: turing_userdata → UserData
+ */
+function migrateLegacyData() {
+    if (localStorage.getItem(USERDATA_KEY)) return; // 已迁移
+
+    const ud = getUserdata();
+    let migrated = false;
+
+    // 从旧 turing_userdata key 迁移（v2.0）
+    const oldUd = localStorage.getItem('turing_userdata');
+    if (oldUd) {
+        try {
+            const parsed = JSON.parse(oldUd);
+            Object.assign(ud, parsed);
+            localStorage.removeItem('turing_userdata');
+            migrated = true;
+        } catch (_) {}
+    }
+
+    // 迁移旧 key: turing_nickname / turing_player_code / turing_stats
+    const oldNick = localStorage.getItem('turing_nickname');
+    if (oldNick && !ud.nickname) {
+        ud.nickname = oldNick;
+        migrated = true;
+    }
+
+    // 迁移恢复码
+    const oldCode = localStorage.getItem('turing_player_code');
+    if (oldCode && !ud.recovery_code) {
+        ud.recovery_code = oldCode;
+        migrated = true;
+    }
+
+    // 迁移战局统计
+    try {
+        const oldStatsRaw = localStorage.getItem('turing_stats');
+        if (oldStatsRaw && !ud.stats) {
+            ud.stats = JSON.parse(oldStatsRaw);
+            migrated = true;
+        }
+    } catch (_) {}
+
+    if (migrated) {
+        saveUserdata(ud);
+        // 清理旧 key
+        localStorage.removeItem('turing_nickname');
+        localStorage.removeItem('turing_player_code');
+        localStorage.removeItem('turing_stats');
+    }
+}
+
+// ---- 用户数据便捷读写 ----
+function getUserNickname() { return getUserdata().nickname || ''; }
+function setUserNickname(name) { const d = getUserdata(); d.nickname = name; saveUserdata(d); }
+function getUserRecoveryCode() { return getUserdata().recovery_code || ''; }
+function setUserRecoveryCode(code) { const d = getUserdata(); d.recovery_code = code; saveUserdata(d); }
+function getUserStats() { return getUserdata().stats || null; }
+function setUserStats(s) { const d = getUserdata(); d.stats = s; saveUserdata(d); }
+function getUserNicknameUpdatedAt() { return getUserdata().nickname_updated_at || ''; }
+function setUserNicknameUpdatedAt(ym) { const d = getUserdata(); d.nickname_updated_at = ym; saveUserdata(d); }
+
+// ================================================================
 //  战局统计
 // ================================================================
 
-const STATS_KEY = 'turing_stats';
+const STATS_KEY = 'turing_stats'; // @deprecated 使用 getUserStats/setUserStats
 
-function getStats() {
-    try {
-        const raw = localStorage.getItem(STATS_KEY);
-        return raw ? JSON.parse(raw) : null;
-    } catch (_) { return null; }
-}
-
-function saveStats(s) {
-    try {
-        localStorage.setItem(STATS_KEY, JSON.stringify(s));
-    } catch (_) {}
-}
+function getStats() { return getUserStats(); }
+function saveStats(s) { setUserStats(s); }
 
 function recordGameStats(result) {
     const s = getStats() || {
@@ -1664,13 +1668,73 @@ document.addEventListener('visibilitychange', function () {
     }
 });
 
+// Back-Forward Cache 恢复时重连 WebSocket
+window.addEventListener('pageshow', function (e) {
+    if (e.persisted && transport) {
+        DebugLogger.log('lifecycle', '页面从bfcache恢复，触发WS重连');
+        const ws = transport._ws;
+        if (ws) {
+            try { ws.onclose = null; } catch (_) {}
+            ws.close();
+        }
+        transport._intentionalClose = false;
+        transport._lastPongTime = 0;
+        transport.connect(transport._lastNickname || '', transport._lastDuration || 600);
+    }
+});
+
+// 清除本地数据按钮
+btnClearLocalData.addEventListener('click', () => {
+    if (!confirm('确定要清除所有本地数据吗？\n昵称、恢复码和战绩记录将被删除，操作不可恢复！')) return;
+    clearUserdata();
+    // 刷新页面以重置所有状态
+    window.location.reload();
+});
+
+// 上传本地数据到服务器按钮
+btnUploadUserData.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-upload-userdata');
+    const code = getUserRecoveryCode();
+    if (!code) {
+        showTopToast('请先在首页创建或恢复您的恢复码', true);
+        return;
+    }
+
+    const ud = getUserdata();
+    const payload = {
+        nickname: ud.nickname || '',
+        recovery_code: code,
+        fp: browserFingerprint,
+        stats: ud.stats || {},
+    };
+
+    btn.disabled = true;
+    btn.textContent = '上传中...';
+
+    try {
+        const resp = await fetch('/api/upload-userdata', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showTopToast('数据上传成功', false);
+        } else {
+            showTopToast(data.error || '上传失败', true);
+        }
+    } catch (e) {
+        showTopToast('网络错误，请稍后再试', true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '上传我的数据';
+    }
+});
+
 btnSettings.addEventListener('click', () => {
     settingsOverlay.style.display = 'flex';
-    // 更新日志条数显示
-    DebugLogger.count().then(function(n) {
-        var btn = document.getElementById('btn-export-debug');
-        if (btn) btn.textContent = '导出调试日志 (' + n + ' 条)';
-    });
+    // 更新战绩记录 UI
+    updateLbUI();
 });
 
 btnCloseSettings.addEventListener('click', () => {
@@ -1815,50 +1879,6 @@ const ANNOUNCE_MAX = 3;           // 最多同时展示条数
 
 let announceQueue = [];            // 待展示队列
 let announceShowing = 0;           // 当前正在展示的数量
-
-/**
- * 顶部 toast，5s 后自动淡出
- * @param {string} message - 提示文本
- * @param {boolean} [isError=true] - 是否为错误提示
- */
-function showTopToast(message, isError = true) {
-    const el = document.createElement('div');
-    const bg = isError ? '#ffe0e0' : '#d4edda';
-    const color = isError ? '#c0392b' : '#155724';
-    const border = isError ? '#e74c3c' : '#28a745';
-    const offset = document.querySelectorAll('.top-toast').length * 48;
-    el.className = 'top-toast';
-    el.style.cssText = `
-        position: fixed; top: ${12 + offset}px; left: 50%; transform: translateX(-50%); z-index: 1002;
-        max-width: min(90vw, 400px);
-        background: ${bg}; color: ${color}; border: 2px solid ${border};
-        padding: 8px 16px; border-radius: 8px 4px 8px 4px;
-        font-size: 14px;
-        animation: announceIn 0.35s ease forwards;
-        pointer-events: none;
-    `;
-    el.textContent = (isError ? '\u26A0 ' : '\u2714 ') + message;
-    document.body.appendChild(el);
-
-    setTimeout(() => {
-        el.style.animation = 'announceOut 0.3s ease forwards';
-        el.addEventListener('animationend', () => {
-            el.remove();
-            repositionToasts();
-        }, { once: true });
-    }, 5000);
-}
-
-/**
- * 重新计算所有顶部 toast 的垂直位置（堆叠用）
- * 注意：showAdminToast 在 admin.js 中也定义了一份同名函数，共用 .top-toast 类
- */
-function repositionToasts() {
-    document.querySelectorAll('.top-toast').forEach((t, i) => {
-        t.style.top = (12 + i * 48) + 'px';
-        t.style.transition = 'top 0.25s ease';
-    });
-}
 
 function showDanmaku(text, label = '全服公告') {
     announceQueue.push({ text, label });
@@ -2093,6 +2113,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     duration: duration || 600,
                     token: adminToken,
                     fingerprint: browserFingerprint,
+                    recovery_code: getUserRecoveryCode() || undefined,
                 };
                 // 重连时带上旧会话 ID，后端可恢复而非重新匹配
                 if (this._lastSessionId) {
@@ -2145,6 +2166,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'judged':
                 DebugLogger.log('game', '对方已判定', { truth: data.truth, session_id: data.session_id });
+                if (data.recovery_code) saveLbCode(data.recovery_code);
                 this._emit('opponent_judged', {
                     truth: data.truth,
                     opponent_guess: data.opponent_guess,
@@ -2154,10 +2176,11 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'judge_notify':
                 DebugLogger.log('game', '判定通知', { message: data.message });
-                this._emit('judge_notify', { message: data.message });
+                this._emit('judge_notify', { message: data.message, seconds_remaining: data.seconds_remaining });
                 break;
             case 'timeout':
                 DebugLogger.log('game', '收到timeout事件', { reason: data.reason, session_id: data.session_id });
+                if (data.recovery_code) saveLbCode(data.recovery_code);
                 this._emit('opponent_timeout', {
                     reason: data.reason,
                     session_id: data.session_id,
@@ -2191,10 +2214,13 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 }
                 break;
             case 'online_count':
-                document.getElementById('online-num').textContent = data.count;
+                document.getElementById('online-num').textContent = '🔥' + data.count + '名玩家激战中🔥';
                 break;
             case 'broadcast':
                 showDanmaku(data.text);
+                break;
+            case 'room_announce':
+                showDanmaku(data.text, '管理警告');
                 break;
             case 'banned':
                 showTopToast(data.text);
@@ -2226,6 +2252,9 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     botMsgCount++;
                     updateJudgementState(game._judgementAllowed);
                 }
+                break;
+            case 'update_nickname_result':
+                document.dispatchEvent(new CustomEvent('nickname_update_result', { detail: data }));
                 break;
             default:
                 break;
@@ -2288,6 +2317,7 @@ WebSocketTransport.prototype.reconnect = function (nickname, duration) {
             duration: duration || 600,
             token: adminToken,
             fingerprint: browserFingerprint,
+            recovery_code: getUserRecoveryCode() || undefined,
         }));
         return;
     }
@@ -2307,8 +2337,6 @@ WebSocketTransport.prototype.preconnect = function () {
 // 初始化传输层和游戏客户端
 // ================================================================
 let transport, game;
-const LB_CODE_KEY = 'turing_player_code';
-let _chatHistoryPage = 1;
 
 (async function () {
     // 记录环境信息
@@ -2337,19 +2365,6 @@ let _chatHistoryPage = 1;
         console.error('Game init failed:', e);
     }
 
-    // 页面加载时初始化战绩 + 已有码则拉取最新战绩
-    updateLbUI();
-    const savedCode = getLbCode();
-    if (savedCode) {
-        fetch('/api/player-stats?code=' + encodeURIComponent(savedCode))
-            .then(r => r.json())
-            .then(data => {
-                if (data.stats) {
-                    updateLbMyStats(data.stats);
-                }
-            })
-            .catch(() => {});
-    }
 })();
 
 // ================================================================
@@ -2421,38 +2436,41 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 //  个人战绩记录
 // ================================================================
 
-function getLbCode() {
-    return localStorage.getItem(LB_CODE_KEY) || '';
-}
-
-function saveLbCode(code) {
-    localStorage.setItem(LB_CODE_KEY, code);
-}
+function getLbCode() { return getUserRecoveryCode(); }
+function saveLbCode(code) { setUserRecoveryCode(code); }
 
 function updateLbUI() {
     const code = getLbCode();
-    const cb = document.getElementById('cb-auto-record');
-
-    if (code) {
-        cb.checked = true;
-    } else {
-        cb.checked = false;
-    }
 
     // 设置面板中的战绩展示
     const recoverArea = document.getElementById('lb-recover-area');
     const myStatsEl = document.getElementById('lb-my-stats');
-    const statusText = document.getElementById('lb-status-text');
 
     if (code) {
         recoverArea.style.display = 'none';
         myStatsEl.style.display = '';
-        statusText.textContent = '你的战绩：';
         document.getElementById('lb-my-code').textContent = code;
+
+        // 用本地存储的数据刷新战绩数字
+        const localStats = getUserStats();
+        if (localStats) {
+            const totalGames = localStats.total || 0;
+            const wins = localStats.wins || 0;
+            const losses = localStats.losses || 0;
+            updateLbMyStats({
+                turing_test: {
+                    wins: wins,
+                    losses: losses,
+                    timeouts: localStats.timeouts || 0,
+                },
+                WhoisAI: { wins: 0, losses: 0 },
+                total_games: totalGames,
+                win_rate: totalGames > 0 ? Math.round(wins / totalGames * 100) : 0,
+            });
+        }
     } else {
         recoverArea.style.display = '';
         myStatsEl.style.display = 'none';
-        statusText.textContent = '开启后战绩自动记录，换设备可用恢复码找回';
     }
 
     // 聊天记录回顾区域
@@ -2469,11 +2487,40 @@ function updateLbUI() {
 
 function updateLbMyStats(stats) {
     if (!stats) return;
+    const tt = stats.turing_test || {};
+    const hva = stats.WhoisAI || {};
     document.getElementById('lb-my-code').textContent = getLbCode();
-    document.getElementById('lb-my-wins').textContent = stats.wins || 0;
-    document.getElementById('lb-my-losses').textContent = stats.losses || 0;
+    document.getElementById('lb-my-wins').textContent = (tt.wins || 0) + (hva.wins || 0);
+    document.getElementById('lb-my-losses').textContent = (tt.losses || 0) + (hva.losses || 0);
     document.getElementById('lb-my-games').textContent = stats.total_games || 0;
     document.getElementById('lb-my-rate').textContent = (stats.win_rate !== undefined ? stats.win_rate + '%' : '-');
+}
+
+// 将服务器战绩全量覆盖到本地存储
+function mergeServerStats(stats) {
+    if (!stats) return;
+    const tt = stats.turing_test || {};
+    const hva = stats.WhoisAI || {};
+    const local = {
+        total: stats.total_games || 0,
+        wins: (tt.wins || 0) + (hva.wins || 0),
+        losses: (tt.losses || 0) + (hva.losses || 0),
+        timeouts: tt.timeouts || 0,
+        guessHuman: tt.guess_human || 0,
+        guessAI: tt.guess_ai || 0,
+        oppHuman: tt.opp_human || 0,
+        oppAI: tt.opp_ai || 0,
+        totalMsgs: tt.total_msgs || 0,
+        totalDuration: tt.total_duration || 0,
+        lastPlayed: ((stats.last_played_at || stats.created_at) || 0) * 1000,
+    };
+    saveStats(local);
+
+    // 同步昵称
+    if (stats.nickname) {
+        setUserNickname(stats.nickname);
+        document.getElementById('nickname-input').value = stats.nickname;
+    }
 }
 
 // ---- 导出战绩图 ----
@@ -2548,58 +2595,30 @@ async function exportStatsImage() {
     }
 }
 
-document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
+// ---- 自动初始化恢复码 ----
 
-// 调试日志导出按钮
-document.getElementById('btn-export-debug').addEventListener('click', async function () {
-    const btn = this;
-    const origText = btn.textContent;
-    btn.textContent = '导出中...';
-    btn.disabled = true;
-    try {
-        const result = await DebugLogger.download();
-        btn.textContent = '已导出 (' + result.count + ' 条)';
-        setTimeout(function () { btn.textContent = origText; btn.disabled = false; }, 2000);
-    } catch (e) {
-        btn.textContent = '导出失败';
-        btn.disabled = false;
-        alert('导出失败: ' + e.message);
-        setTimeout(function () { btn.textContent = origText; }, 2000);
+function autoInitRecoveryCode() {
+    if (getLbCode()) {
+        updateLbUI();
+        return;
     }
-});
+    const nickname = getUserNickname() || '';
+    if (!nickname) return; // 首次访问，等用户填写昵称后由 validateNickname 触发
 
-// ---- 复选框事件 ----
-
-document.getElementById('cb-auto-record').addEventListener('change', function () {
-    if (!this.checked) return; // 仅处理勾选
-
-    let nickname = document.getElementById('nickname-input').value.trim();
-    if (!nickname) {
-        nickname = prompt('请输入昵称：');
-        if (!nickname || !nickname.trim()) {
-            this.checked = false;
-            return;
-        }
-        nickname = nickname.trim();
-        document.getElementById('nickname-input').value = nickname;
-        localStorage.setItem('turing_nickname', nickname);
-    }
-    if (nickname.length > 16) { alert('昵称不能超过16个字符'); this.checked = false; return; }
-
-    fetch('/api/leaderboard-join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nickname, fp: browserFingerprint }),
-    })
+    fetch('/api/generate-code?fp=' + encodeURIComponent(browserFingerprint) + '&nickname=' + encodeURIComponent(nickname))
         .then(r => r.json())
         .then(data => {
-            if (data.error) { alert(data.error); this.checked = false; return; }
+            if (data.error) return;
             saveLbCode(data.code);
             updateLbUI();
-            updateLbMyStats(data.stats);
+            if (data.stats) { updateLbMyStats(data.stats); mergeServerStats(data.stats); }
         })
-        .catch(() => { alert('网络错误，请稍后重试'); this.checked = false; });
-});
+        .catch(() => {});
+}
+
+document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
+
+// ---- 恢复码输入事件 ----
 
 document.getElementById('btn-recover-lb').addEventListener('click', () => {
     const code = document.getElementById('lb-recover-input').value.trim();
@@ -2607,7 +2626,12 @@ document.getElementById('btn-recover-lb').addEventListener('click', () => {
         alert('请输入恢复码');
         return;
     }
-    fetch('/api/player-stats?code=' + encodeURIComponent(code))
+    const nickname = getUserNickname();
+    if (!nickname) {
+        alert('请先在首页填写昵称');
+        return;
+    }
+    fetch('/api/player-stats?code=' + encodeURIComponent(code) + '&nickname=' + encodeURIComponent(nickname))
         .then(r => r.json())
         .then(data => {
             if (data.error) {
@@ -2616,7 +2640,8 @@ document.getElementById('btn-recover-lb').addEventListener('click', () => {
             }
             saveLbCode(data.code);
             updateLbUI();
-            updateLbMyStats(data.stats);
+            updateLbMyStats(data);
+            mergeServerStats(data);
             document.getElementById('lb-recover-input').value = '';
         })
         .catch(() => alert('网络错误，请稍后重试'));
@@ -2632,7 +2657,7 @@ document.getElementById('lb-recover-input').addEventListener('keydown', (e) => {
 
 /** 加载聊天记录列表 */
 function loadChatHistoryList(page) {
-    const code = getLbCode();
+    const code = getUserRecoveryCode();
     if (!code) return;
 
     _chatHistoryPage = page || 1;
@@ -2717,7 +2742,7 @@ function renderChatHistoryList(data) {
 
 /** 显示聊天记录详情 */
 function showChatHistoryDetail(id) {
-    const code = getLbCode();
+    const code = getUserRecoveryCode();
     if (!code) return;
 
     const overlay = document.getElementById('chat-history-detail-overlay');

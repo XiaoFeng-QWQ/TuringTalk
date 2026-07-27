@@ -23,7 +23,7 @@ use Config\Config;
  */
 class BotService
 {
-    /** @var array<string, array{array{role:string, content:string}}} 按 sessionId 隔离的会话上下文（最近 6 条） */
+    /** @var array<string, array<array{role:string, content:string}>> 按 sessionId 隔离的会话上下文（最近 6 条） */
     private array $histories = [];
 
     /** @var array<string, array> sessionId => persona，按对局绑定人设 */
@@ -829,6 +829,40 @@ class BotService
         $pool = $this->replies[$category] ?? $this->replies['default'];
         $reply = $pool[array_rand($pool)];
         return $this->addHumanTouch($reply);
+    }
+
+    /**
+     * 简单 LLM 回复——供人类 vs AI 模式等场景使用
+     * 不走完整三阶段管线，直接调用 LLM，失败时降级模板
+     *
+     * @param string $scene 场景标识（日志用）
+     * @param string $systemPrompt 系统提示词
+     * @param string $userMessage 用户消息（含上下文）
+     * @return string
+     */
+    public function generateSimpleReply(string $scene, string $systemPrompt, string $userMessage): string
+    {
+        if ($this->llmService->isEnabled()) {
+            try {
+                $messages = [
+                    ['role' => 'system', 'content' => $systemPrompt],
+                    ['role' => 'user', 'content' => $userMessage],
+                ];
+                $reply = $this->llmService->generateReplyCustom(
+                    $messages,
+                    100,
+                    0.85
+                );
+                if ($reply !== null && $reply !== '') {
+                    return $reply;
+                }
+            } catch (\Throwable $e) {
+                Logger::warning('Bot simple reply LLM failed', ['scene' => $scene, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // 兜底模板
+        return $this->generateTemplateReply($userMessage);
     }
 
     private function addHumanTouch(string $text): string

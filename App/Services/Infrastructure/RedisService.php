@@ -31,6 +31,17 @@ class RedisService
     public const KP_MATCH_Q    = self::PREFIX . 'queue';     // queue            → list
     public const KP_MATCH_TIMER= self::PREFIX . 'timer:';    // timer:{fd}       → string
 
+    // 人类 vs AI 模式 key 前缀
+    public const WHOIS_AI_PREFIX       = self::PREFIX . 'whoisai:';
+    public const KP_WHOIS_AI_POOL      = self::WHOIS_AI_PREFIX . 'pool';           // pool              → hash 匹配池
+    public const KP_WHOIS_AI_ROOM      = self::WHOIS_AI_PREFIX . 'room:';       // room:{id}            → hash
+    public const KP_WHOIS_AI_PLAYERS   = self::WHOIS_AI_PREFIX . 'room:players:'; // room:players:{id}  → hash
+    public const KP_WHOIS_AI_MSGS      = self::WHOIS_AI_PREFIX . 'room:msgs:';    // room:msgs:{id}     → list
+    public const KP_WHOIS_AI_NIGHT     = self::WHOIS_AI_PREFIX . 'room:night:';   // room:night:{id}:{rnd} → hash
+    public const KP_WHOIS_AI_VOTES     = self::WHOIS_AI_PREFIX . 'room:votes:';   // room:votes:{id}:{rnd} → hash
+    public const KP_WHOIS_AI_PLAYER    = self::WHOIS_AI_PREFIX . 'player:';       // player:{fd}        → hash
+    public const KP_WHOIS_AI_ROOMS     = self::WHOIS_AI_PREFIX . 'rooms';         // rooms              → set
+
     /**
      * 获取当前协程专属的 Redis 连接
      * @return \Redis

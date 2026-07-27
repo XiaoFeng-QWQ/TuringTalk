@@ -13,12 +13,14 @@ use App\Admin\Handlers\ManageHandler;
 use App\Admin\Handlers\LogHandler;
 use App\Admin\Repository\AdminRepository;
 use App\Core\WebSocket\GameWebSocketHandler;
+use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Controllers\GameController;
 use App\Services\Infrastructure\Logger;
 
 class AdminWebSocketHandler
 {
     private GameWebSocketHandler $gameHandler;
+    private WhoisAIWebSocketHandler $WhoisAIHandler;
     private Tracker $tracker;
 
     /** @var array<string, string> fd => ip，onOpen 暂存，handleConnect 消费后清除 */
@@ -32,9 +34,10 @@ class AdminWebSocketHandler
     private ManageHandler    $manageHandler;
     private LogHandler       $logHandler;
 
-    public function __construct(GameWebSocketHandler $gameHandler)
+    public function __construct(GameWebSocketHandler $gameHandler, WhoisAIWebSocketHandler $WhoisAIHandler)
     {
         $this->gameHandler = $gameHandler;
+        $this->WhoisAIHandler = $WhoisAIHandler;
         $this->tracker = new Tracker();
         $this->tracker->setSendToPlayerFn(function (Server $server, int $fd, array $data) use ($gameHandler) {
             $gameHandler->sendToPlayer($server, $fd, $data);
@@ -117,6 +120,7 @@ class AdminWebSocketHandler
         $info = $this->tracker->getAdminInfo($fd);
         if ($info) {
             $this->gameHandler->removeSpectatorFdAll($fd);
+            $this->WhoisAIHandler->removeSpectatorFdAll($fd);
 
             $this->tracker->removeFd($fd);
             $this->tracker->broadcastOnlineList($server);
@@ -207,6 +211,15 @@ class AdminWebSocketHandler
             case 'admin_all_logs':
                 $this->logHandler->handleAllLogs($server, $fd, $data);
                 break;
+            case 'admin_WhoisAI_rooms':
+                $this->handleWhoisAIRooms($server, $fd);
+                break;
+            case 'admin_WhoisAI_spectate':
+                $this->handleWhoisAISpectate($server, $fd, $data);
+                break;
+            case 'admin_WhoisAI_unspectate':
+                $this->handleWhoisAIUnspectate($server, $fd);
+                break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);
         }
@@ -274,6 +287,105 @@ class AdminWebSocketHandler
             'type'     => 'sessions_list',
             'sessions' => $list,
         ]);
+    }
+
+    // ==================== WhoisAI 管理 ====================
+
+    private function handleWhoisAIRooms(Server $server, int $fd): void
+    {
+        $rooms = $this->WhoisAIHandler->getWhoisAIService()->getActiveRooms();
+        $list = [];
+        foreach ($rooms as $r) {
+            if (($r['state'] ?? '') === 'game_over') continue;
+            $players = $this->WhoisAIHandler->getWhoisAIService()->getRoomPlayers($r['id']);
+            $count = count($players);
+
+            $stateLabel = match ($r['state'] ?? '') {
+                'matchmaking'    => '匹配',
+                'connect_check'  => '连接检查',
+                'discussion'     => '讨论中',
+                'voting'         => '投票中',
+                default          => $r['state'] ?? '未知',
+            };
+
+            $list[] = [
+                'id'           => $r['id'],
+                'code'         => $r['code'] ?? '',
+                'state'        => $r['state'] ?? '',
+                'state_label'  => $stateLabel,
+                'round'        => (int)($r['round'] ?? 0),
+                'player_count' => $count,
+                'ai_count'     => (int)($r['ai_count'] ?? 0),
+                'human_count'  => (int)($r['human_count'] ?? 0),
+            ];
+        }
+
+        $this->gameHandler->sendToPlayer($server, $fd, [
+            'type'  => 'WhoisAI_rooms_list',
+            'rooms' => $list,
+        ]);
+    }
+
+    private function handleWhoisAISpectate(Server $server, int $fd, array $data): void
+    {
+        $roomId = $data['room_id'] ?? '';
+        if (empty($roomId)) {
+            $this->sendErr($server, $fd, '未指定房间 ID');
+            return;
+        }
+
+        $room = $this->WhoisAIHandler->getWhoisAIService()->getRoom($roomId);
+        if (!$room) {
+            $this->sendErr($server, $fd, '该 WhoisAI 房间不存在或已结束');
+            return;
+        }
+
+        $players = $this->WhoisAIHandler->getWhoisAIService()->getRoomPlayers($roomId);
+        $playerList = [];
+        foreach ($players as $seat => $p) {
+            $playerList[] = [
+                'seat'     => (int)$seat,
+                'nickname' => $p['nickname'],
+                'identity' => $p['identity'] ?? '',
+                'is_ai'    => ($p['identity'] ?? '') === 'ai',
+                'alive'    => !empty($p['alive']),
+            ];
+        }
+
+        // 注册旁观者
+        $this->WhoisAIHandler->addSpectatorFd($roomId, $fd);
+
+        // 发送房间完整快照
+        $this->gameHandler->sendToPlayer($server, $fd, [
+            'type'       => 'WhoisAI_spectate_detail',
+            'room_id'    => $roomId,
+            'code'       => $room['code'] ?? '',
+            'state'      => $room['state'] ?? '',
+            'round'      => (int)($room['round'] ?? 0),
+            'players'    => $playerList,
+            'messages'   => $this->WhoisAIHandler->getWhoisAIService()->getRoomMessages($roomId),
+        ]);
+
+        $username = $this->tracker->getUsername($fd);
+        $adminId = $this->tracker->getAdminId($fd);
+        AdminRepository::writeLog($adminId, $username, 'spectate', 'WhoisAI_room', $roomId, null, $this->tracker->getAdminIp($fd));
+
+        $this->tracker->setOperation($fd, "正在旁观 WhoisAI {$roomId}");
+        $this->tracker->broadcastStatus($server, $fd);
+
+        Logger::info('Admin started spectating WhoisAI room', ['fd' => $fd, 'room_id' => $roomId]);
+    }
+
+    private function handleWhoisAIUnspectate(Server $server, int $fd): void
+    {
+        $this->WhoisAIHandler->removeSpectatorFdAll($fd);
+
+        $this->gameHandler->sendToPlayer($server, $fd, ['type' => 'WhoisAI_unspectated']);
+
+        $this->tracker->setOperation($fd, null);
+        $this->tracker->broadcastStatus($server, $fd);
+
+        Logger::debug('Admin stopped spectating WhoisAI room', ['fd' => $fd]);
     }
 
     // ==================== 辅助 ====================
