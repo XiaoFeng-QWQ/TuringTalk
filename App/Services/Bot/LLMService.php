@@ -3,7 +3,7 @@
 namespace App\Services\Bot;
 
 use App\Services\Infrastructure\Logger;
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 通用 LLM 服务 —— OpenAI 兼容 HTTP API (cURL)

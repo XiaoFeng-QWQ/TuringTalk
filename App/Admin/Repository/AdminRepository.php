@@ -5,7 +5,7 @@ namespace App\Admin\Repository;
 use PDO;
 use App\Services\Infrastructure\SqliteHelper;
 use App\Services\Infrastructure\Logger;
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 管理员与操作日志的数据持久层。

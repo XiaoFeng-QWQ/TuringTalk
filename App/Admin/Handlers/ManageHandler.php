@@ -3,17 +3,17 @@
 namespace App\Admin\Handlers;
 
 use Swoole\WebSocket\Server;
-use App\Core\WebSocket\GameWebSocketHandler;
+use App\Core\WebSocket\BaseGameHandler;
 use App\Admin\Tracker;
 use App\Admin\Repository\AdminRepository;
 use App\Core\Sanitizer;
 use App\Services\Infrastructure\Logger;
-use Config\Config;
+use App\Config\Config;
 
 class ManageHandler
 {
     public function __construct(
-        private GameWebSocketHandler $game,
+        private BaseGameHandler $game,
         private Tracker $tracker,
     ) {}
 

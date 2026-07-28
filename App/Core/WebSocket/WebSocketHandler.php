@@ -7,45 +7,82 @@ use Swoole\WebSocket\Frame;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Admin\AdminWebSocketHandler;
-use Config\Config;
+use App\Config\Config;
 
 class WebSocketHandler
 {
-    private GameWebSocketHandler $gameHandler;
-    private WhoisAIWebSocketHandler $WhoisAIHandler;
     private AdminWebSocketHandler $adminHandler;
     private string $adminWsPath;
-    private string $WhoisAIWsPath;
 
-    /** fd → 所属类型: 'WhoisAI' | 'game' */
-    private array $fdOwner = [];
+    /** @var array<string, BaseGameHandler> path => handler 路由表 */
+    private array $routeByPath = [];
+
+    /** @var array<string, BaseGameHandler> prefix => handler 路由表 */
+    private array $routeByPrefix = [];
+
+    /** @var BaseGameHandler[] 所有游戏模式 Handler */
+    private array $gameHandlers = [];
+
+    /** fd → handler 快速查找（含 admin handler 用于 ping/pong 路由） */
+    private array $fdHandler = [];
+
+    /** 在线 fd 集合（所有非 admin 端点） */
+    private array $onlineFds = [];
 
     public function __construct()
     {
-        $this->gameHandler = new GameWebSocketHandler();
-        $this->WhoisAIHandler = new WhoisAIWebSocketHandler();
-        $this->adminHandler = new AdminWebSocketHandler($this->gameHandler, $this->WhoisAIHandler);
-        $this->gameHandler->setTracker($this->adminHandler->getTracker());
-        $this->WhoisAIHandler->setTracker($this->adminHandler->getTracker());
+        // ===== 注册所有游戏模式（新增只需加一行 new XxxHandler()） =====
+        $this->gameHandlers = [
+            new GameWebSocketHandler(),
+            new WhoisAIWebSocketHandler(),
+        ];
+
+        // 自动构建路由表
+        foreach ($this->gameHandlers as $h) {
+            $this->routeByPath[$h::routePath()] = $h;
+            $this->routeByPrefix[$h::routePrefix()] = $h;
+        }
+
+        // ===== Admin Handler =====
+        $this->adminHandler = new AdminWebSocketHandler($this->gameHandlers);
+
+        // 注入 Tracker
+        foreach ($this->gameHandlers as $h) {
+            $h->setTracker($this->adminHandler->getTracker());
+        }
 
         $adminPath = trim(Config::get('Admin.Path', 'admin'), '/');
         $this->adminWsPath = '/' . $adminPath . '/ws';
-        $this->WhoisAIWsPath = '/ws/WhoisAI';
     }
+
+    // ==================== Swoole 事件 ====================
 
     public function onOpen(Server $server, \Swoole\Http\Request $request): void
     {
         $path = rtrim($request->server['request_uri'] ?? '/ws', '/');
+
+        // Admin 端点
         if ($path === $this->adminWsPath) {
-            $this->fdOwner[$request->fd] = 'admin';
+            $this->fdHandler[$request->fd] = $this->adminHandler;
             $this->adminHandler->onOpen($server, $request);
-        } elseif ($path === $this->WhoisAIWsPath) {
-            $this->fdOwner[$request->fd] = 'WhoisAI';
-            $this->WhoisAIHandler->onOpen($server, $request);
-        } else {
-            $this->fdOwner[$request->fd] = 'game';
-            $this->gameHandler->onOpen($server, $request);
+            return;
         }
+
+        // 查找游戏 handler（未匹配则 fallback 到默认 /ws）
+        $handler = $this->routeByPath[$path] ?? ($this->routeByPath['/ws'] ?? null);
+        if ($handler) {
+            $this->fdHandler[$request->fd] = $handler;
+            $handler->onOpen($server, $request);
+        }
+
+        // 计入在线并广播
+        $this->onlineFds[$request->fd] = true;
+        $count = count($this->onlineFds);
+        $server->push($request->fd, json_encode([
+            'type' => 'online_count',
+            'count' => $count,
+        ]));
+        $this->broadcastOnlineCount($server, $request->fd);
     }
 
     public function onMessage(Server $server, Frame $frame): void
@@ -59,28 +96,30 @@ class WebSocketHandler
 
         // 心跳类消息按 fd 归属路由，确保各 Handler 的 lastActivity 被刷新
         if (is_array($data) && in_array($data['type'] ?? '', ['ping', 'pong'])) {
-            $owner = $this->fdOwner[$frame->fd] ?? 'game';
-            if ($owner === 'WhoisAI') {
-                $this->WhoisAIHandler->onMessage($server, $frame);
-            } elseif ($owner === 'admin') {
-                $this->adminHandler->onMessage($server, $frame);
-            } else {
-                $this->gameHandler->onMessage($server, $frame);
-            }
+            $h = $this->fdHandler[$frame->fd] ?? $this->adminHandler;
+            $h->onMessage($server, $frame);
             return;
         }
 
-        // WhoisAI 消息类型以 WhoisAI_ 开头，路由到 WhoisAI 处理器
-        if (is_array($data) && str_starts_with($data['type'] ?? '', 'WhoisAI_')) {
-            $this->WhoisAIHandler->onMessage($server, $frame);
-            return;
-        }
-
+        // Admin fd → admin handler
         if ($this->adminHandler->getTracker()->isAdminFd($frame->fd)) {
             $this->adminHandler->onMessage($server, $frame);
-        } else {
-            $this->gameHandler->onMessage($server, $frame);
+            return;
         }
+
+        // 按消息前缀路由到对应游戏 handler
+        if (is_array($data) && isset($data['type'])) {
+            foreach ($this->routeByPrefix as $prefix => $handler) {
+                if ($prefix === '') continue; // 空前缀是兜底，放最后
+                if (str_starts_with($data['type'], $prefix)) {
+                    $handler->onMessage($server, $frame);
+                    return;
+                }
+            }
+        }
+
+        // 兜底：默认游戏 handler（空前缀）
+        ($this->routeByPrefix[''] ?? reset($this->gameHandlers))->onMessage($server, $frame);
     }
 
     public function onClose(Server $server, int $fd): void
@@ -88,19 +127,63 @@ class WebSocketHandler
         if ($this->adminHandler->getTracker()->isAdminFd($fd)) {
             $this->adminHandler->onClose($server, $fd);
         }
-        // 同时通知 WhoisAI 和普通游戏处理器
-        $this->WhoisAIHandler->onClose($server, $fd);
-        $this->gameHandler->onClose($server, $fd);
-        unset($this->fdOwner[$fd]);
+
+        // 通知所有游戏 handler（各自内部检查是否持有该 fd）
+        foreach ($this->gameHandlers as $handler) {
+            $handler->onClose($server, $fd);
+        }
+
+        // 非 admin 端点：移出在线并广播
+        if (array_key_exists($fd, $this->onlineFds)) {
+            unset($this->onlineFds[$fd]);
+            $this->broadcastOnlineCount($server);
+        }
+
+        unset($this->fdHandler[$fd]);
     }
 
+    // ==================== 便捷访问（向后兼容） ====================
+
+    /** @deprecated 使用 gameHandlers 数组查找 */
     public function getGameHandler(): GameWebSocketHandler
     {
-        return $this->gameHandler;
+        return $this->routeByPath['/ws'] ?? $this->gameHandlers[0];
     }
 
+    /** @deprecated 使用 gameHandlers 数组查找 */
     public function getWhoisAIHandler(): WhoisAIWebSocketHandler
     {
-        return $this->WhoisAIHandler;
+        return $this->routeByPath['/ws/WhoisAI'] ?? null;
+    }
+
+    // ==================== 在线人数广播 ====================
+
+    /**
+     * 向所有已连接的非游戏内客户端广播在线人数。
+     * 自动遍历所有已注册游戏模式跳过对局中的 fd，新增模式无需改本方法。
+     */
+    private function broadcastOnlineCount(Server $server, int $excludeFd = 0): void
+    {
+        $count = count($this->onlineFds);
+        foreach ($server->connections as $clientFd) {
+            if ($clientFd === $excludeFd) continue;
+            if (!$server->isEstablished($clientFd)) continue;
+            // 跳过 admin fd
+            if ($this->adminHandler->getTracker()->isAdminFd($clientFd)) continue;
+            // 跳过正在对局中的 fd（自动覆盖所有已注册游戏模式）
+            $inGame = false;
+            foreach ($this->gameHandlers as $handler) {
+                if ($handler->isPlayerInGame($clientFd)) {
+                    $inGame = true;
+                    break;
+                }
+            }
+            if ($inGame) continue;
+
+            $server->push($clientFd, json_encode([
+                'type' => 'online_count',
+                'count' => $count,
+            ]));
+        }
     }
 }

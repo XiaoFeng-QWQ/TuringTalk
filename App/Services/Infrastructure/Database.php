@@ -5,7 +5,7 @@ namespace App\Services\Infrastructure;
 use PDO;
 use Swoole\Coroutine;
 use Swoole\Coroutine\Channel;
-use Config\Config;
+use App\Config\Config;
 
 /**
  * MySQL 连接服务（协程级 PDO 复用 + 连接池）

@@ -5,34 +5,15 @@ namespace App\Core\WebSocket;
 use App\Core\Sanitizer;
 use App\Services\Game\WhoisAIService;
 use App\Services\Infrastructure\Logger;
-use App\Services\Repository\PlayerStatsRepository;
+use App\Services\Infrastructure\RedisService;
 use App\Admin\Tracker;
-use Config\Config;
 use Swoole\WebSocket\Server;
 use Swoole\Timer;
 use Swoole\WebSocket\Frame;
 
-class WhoisAIWebSocketHandler
+class WhoisAIWebSocketHandler extends BaseGameHandler
 {
     private WhoisAIService $WhoisAIService;
-
-    private ?Tracker $tracker = null;
-
-    /** @var array<int, array> fd => clientInfo */
-    private array $clientInfo = [];
-
-    /** @var array<int, int> fd => last activity timestamp */
-    private array $lastActivity = [];
-
-    /** 心跳检测定时器 ID */
-    private ?int $heartbeatTimerId = null;
-    private const ACTIVITY_TIMEOUT = 25;
-
-    /** IP → fd 反向索引 */
-    private array $ipToFd = [];
-
-    /** 旁观者记录 roomId => [admin_fd, ...] */
-    private array $spectatorRooms = [];
 
     /** 匹配池启动延迟定时器 */
     private ?int $poolStartTimerId = null;
@@ -47,10 +28,9 @@ class WhoisAIWebSocketHandler
         $this->WhoisAIService = new WhoisAIService();
     }
 
-    public function setTracker(Tracker $tracker): void
-    {
-        $this->tracker = $tracker;
-    }
+    public static function routePath(): string { return '/ws/WhoisAI'; }
+    public static function routePrefix(): string { return 'WhoisAI_'; }
+    public function getService(): object { return $this->WhoisAIService; }
 
     /** @internal for admin */
     public function getWhoisAIService(): WhoisAIService
@@ -58,131 +38,24 @@ class WhoisAIWebSocketHandler
         return $this->WhoisAIService;
     }
 
-    // ==================== 旁观者 ====================
-
-    public function addSpectatorFd(string $roomId, int $fd): void
-    {
-        if (!isset($this->spectatorRooms[$roomId])) {
-            $this->spectatorRooms[$roomId] = [];
-        }
-        if (!in_array($fd, $this->spectatorRooms[$roomId], true)) {
-            $this->spectatorRooms[$roomId][] = $fd;
-        }
-    }
-
-    public function removeSpectatorFd(string $roomId, int $fd): void
-    {
-        if (!isset($this->spectatorRooms[$roomId])) return;
-        $this->spectatorRooms[$roomId] = array_values(
-            array_filter($this->spectatorRooms[$roomId], fn($f) => $f !== $fd)
-        );
-        if (empty($this->spectatorRooms[$roomId])) {
-            unset($this->spectatorRooms[$roomId]);
-        }
-    }
-
-    public function removeSpectatorFdAll(int $fd): void
-    {
-        foreach ($this->spectatorRooms as $roomId => $slist) {
-            $slist = array_values(array_filter($slist, fn($afd) => $afd !== $fd));
-            if (empty($slist)) {
-                unset($this->spectatorRooms[$roomId]);
-            } else {
-                $this->spectatorRooms[$roomId] = $slist;
-            }
-        }
-    }
-
-    public function hasSpectators(string $roomId): bool
-    {
-        return isset($this->spectatorRooms[$roomId]);
-    }
-
-    public function sendToSpectators(Server $server, string $roomId, array $data): void
-    {
-        if (!$this->hasSpectators($roomId)) return;
-        foreach ($this->spectatorRooms[$roomId] as $adminFd) {
-            if ($server->isEstablished($adminFd)) {
-                $this->send($server, $adminFd, $data);
-            }
-        }
-    }
-
     // ==================== 连接管理 ====================
 
     public function onOpen(Server $server, \Swoole\Http\Request $request): void
     {
-        $fd = $request->fd;
-
-        $cfConnectingIp = $request->header['cf-connecting-ip'] ?? '';
-        $xForwarded = $request->header['x-forwarded-for'] ?? '';
-        if (!empty($cfConnectingIp)) {
-            $clientIp = $cfConnectingIp;
-        } elseif (!empty($xForwarded)) {
-            $clientIp = trim(explode(',', $xForwarded)[0]);
-        } else {
-            $clientIp = $request->header['x-real-ip'] ?? $request->server['remote_addr'] ?? 'unknown';
-        }
-
-        $this->clientInfo[$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
-        $this->lastActivity[$fd] = time();
-
-        // 同一 IP 已有活跃连接 → 直接拒绝新连接
-        if (Config::get('Server.DenyMultiConnection', true)) {
-            $existingFd = $this->ipToFd[$clientIp] ?? null;
-            if ($existingFd !== null && $server->isEstablished($existingFd)) {
-                Logger::info('WhoisAI WS rejected: IP already connected', [
-                    'fd' => $fd, 'ip' => $clientIp, 'existing_fd' => $existingFd,
-                ]);
-                $this->send($server, $fd, [
-                    'type' => 'WhoisAI_system',
-                    'text' => '该设备已有活跃连接，请关闭其他页面后重试',
-                ]);
-                $server->close($fd);
-                return;
-            }
-        }
-
-        $this->ipToFd[$clientIp] = $fd;
-
-        Logger::info('WhoisAI WS connected', ['fd' => $fd, 'ip' => $clientIp]);
-
-        // 启动心跳检测
-        if ($this->heartbeatTimerId === null) {
-            $this->heartbeatTimerId = Timer::tick(10000, function () use ($server) {
-                $now = time();
-                foreach ($this->lastActivity as $fdKey => $lastTime) {
-                    if ($now - $lastTime > 65) {
-                        Logger::info('WhoisAI WS heartbeat timeout', ['fd' => $fdKey]);
-                        $server->close((int)$fdKey);
-                    }
-                }
-            });
-        }
-
-        $this->send($server, $fd, ['type' => 'WhoisAI_connected']);
+        if (!$this->initConnection($server, $request)) return;
+        $this->touchActivity($request->fd);
+        $this->startHeartbeat($server);
+        $this->sendToPlayer($server, $request->fd, ['type' => 'WhoisAI_connected']);
     }
 
     public function onClose(Server $server, int $fd): void
     {
-        $ip = $this->clientInfo[$fd]['ip'] ?? null;
-        if ($ip && ($this->ipToFd[$ip] ?? null) === $fd) {
-            unset($this->ipToFd[$ip]);
-        }
-
-        // 离开匹配池
         $this->WhoisAIService->leavePool($fd);
-
-        // 从对局中移除
         $pr = $this->WhoisAIService->getPlayerRoom($fd);
         if ($pr) {
             $this->handlePlayerDisconnect($server, $fd, $pr);
         }
-
-        $this->removeSpectatorFdAll($fd);
-        unset($this->clientInfo[$fd]);
-        unset($this->lastActivity[$fd]);
-
+        $this->cleanupConnection($server, $fd);
         Logger::info('WhoisAI WS closed', ['fd' => $fd]);
     }
 
@@ -199,7 +72,7 @@ class WhoisAIWebSocketHandler
             $players = $this->WhoisAIService->getRoomPlayers($roomId);
             foreach ($players as $p) {
                 if ((int)$p['fd'] > 0 && (int)$p['fd'] !== $fd && $server->isEstablished((int)$p['fd'])) {
-                    $this->send($server, (int)$p['fd'], [
+                    $this->sendToPlayer($server, (int)$p['fd'], [
                         'type' => 'WhoisAI_system',
                         'text' => '有玩家断开连接，对局取消，请重新匹配',
                     ]);
@@ -228,7 +101,7 @@ class WhoisAIWebSocketHandler
     public function onMessage(Server $server, Frame $frame): void
     {
         $fd = $frame->fd;
-        $this->lastActivity[$fd] = time();
+        $this->touchActivity($fd);
 
         try {
             $data = json_decode($frame->data, true);
@@ -236,7 +109,7 @@ class WhoisAIWebSocketHandler
 
             switch ($data['type']) {
                 case 'ping':
-                    $this->send($server, $fd, ['type' => 'pong']);
+                    $this->sendToPlayer($server, $fd, ['type' => 'pong']);
                     return;
 
                 case 'WhoisAI_match':
@@ -274,58 +147,38 @@ class WhoisAIWebSocketHandler
     {
         $nickname = Sanitizer::nickname($data['nickname'] ?? ('玩家' . $fd));
         if (mb_strlen($nickname) < 1 || mb_strlen($nickname) > 12) {
-            $this->send($server, $fd, ['type' => 'WhoisAI_error', 'text' => '昵称 1~12 字符']);
+            $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '昵称 1~12 字符']);
             return;
         }
 
-        // 恢复码逻辑：有恢复码则校验，无恢复码则检查昵称唯一性
-        $recoveryCode = Sanitizer::identifier($data['recovery_code'] ?? '');
-        $row = $this->clientInfo[(string)$fd] ?? [];
-        $fp = Sanitizer::identifier($row['fingerprint'] ?? '');
-        $ip = $row['ip'] ?? '';
+        // 统一身份验证（昵称唯一性 + 恢复码校验，跨模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['recovery_code'] ?? ''));
+        if (!$valid['success']) {
+            $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => $valid['error']]);
+            return;
+        }
+        $nickname = $valid['nickname'];
+        $recoveryCode = $valid['recovery_code'];
 
-        if (!empty($recoveryCode)) {
-            // 通过恢复码查找玩家
-            $existing = PlayerStatsRepository::findByCode($recoveryCode);
-            if (!$existing) {
-                $this->send($server, $fd, ['type' => 'WhoisAI_error', 'text' => '恢复码无效']);
+        // 检查匹配池中是否已有同名玩家（防止绕过数据库检查，WhoisAI 特有）
+        $pool = $this->WhoisAIService->getPool();
+        foreach ($pool as $poolFd => $poolPlayer) {
+            if ((int)$poolFd !== $fd && ($poolPlayer['nickname'] ?? '') === $nickname) {
+                $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '昵称已被占用，请换一个']);
                 return;
-            }
-            // 使用已有的昵称
-            $nickname = $existing['nickname'] ?: $nickname;
-        } else {
-            // 没有恢复码，检查昵称是否已被其他人占用
-            $existing = PlayerStatsRepository::findByNickname($nickname);
-            if ($existing) {
-                // 有相同昵称，检查是否是同一设备（IP+fp匹配）
-                if ($existing['fp'] !== $fp || $existing['ip'] !== $ip) {
-                    $this->send($server, $fd, ['type' => 'WhoisAI_error', 'text' => '昵称已被占用，请换一个']);
-                    return;
-                }
-                // 同一设备，允许使用，recovery_code 就是已有的码
-                $recoveryCode = $existing['code'];
-            }
-
-            // 检查匹配池中是否已有同名玩家（防止绕过数据库检查）
-            $pool = $this->WhoisAIService->getPool();
-            foreach ($pool as $poolFd => $poolPlayer) {
-                if ((int)$poolFd !== $fd && ($poolPlayer['nickname'] ?? '') === $nickname) {
-                    $this->send($server, $fd, ['type' => 'WhoisAI_error', 'text' => '昵称已被占用，请换一个']);
-                    return;
-                }
             }
         }
 
         $result = $this->WhoisAIService->joinPool($fd, $nickname);
 
         if ($result['already_in_game']) {
-            $this->send($server, $fd, ['type' => 'WhoisAI_error', 'text' => '你已在其他对局中']);
+            $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '你已在其他对局中']);
             return;
         }
 
         $poolCount = $result['pool_count'];
 
-        $this->send($server, $fd, [
+        $this->sendToPlayer($server, $fd, [
             'type'          => 'WhoisAI_matched',
             'pool_count'    => $poolCount,
             'nickname'      => $nickname,
@@ -354,7 +207,7 @@ class WhoisAIWebSocketHandler
     private function handleCancelMatch(Server $server, int $fd): void
     {
         $this->WhoisAIService->leavePool($fd);
-        $this->send($server, $fd, ['type' => 'WhoisAI_match_cancelled']);
+        $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_match_cancelled']);
         $this->broadcastPoolCount($server, $fd);
     }
 
@@ -366,7 +219,7 @@ class WhoisAIWebSocketHandler
             $pfd = (int)$pfd;
             if ($pfd === $excludeFd) continue;
             if ($server->isEstablished($pfd)) {
-                $this->send($server, $pfd, ['type' => 'WhoisAI_pool_count', 'pool_count' => $count]);
+                $this->sendToPlayer($server, $pfd, ['type' => 'WhoisAI_pool_count', 'pool_count' => $count]);
             }
         }
     }
@@ -402,7 +255,7 @@ class WhoisAIWebSocketHandler
                 $connectAcknowledged[$fd] = false;
 
                 // 告知身份
-                $this->send($server, $fd, [
+                $this->sendToPlayer($server, $fd, [
                     'type'      => 'WhoisAI_connect_check',
                     'room_id'   => $roomId,
                     'room_code' => $room['code'],
@@ -428,7 +281,7 @@ class WhoisAIWebSocketHandler
             if (!empty($disconnected)) {
                 foreach ($players as $p) {
                     if ($server->isEstablished($p['fd']) && !in_array($p['fd'], $disconnected, true)) {
-                        $this->send($server, $p['fd'], [
+                        $this->sendToPlayer($server, $p['fd'], [
                             'type' => 'WhoisAI_system',
                             'text' => '连接检查超时，部分玩家断线，对局取消',
                         ]);
@@ -447,9 +300,6 @@ class WhoisAIWebSocketHandler
 
     private function handleConnectAck(Server $server, int $fd, array $data): void
     {
-        // 连接确认 ping 回复，由 startGame 中的 closure 收集
-        // 实际上我们需要更好的方式追踪 ack...
-
         $roomId = $data['room_id'] ?? '';
         if (empty($roomId)) return;
 
@@ -498,7 +348,7 @@ class WhoisAIWebSocketHandler
             if (empty($p['alive'])) continue;
             $fd = (int)$p['fd'];
             if ($fd > 0 && $server->isEstablished($fd)) {
-                $this->send($server, $fd, [
+                $this->sendToPlayer($server, $fd, [
                     'type'       => 'WhoisAI_phase_discussion',
                     'room_id'    => $roomId,
                     'round'      => $round,
@@ -577,7 +427,7 @@ class WhoisAIWebSocketHandler
             $fd = (int)$p['fd'];
             if ($fd > 0 && $server->isEstablished($fd)) {
                 $candidates = array_map(fn($ap) => ['seat' => $ap['seat'], 'name' => '玩家' . $ap['seat']], $alivePlayers);
-                $this->send($server, $fd, [
+                $this->sendToPlayer($server, $fd, [
                     'type'       => 'WhoisAI_phase_voting',
                     'room_id'    => $roomId,
                     'round'      => $round,
@@ -634,7 +484,7 @@ class WhoisAIWebSocketHandler
         $votedCount = count($votes);
         $aliveCount = count($alivePlayers);
 
-        $this->send($server, $fd, ['type' => 'WhoisAI_vote_ok', 'target_seat' => $targetSeat]);
+        $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_vote_ok', 'target_seat' => $targetSeat]);
 
         $this->broadcastToRoom($server, $roomId, [
             'type'        => 'WhoisAI_vote_progress',
@@ -744,8 +594,8 @@ class WhoisAIWebSocketHandler
             $fd = (int)$p['fd'];
             if ($fd > 0 && $server->isEstablished($fd)) {
                 // 对局结束后自动为无恢复码的玩家生成恢复码
-                $playerCode = $this->getOrCreatePlayerCodeForWhoisAI($p, $fd);
-                $this->send($server, $fd, [
+                $playerCode = $this->getOrCreatePlayerCode($fd, $p['name'] ?? $p['nickname'] ?? '');
+                $this->sendToPlayer($server, $fd, [
                     'type'          => 'WhoisAI_game_over',
                     'room_id'       => $roomId,
                     'winner'        => $winner,
@@ -798,7 +648,7 @@ class WhoisAIWebSocketHandler
         foreach ($players as $p) {
             $fd = (int)$p['fd'];
             if ($fd > 0 && !empty($p['alive']) && $server->isEstablished($fd)) {
-                $this->send($server, $fd, $data);
+                $this->sendToPlayer($server, $fd, $data);
             }
         }
         $this->sendToSpectators($server, $roomId, $data);
@@ -839,35 +689,10 @@ class WhoisAIWebSocketHandler
 
     // ==================== 辅助 ====================
 
-    /**
-     * 对局结束后自动为玩家生成恢复码（若还没有）
-     */
-    private function getOrCreatePlayerCodeForWhoisAI(array $player, int $fd): ?string
+    /** 查询 fd 是否正在 WhoisAI 对局中（供 WebSocketHandler 广播在线人数使用） */
+    public function isPlayerInGame(int $fd): bool
     {
-        $nickname = $player['name'] ?? $player['nickname'] ?? '';
-        if (empty($nickname)) return null;
-
-        $row = $this->clientInfo[(string)$fd] ?? [];
-        $fp = Sanitizer::identifier($row['fp'] ?? '');
-        $ip = $row['ip'] ?? '';
-
-        // 如果已有恢复码则直接返回
-        $existing = PlayerStatsRepository::findByNickname($nickname);
-        if ($existing) {
-            return $existing['code'];
-        }
-
-        // 生成新恢复码并写入数据库
-        $code = PlayerStatsRepository::generateCode();
-        PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
-        Logger::info('WhoisAI: recovery code created after game', ['fd' => $fd, 'code' => $code, 'nickname' => $nickname]);
-        return $code;
+        return $this->WhoisAIService->getPlayerRoom($fd) !== null;
     }
 
-    private function send(Server $server, int $fd, array $data): void
-    {
-        if ($server->isEstablished($fd)) {
-            $server->push($fd, json_encode($data, JSON_UNESCAPED_UNICODE));
-        }
-    }
 }

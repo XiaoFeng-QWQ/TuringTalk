@@ -3,7 +3,7 @@
 namespace App\Services\Bot;
 
 use App\Services\Infrastructure\Logger;
-use Config\Config;
+use App\Config\Config;
 
 /**
  * Bot 回复服务 —— 三阶段思维链（Chain of Thought）

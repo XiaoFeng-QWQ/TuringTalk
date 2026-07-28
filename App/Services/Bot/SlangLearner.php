@@ -2,7 +2,7 @@
 
 namespace App\Services\Bot;
 
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 黑话学习器

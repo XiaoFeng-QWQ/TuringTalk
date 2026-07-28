@@ -302,6 +302,15 @@
     font-size: 14px;
 }
 
+/* 表情按钮在 WhoisAI flex 布局中不使用绝对定位 */
+.whoisai-input-area .sticker-btn {
+    position: static;
+    transform: none;
+    left: auto;
+    top: auto;
+    padding: 4px 6px !important;
+}
+
 /* ---------- 投票面板 ---------- */
 .whoisai-vote-panel {
     padding: 14px 20px;

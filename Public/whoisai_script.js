@@ -5,7 +5,7 @@
 (function () {
     'use strict';
 
-    const WS_URL = 'wss://' + location.hostname + '/ws/WhoisAI';
+    const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/WhoisAI';
     const RECONNECT_DELAY = 2000;
     const HEARTBEAT_INTERVAL = 20000;
     const PONG_GRACE = 15000;
@@ -39,6 +39,17 @@
     const $helloNickname = document.getElementById('whoisai-hello-nickname');
     const $btnGoHome = document.getElementById('whoisai-btn-go-home');
     const $btnNewName = document.getElementById('whoisai-btn-new-name');
+    const $recoverNickname = document.getElementById('whoisai-recover-nickname');
+    const $recoverInput = document.getElementById('whoisai-recover-input');
+    const $btnRecover = document.getElementById('whoisai-btn-recover');
+    const $recoverMsg = document.getElementById('whoisai-recover-msg');
+    const $btnSticker = document.getElementById('whoisai-btn-sticker');
+    const $stickerPicker = document.getElementById('whoisai-sticker-picker');
+    const $stickerPickerBody = document.getElementById('whoisai-sticker-picker-body');
+    const $btnCloseStickerPicker = document.getElementById('whoisai-btn-close-sticker-picker');
+    const $stickerLightbox = document.getElementById('whoisai-sticker-lightbox');
+    const $stickerLightboxImg = document.getElementById('whoisai-sticker-lightbox-img');
+    const $stickerLightboxClose = document.getElementById('whoisai-sticker-lightbox-close');
 
     // ==================== 状态 ====================
     let ws = null;
@@ -219,6 +230,8 @@
                 break;
 
             case 'WhoisAI_matched':
+                // 每次匹配成功拉取最新表情列表（和常规模式行为一致）
+                prefetchStickersFromGameWS(true);
                 onMatched(data);
                 // 服务器返回了恢复码则保存
                 if (data.recovery_code && myNickname) {
@@ -268,13 +281,173 @@
                 updatePlayerList(data.players);
                 break;
 
+            case 'broadcast':
+                showDanmaku(data.text, '全服公告', data.duration || 0);
+                break;
+
+            case 'room_announce':
+                showDanmaku(data.text, '管理警告');
+                break;
+
             case 'WhoisAI_game_over':
                 onGameOver(data);
                 break;
+
         }
     }
 
     let myNickname = '';
+
+    // ==================== 表情 ====================
+    var whoisaiStickerMap = loadStickerCache();
+
+    /** 通过游戏 WS 端点拉取表情列表（不需要加入对局，handleGetStickers 无状态） */
+    function prefetchStickersFromGameWS(force) {
+        // 非强制模式下有缓存则跳过
+        if (!force) {
+            var existing = loadStickerCache();
+            if (Object.keys(existing).length > 0) {
+                whoisaiStickerMap = existing;
+                return;
+            }
+        }
+        try {
+            var proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            var tmpWs = new WebSocket(proto + window.location.host + '/ws');
+            var done = false;
+            tmpWs.onopen = function () {
+                tmpWs.send(JSON.stringify({ type: 'get_stickers' }));
+            };
+            tmpWs.onmessage = function (e) {
+                if (done) return;
+                try {
+                    var d = JSON.parse(e.data);
+                    if (d.type === 'stickers_list' && d.stickers) {
+                        var map = {};
+                        d.stickers.forEach(function (s) {
+                            map[s.id] = { name: s.name, url: s.url };
+                        });
+                        whoisaiStickerMap = map;
+                        saveStickerCache(map);
+                        done = true;
+                        tmpWs.close();
+                    }
+                } catch (_) { }
+            };
+            tmpWs.onerror = function () {
+                if (!done) { done = true; try { tmpWs.close(); } catch (_) { } }
+            };
+            setTimeout(function () {
+                if (!done) { done = true; try { tmpWs.close(); } catch (_) { } }
+            }, 5000);
+        } catch (_) { }
+    }
+
+    // 页面加载时按需拉取（有缓存跳过）
+    prefetchStickersFromGameWS(false);
+
+    function refreshStickerCache() {
+        var fresh = loadStickerCache();
+        if (Object.keys(fresh).length > 0) whoisaiStickerMap = fresh;
+    }
+
+    function renderWhoisAIStickerPicker() {
+        refreshStickerCache();
+        $stickerPickerBody.innerHTML = '';
+        var ids = Object.keys(whoisaiStickerMap);
+        if (ids.length === 0) {
+            $stickerPickerBody.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情<br><small>请先访问首页或等待管理加载</small></div>';
+            return;
+        }
+        ids.forEach(function (id) {
+            var s = whoisaiStickerMap[id];
+            var item = document.createElement('div');
+            item.className = 'sticker-picker-item';
+            item.title = s.name;
+            item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
+            item.addEventListener('click', function () {
+                sendWhoisAISticker(id);
+            });
+            $stickerPickerBody.appendChild(item);
+        });
+    }
+
+    function sendWhoisAISticker(stickerId) {
+        send({ type: 'WhoisAI_chat', text: '[sticker:' + stickerId + ']' });
+        // 自己发出的表情也渲染在右边
+        if (whoisaiStickerMap[stickerId]) {
+            appendWhoisAISticker(stickerId, whoisaiStickerMap[stickerId].name, true);
+        }
+        $stickerPicker.style.display = 'none';
+    }
+
+    function appendWhoisAISticker(stickerId, stickerName, isMine) {
+        var url = whoisaiStickerMap[stickerId] ? whoisaiStickerMap[stickerId].url : '';
+        if (!url) return;
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'whoisai-chat-msg';
+        if (isMine) wrapper.classList.add('mine');
+
+        var sender = document.createElement('div');
+        sender.className = 'whoisai-chat-sender';
+        sender.textContent = isMine ? myNickname : (stickerName || '表情');
+
+        var img = document.createElement('img');
+        img.src = url;
+        img.alt = stickerName;
+        img.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;margin-top:4px;';
+        img.onerror = function () { this.style.display = 'none'; };
+
+        wrapper.appendChild(sender);
+        wrapper.appendChild(img);
+        $messages.appendChild(wrapper);
+        $messages.scrollTop = $messages.scrollHeight;
+    }
+
+    function isStickerText(text) {
+        return text && /^\[sticker:/.test(text);
+    }
+
+    function parseStickerId(text) {
+        var m = text.match(/^\[sticker:([^\]]+)\]/);
+        return m ? m[1] : null;
+    }
+
+    // 表情按钮事件
+    $btnSticker.addEventListener('click', function () {
+        refreshStickerCache();
+        if ($stickerPicker.style.display === 'none' || !$stickerPicker.style.display) {
+            renderWhoisAIStickerPicker();
+            $stickerPicker.style.display = 'block';
+        } else {
+            $stickerPicker.style.display = 'none';
+        }
+    });
+
+    $btnCloseStickerPicker.addEventListener('click', function () {
+        $stickerPicker.style.display = 'none';
+    });
+
+    // 点击其他地方关闭选择器
+    document.addEventListener('click', function (e) {
+        if ($stickerPicker.style.display === 'block' &&
+            !$stickerPicker.contains(e.target) &&
+            e.target !== $btnSticker &&
+            !$btnSticker.contains(e.target)) {
+            $stickerPicker.style.display = 'none';
+        }
+    });
+
+    // 灯箱
+    $stickerLightboxClose.addEventListener('click', function () {
+        $stickerLightbox.style.display = 'none';
+    });
+    $stickerLightbox.addEventListener('click', function (e) {
+        if (e.target === $stickerLightbox || e.target.className === 'sticker-lightbox-bg') {
+            $stickerLightbox.style.display = 'none';
+        }
+    });
 
     // ==================== 身份检测与面板切换 ====================
     function showIdentityState() {
@@ -299,6 +472,44 @@
     // 返回首页恢复
     $btnGoHome.addEventListener('click', function () {
         location.href = '/';
+    });
+
+    // 本页恢复码恢复
+    function doRecover() {
+        const code = $recoverInput.value.trim();
+        if (!code) { showRecoverMsg('请输入恢复码'); return; }
+        const nickname = getUserNickname() || $recoverNickname.value.trim() || '';
+        if (!nickname) { showRecoverMsg('请先填写昵称'); return; }
+        $recoverMsg.style.display = 'none';
+        $btnRecover.disabled = true;
+        $btnRecover.textContent = '恢复中...';
+        fetch('/api/player-stats?code=' + encodeURIComponent(code) + '&nickname=' + encodeURIComponent(nickname))
+            .then(r => r.json())
+            .then(data => {
+                $btnRecover.disabled = false;
+                $btnRecover.textContent = '恢复';
+                if (data.error) { showRecoverMsg(data.error); return; }
+                setUserNickname(nickname);
+                setUserRecoveryCode(data.code);
+                $recoverInput.value = '';
+                showIdentityState();
+            })
+            .catch(() => {
+                $btnRecover.disabled = false;
+                $btnRecover.textContent = '恢复';
+                showRecoverMsg('网络错误，请稍后重试');
+            });
+    }
+    function showRecoverMsg(msg) {
+        $recoverMsg.textContent = msg;
+        $recoverMsg.style.display = 'block';
+    }
+    $btnRecover.addEventListener('click', doRecover);
+    $recoverNickname.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') $recoverInput.focus();
+    });
+    $recoverInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') doRecover();
     });
 
     // 直接填写昵称
@@ -532,6 +743,16 @@
     }
 
     function onChatMessage(data) {
+        // 检测是否为表情消息
+        if (isStickerText(data.text)) {
+            var stickerId = parseStickerId(data.text);
+            if (stickerId) {
+                var isMine = data.sender_seat === mySeat;
+                appendWhoisAISticker(stickerId, data.sender_name || '玩家' + data.sender_seat, isMine);
+                return;
+            }
+        }
+
         var div = document.createElement('div');
         div.className = 'whoisai-chat-msg';
         if (data.sender_seat === mySeat) div.classList.add('mine');

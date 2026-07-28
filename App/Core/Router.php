@@ -3,7 +3,7 @@
 namespace App\Core;
 
 use App\Controllers\GameController;
-use Config\Config;
+use App\Config\Config;
 
 class Router
 {
@@ -24,6 +24,7 @@ class Router
                 '/script.js' => [GameController::class, 'script'],
                 '/style.css' => [GameController::class, 'style'],
                 '/favicon.svg' => [GameController::class, 'favicon'],
+                '/favicon-admin.svg' => [GameController::class, 'faviconAdmin'],
                 '/shared.js' => [GameController::class, 'shared'],
                 '/admin.js' => [GameController::class, 'adminScript'],
                 '/admin.css' => [GameController::class, 'adminStyle'],

@@ -2,7 +2,6 @@
 
 namespace App\Services\Bot;
 
-use Config\Config;
 
 /**
  * 回复规划器

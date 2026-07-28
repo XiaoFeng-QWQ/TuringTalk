@@ -1862,8 +1862,6 @@ let spectateSessionId = null;
 let _cachedSessions = [];
 let _sessionSearchKeyword = '';
 
-// 全服公告区域（用于 showDanmaku 渲染）
-const announcementArea = document.getElementById('announcement-area');
 
 // 举报相关
 const btnReport = document.getElementById('btn-report');
@@ -1872,52 +1870,6 @@ const reportReason = document.getElementById('report-reason');
 const btnReportCancel = document.getElementById('btn-report-cancel');
 const btnReportSubmit = document.getElementById('btn-report-submit');
 const reportError = document.getElementById('report-error');
-
-// --- 全服公告横幅 ---
-const ANNOUNCE_DISPLAY_MS = 5000; // 每条公告展示时长
-const ANNOUNCE_MAX = 3;           // 最多同时展示条数
-
-let announceQueue = [];            // 待展示队列
-let announceShowing = 0;           // 当前正在展示的数量
-
-function showDanmaku(text, label = '全服公告') {
-    announceQueue.push({ text, label });
-    dequeueAnnounce();
-}
-
-function dequeueAnnounce() {
-    while (announceQueue.length > 0 && announceShowing < ANNOUNCE_MAX) {
-        const item = announceQueue.shift();
-        const text = item.text || item;
-        const label = item.label || '全服公告';
-        announceShowing++;
-        const banner = document.createElement('div');
-        banner.className = 'announcement-banner' + (label !== '全服公告' ? ' room-warn' : '');
-        banner.innerHTML = `
-            <svg class="ann-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 11h2.586a1 1 0 0 1 .707.293l7.414 7.414A.5.5 0 0 0 14.5 18.35V5.65a.5.5 0 0 0-.793-.357L6.293 12.707a1 1 0 0 1-.707.293H3a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1z"/>
-                <path d="M16 9.5a4.5 4.5 0 0 1 0 5"/>
-                <path d="M19 7a8 8 0 0 1 0 10"/>
-            </svg>
-            <span class="ann-label">${label}</span>
-            <span class="ann-text">${text}</span>
-        `;
-        announcementArea.appendChild(banner);
-
-        // 展示 N 秒后滑出
-        const dismiss = () => {
-            if (!banner.parentNode) return;
-            banner.classList.add('ann-leaving');
-            banner.addEventListener('animationend', () => {
-                banner.remove();
-                announceShowing--;
-                dequeueAnnounce(); // 释放一个位置，展示下一条
-            }, { once: true });
-        };
-
-        setTimeout(dismiss, ANNOUNCE_DISPLAY_MS);
-    }
-}
 
 // ================================================================
 // 举报功能
@@ -2217,7 +2169,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 document.getElementById('online-num').textContent = '🔥' + data.count + '名玩家激战中🔥';
                 break;
             case 'broadcast':
-                showDanmaku(data.text);
+                showDanmaku(data.text, '全服公告', data.duration || 0);
                 break;
             case 'room_announce':
                 showDanmaku(data.text, '管理警告');
@@ -2244,6 +2196,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                         stickerMap[s.id] = { name: s.name, url: s.url };
                     });
                 }
+                saveStickerCache(stickerMap);
                 break;
             case 'sticker':
                 // 收到对手发来的表情（仅 id+name，不含 URL）
@@ -2369,68 +2322,6 @@ let transport, game;
 
 // ================================================================
 // 主题管理（默认 / 暗色 / 跟随系统）
-// ================================================================
-const THEME_KEY = 'theme';
-const themeBtn = document.getElementById('btn-theme');
-
-function getStoredTheme() {
-    return localStorage.getItem(THEME_KEY) || 'default';
-}
-
-function applyTheme(theme) {
-    if (theme === 'system') {
-        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.dataset.theme = isDark ? 'dark' : '';
-    } else if (theme === 'dark') {
-        document.documentElement.dataset.theme = 'dark';
-    } else {
-        document.documentElement.dataset.theme = '';
-    }
-}
-
-function updateThemeIcon(theme) {
-    if (!themeBtn) return;
-    const svg = themeBtn.querySelector('svg');
-    if (!svg) return;
-
-    if (theme === 'dark') {
-        // 月亮图标
-        svg.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
-    } else if (theme === 'system') {
-        // 显示器图标
-        svg.innerHTML = '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>';
-    } else {
-        // 太阳图标
-        svg.innerHTML = '<circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/>';
-    }
-}
-
-function setTheme(theme) {
-    localStorage.setItem(THEME_KEY, theme);
-    applyTheme(theme);
-    updateThemeIcon(theme);
-}
-
-// 按钮点击循环切换：默认 → 暗色 → 跟随系统 → 默认
-const themeCycle = ['default', 'dark', 'system'];
-themeBtn?.addEventListener('click', () => {
-    const current = getStoredTheme();
-    const idx = themeCycle.indexOf(current);
-    const next = themeCycle[(idx + 1) % themeCycle.length];
-    setTheme(next);
-});
-
-// 初始化
-const initialTheme = getStoredTheme();
-applyTheme(initialTheme);
-updateThemeIcon(initialTheme);
-
-// 系统主题变化时自动跟随（仅 system 模式生效）
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (getStoredTheme() === 'system') {
-        applyTheme('system');
-    }
-});
 
 // ================================================================
 //  个人战绩记录

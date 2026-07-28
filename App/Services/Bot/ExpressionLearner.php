@@ -2,7 +2,7 @@
 
 namespace App\Services\Bot;
 
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 表达方式学习器
@@ -15,9 +15,6 @@ class ExpressionLearner
 {
     /** @var array<string, array{style: string, triggers: string[], examples: string[]}> 表达方式库 */
     private array $patterns = [];
-
-    /** @var array<string, string[]> 情境 → 表达风格建议 */
-    private array $contextStyles = [];
 
     public function __construct()
     {

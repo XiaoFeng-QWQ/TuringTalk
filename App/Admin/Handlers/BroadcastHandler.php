@@ -8,6 +8,7 @@ use App\Admin\Tracker;
 use App\Admin\Repository\AdminRepository;
 use App\Core\Sanitizer;
 use App\Services\Infrastructure\Logger;
+use App\Services\Infrastructure\RedisService;
 
 class BroadcastHandler
 {
@@ -22,6 +23,7 @@ class BroadcastHandler
     public function handleBroadcast(Server $server, int $fd, array $data): void
     {
         $text = Sanitizer::text($data['text'] ?? '', 100);
+        $duration = max(1, min(3600, (int)($data['duration'] ?? 60)));
         if (empty($text)) {
             $this->game->sendError($server, $fd, '公告内容不能为空');
             return;
@@ -30,10 +32,18 @@ class BroadcastHandler
             $text = mb_substr($text, 0, 100);
         }
 
+        // 超过60秒时存入Redis，新连接建立时自动推送
+        if ($duration > 60) {
+            $redis = RedisService::connect();
+            $redis->setEx(RedisService::KP_BROADCAST, $duration, $text);
+        }
+
+        $payload = ['type' => 'broadcast', 'text' => $text, 'duration' => $duration];
+
         foreach ($server->connections as $clientFd) {
             if ($clientFd == $fd) continue;
             if (!$server->isEstablished($clientFd)) continue;
-            $this->game->sendToPlayer($server, $clientFd, ['type' => 'broadcast', 'text' => $text]);
+            $this->game->sendToPlayer($server, $clientFd, $payload);
         }
 
         $this->game->sendToPlayer($server, $fd, ['type' => 'system', 'text' => '公告已发送']);
@@ -96,7 +106,7 @@ class BroadcastHandler
 
     private function findSpectateSession(int $fd): ?string
     {
-        foreach ($this->game->allSpectatorSessions() as $sessionId => $slist) {
+        foreach ($this->game->allSpectatorGames() as $sessionId => $slist) {
             if (in_array($fd, $slist, true)) {
                 return $sessionId;
             }

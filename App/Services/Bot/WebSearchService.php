@@ -14,7 +14,6 @@ class WebSearchService
 {
     private const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
     private const MAX_RESULTS = 3;
-    private const MAX_CHARS = 500;
 
     /**
      * 搜索（三层降级）

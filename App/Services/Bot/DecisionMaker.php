@@ -2,7 +2,7 @@
 
 namespace App\Services\Bot;
 
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 决策器
@@ -148,18 +148,48 @@ PROMPT;
         $allText = implode(' ', $userMessages);
 
         // + 人类特征
-        if (preg_match('/[😂😅🤔👍😊🙃]/u', $allText)) { $score += 2; $reasons[] = '使用了 Emoji'; }
-        if (mb_strlen($allText) < 100 && count($userMessages) >= 2) { $score += 1; $reasons[] = '短消息交流，像真人聊天'; }
-        if (preg_match('/哈哈|emmm|害|哎|唉|嘶/ui', $allText)) { $score += 2; $reasons[] = '有语气词'; }
-        if (preg_match('/。。。|\.\.\.|…/', $allText)) { $score += 1; $reasons[] = '用了省略号'; }
-        if (preg_match('/6|典|乐|绷|蚌|yyds|awsl/ui', $allText)) { $score += 2; $reasons[] = '用了网络梗'; }
-        if (preg_match('/你|我|他|她/ui', $allText)) { $score += 1; $reasons[] = '使用人称代词'; }
+        if (preg_match('/[😂😅🤔👍😊🙃]/u', $allText)) {
+            $score += 2;
+            $reasons[] = '使用了 Emoji';
+        }
+        if (mb_strlen($allText) < 100 && count($userMessages) >= 2) {
+            $score += 1;
+            $reasons[] = '短消息交流，像真人聊天';
+        }
+        if (preg_match('/哈哈|emmm|害|哎|唉|嘶/ui', $allText)) {
+            $score += 2;
+            $reasons[] = '有语气词';
+        }
+        if (preg_match('/。。。|\.\.\.|…/', $allText)) {
+            $score += 1;
+            $reasons[] = '用了省略号';
+        }
+        if (preg_match('/6|典|乐|绷|蚌|yyds|awsl/ui', $allText)) {
+            $score += 2;
+            $reasons[] = '用了网络梗';
+        }
+        if (preg_match('/你|我|他|她/ui', $allText)) {
+            $score += 1;
+            $reasons[] = '使用人称代词';
+        }
 
         // - AI 特征
-        if (mb_strlen($allText) > 300 && count($userMessages) <= 2) { $score -= 3; $reasons[] = '长文本回复，像 AI'; }
-        if (preg_match('/作为|根据.*分析|综上所述|总而言之/ui', $allText)) { $score -= 3; $reasons[] = '使用了书面语/总结语'; }
-        if (preg_match('/人工智能|AI助手|语言模型|大模型/ui', $allText)) { $score -= 1; $reasons[] = '提及 AI 相关术语'; }
-        if (!preg_match('/[。！？!?，,]/u', $allText)) { $score -= 1; $reasons[] = '缺少标点符号'; }
+        if (mb_strlen($allText) > 300 && count($userMessages) <= 2) {
+            $score -= 3;
+            $reasons[] = '长文本回复，像 AI';
+        }
+        if (preg_match('/作为|根据.*分析|综上所述|总而言之/ui', $allText)) {
+            $score -= 3;
+            $reasons[] = '使用了书面语/总结语';
+        }
+        if (preg_match('/人工智能|AI助手|语言模型|大模型/ui', $allText)) {
+            $score -= 1;
+            $reasons[] = '提及 AI 相关术语';
+        }
+        if (!preg_match('/[。！？!?，,]/u', $allText)) {
+            $score -= 1;
+            $reasons[] = '缺少标点符号';
+        }
 
         $confidence = min(0.9, max(0.3, abs($score) / 10));
         $guess = $score >= 0 ? 'human' : 'ai';

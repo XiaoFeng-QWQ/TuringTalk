@@ -2,7 +2,7 @@
 
 namespace App\Services\Infrastructure;
 
-use Config\Config;
+use App\Config\Config;
 use Swoole\Coroutine;
 
 /**
@@ -41,6 +41,9 @@ class RedisService
     public const KP_WHOIS_AI_VOTES     = self::WHOIS_AI_PREFIX . 'room:votes:';   // room:votes:{id}:{rnd} → hash
     public const KP_WHOIS_AI_PLAYER    = self::WHOIS_AI_PREFIX . 'player:';       // player:{fd}        → hash
     public const KP_WHOIS_AI_ROOMS     = self::WHOIS_AI_PREFIX . 'rooms';         // rooms              → set
+
+    // 全服公告
+    public const KP_BROADCAST   = self::PREFIX . 'broadcast';  // broadcast → string (带 TTL)
 
     /**
      * 获取当前协程专属的 Redis 连接

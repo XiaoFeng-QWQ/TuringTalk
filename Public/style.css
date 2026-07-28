@@ -1057,7 +1057,7 @@ main {
 .announcement-banner .ann-label {
     font-size: 12px;
     font-weight: bold;
-    color: #fff;
+    color: var(--surface-white);
     background: var(--ink-black);
     padding: 2px 8px;
     border-radius: 3px;

@@ -4,6 +4,7 @@ namespace App\Admin\Handlers;
 
 use Swoole\WebSocket\Server;
 use App\Core\WebSocket\GameWebSocketHandler;
+use App\Core\WebSocket\BaseGameHandler;
 use App\Admin\Tracker;
 use App\Admin\Repository\AdminRepository;
 use App\Services\Game\GameService;
@@ -25,11 +26,13 @@ class SpectateHandler
             return;
         }
 
-        // 禁止旁观自己的对局（当前管理员同一 IP 下有玩家在此对局中）
+        // 禁止旁观自己的对局（内网 IP 且 DenyMultiConnection=false 时例外）
         $adminIp = $this->tracker->getAdminIp($fd);
         if ($adminIp && $this->isOwnSession($server, $session, $adminIp)) {
-            $this->game->sendError($server, $fd, '不能旁观自己的对局');
-            return;
+            if (!BaseGameHandler::canSpectateOwnSession($adminIp)) {
+                $this->game->sendError($server, $fd, '不能旁观自己的对局');
+                return;
+            }
         }
 
         // 先获取历史消息快照，再注册旁观者。

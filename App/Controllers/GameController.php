@@ -8,7 +8,7 @@ use App\Core\Sanitizer;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
 use App\Admin\Repository\AdminRepository;
-use Config\Config;
+use App\Config\Config;
 
 class GameController
 {
@@ -48,7 +48,7 @@ class GameController
 
     private function injectVersionHashes(string &$html): void
     {
-        $files = ['style.css', 'admin.css', 'script.js', 'admin.js'];
+        $files = ['style.css', 'script.js', 'shared.js'];
         foreach ($files as $file) {
             $hash = $this->getFileVersionHash($file);
             $html = str_replace(
@@ -113,6 +113,11 @@ class GameController
     public function favicon(Request $request, Response $response): void
     {
         $this->serveStaticFile('favicon.svg', 'image/svg+xml', $request, $response);
+    }
+
+    public function faviconAdmin(Request $request, Response $response): void
+    {
+        $this->serveStaticFile('favicon-admin.svg', 'image/svg+xml', $request, $response);
     }
 
     public function shared(Request $request, Response $response): void
@@ -362,13 +367,13 @@ class GameController
     // ==================== 管理员功能 ====================
 
     /**
-     * 管理员入口页面（与首页相同，注入 admin mode 标记）
+     * 管理员独立页面
      */
     public function adminPage(Request $request, Response $response): void
     {
-        $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
+        $html = file_get_contents(self::PUBLIC_DIR . 'admin.html');
 
-        $this->injectVersionHashes($html);
+        $this->injectAdminVersionHashes($html);
 
         // 注入管理员配置
         $adminPath = trim(Config::get('Admin.Path', 'admin'), '/');
@@ -383,6 +388,19 @@ class GameController
 
         $response->setContent($html);
         $response->send();
+    }
+
+    private function injectAdminVersionHashes(string &$html): void
+    {
+        $files = ['admin.css', 'admin.js', 'shared.js'];
+        foreach ($files as $file) {
+            $hash = $this->getFileVersionHash($file);
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $hash,
+                $html
+            );
+        }
     }
 
     /**

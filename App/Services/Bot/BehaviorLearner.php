@@ -2,7 +2,7 @@
 
 namespace App\Services\Bot;
 
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 行为学习器
@@ -14,16 +14,8 @@ use Config\Config;
  */
 class BehaviorLearner
 {
-    /** @var array<string, array{trigger: string, action: string, probability: int, description: string}> 行为模式库 */
-    private array $behaviorPatterns = [];
-
     /** @var array 最近的行为观察记录 */
     private array $observations = [];
-
-    public function __construct()
-    {
-        $this->initBehaviorPatterns();
-    }
 
     /**
      * 记录观察到的一轮对话行为
@@ -248,43 +240,5 @@ PROMPT;
             if (is_array($decoded)) return $decoded;
         }
         return null;
-    }
-
-    // ==================== 初始化 ====================
-
-    private function initBehaviorPatterns(): void
-    {
-        $this->behaviorPatterns = [
-            'greeting' => [
-                'trigger'     => '刚匹配上，对方发来问候',
-                'action'      => '友好回应 + 适当自我介绍',
-                'probability' => 90,
-                'description' => '真人刚认识时会礼貌性地回应问候，但不会太热情',
-            ],
-            'testing' => [
-                'trigger'     => '对方明显在试探你是不是AI',
-                'action'      => '略带防备地回应，转移话题或反问',
-                'probability' => 80,
-                'description' => '真人被试探时会有点不爽，不会直接承认/否认',
-            ],
-            'deep_talk' => [
-                'trigger'     => '对方在讨论深度话题',
-                'action'      => '适度参与讨论，但要表现得不确定、有犹豫',
-                'probability' => 70,
-                'description' => '真人面对哲学问题不会太笃定，会说"我觉得吧"',
-            ],
-            'silence' => [
-                'trigger'     => '对方沉默了一段时间',
-                'action'      => '偶尔主动发起新话题，但不要频繁',
-                'probability' => 55,
-                'description' => '真人有时也没话说，不会一直主动',
-            ],
-            'short_reply' => [
-                'trigger'     => '对方只发了很短的回复',
-                'action'      => '有时跟着简单的回复，有时不回复',
-                'probability' => 50,
-                'description' => '面对敷衍，真人也不会每次都接话',
-            ],
-        ];
     }
 }

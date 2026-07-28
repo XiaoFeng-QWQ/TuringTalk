@@ -2,7 +2,8 @@
 
 namespace App\Services\Infrastructure;
 
-use Swoole\Coroutine;
+use App\Services\Repository\PlayerStatsRepository;
+use App\Services\Repository\ReportRepository;
 use Swoole\Timer;
 
 /**

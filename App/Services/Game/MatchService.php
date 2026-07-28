@@ -9,7 +9,7 @@ use App\Services\Infrastructure\Logger;
 use Swoole\Coroutine\Channel;
 use Swoole\Timer;
 use Swoole\WebSocket\Server;
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 匹配队列服务——单 Worker + Redis 状态存储

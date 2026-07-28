@@ -5,7 +5,7 @@ namespace App\Services\Game;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Infrastructure\Logger;
 use Swoole\Coroutine\Channel;
-use Config\Config;
+use App\Config\Config;
 
 /**
  * 核心游戏逻辑服务——单 Worker + Redis 状态存储

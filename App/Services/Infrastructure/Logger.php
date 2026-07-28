@@ -3,7 +3,7 @@
 namespace App\Services\Infrastructure;
 
 use App\Enums\LogLevel;
-use Config\Config;
+use App\Config\Config;
 use Swoole\Coroutine;
 
 class Logger

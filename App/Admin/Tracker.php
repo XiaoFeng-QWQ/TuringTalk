@@ -3,7 +3,6 @@
 namespace App\Admin;
 
 use Swoole\WebSocket\Server;
-use App\Services\Infrastructure\Logger;
 
 /**
  * 管理员在线状态追踪器

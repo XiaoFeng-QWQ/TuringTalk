@@ -6,7 +6,7 @@ use Swoole\Http\Server;
 use Swoole\WebSocket\Server as WebSocketServer;
 use App\Core\Http\HttpHandler;
 use App\Core\WebSocket\WebSocketHandler;
-use Config\Config;
+use App\Config\Config;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Repository\BanRepository;

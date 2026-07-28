@@ -12,7 +12,7 @@ use App\Services\Game\GameService;
 use App\Services\Game\MatchService;
 use App\Services\Bot\BotService;
 use App\Services\Infrastructure\Logger;
-use Config\Config;
+use App\Config\Config;
 use App\Services\Repository\ChatHistoryRepository;
 use App\Controllers\GameController;
 use App\Admin\Tracker;
@@ -21,9 +21,14 @@ use App\Services\Repository\ReportRepository;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Infrastructure\StickerService;
+use App\Services\Infrastructure\RedisService;
 
-class GameWebSocketHandler
+class GameWebSocketHandler extends BaseGameHandler
 {
+    public static function routePath(): string { return '/ws'; }
+    public static function routePrefix(): string { return ''; }
+    public function getService(): object { return $this->gameService; }
+
     private GameService $gameService;
     private MatchService $matchService;
     private BotService $botService;
@@ -42,25 +47,6 @@ class GameWebSocketHandler
     /** @var array<string, bool> 防重入标记 */
     private array $cleaning = [];
     private array $mutualChatTimers = [];
-
-    /** IP 跟踪（fd => [ip, fingerprint]），单 Worker 用数组即可 */
-    private array $clientInfo = [];
-    /** IP → fd 反向索引，O(1) 检查 IP 重复 */
-    private array $ipToFd = [];
-
-    /** 管理员追踪器（由 WebSocketHandler 注入） */
-    private ?Tracker $tracker = null;
-
-    public function setTracker(Tracker $tracker): void
-    {
-        $this->tracker = $tracker;
-    }
-
-    /** 旁观记录（sessionId => [admin_fd, ...]），单 Worker 用数组即可 */
-    private array $spectatorSessions = [];
-
-    /** 上榜玩家：fd => 恢复码映射 */
-    private array $playerCodes = [];
 
     /** Bot LLM 调用并发信号量（10 槽位 + 5s 超时防死锁，超时 fallback 模板） */
     private static ?Channel $botLlmSem = null;
@@ -101,72 +87,8 @@ class GameWebSocketHandler
 
     public function onOpen(Server $server, \Swoole\Http\Request $request): void
     {
-        $fd = $request->fd;
-
-        // 优先从代理头获取真实 IP（Cloudflare → nginx 反代链路）
-        // CF-Connecting-IP 由 Cloudflare 边缘设置，客户端无法伪造，是最可靠来源
-        $cfConnectingIp = $request->header['cf-connecting-ip'] ?? '';
-        $xForwarded = $request->header['x-forwarded-for'] ?? '';
-        if (!empty($cfConnectingIp)) {
-            $clientIp = $cfConnectingIp;
-        } elseif (!empty($xForwarded)) {
-            $clientIp = trim(explode(',', $xForwarded)[0]);
-        } else {
-            $clientIp = $request->header['x-real-ip'] ?? $request->server['remote_addr'] ?? 'unknown';
-        }
-
-        // 同一 IP 已有活跃连接 → 直接拒绝新连接，防止多设备乒乓互踢
-        // 穿透/代理场景下通过 Server.DenyMultiConnection = false 跳过
-        if (Config::get('Server.DenyMultiConnection', true)) {
-            $existingFd = $this->ipToFd[$clientIp] ?? null;
-            if ($existingFd !== null && $server->isEstablished($existingFd)) {
-                Logger::info('Game WS rejected: IP already connected', [
-                    'fd'          => $fd,
-                    'ip'          => $clientIp,
-                    'existing_fd' => $existingFd,
-                ]);
-                $this->sendToPlayer($server, $fd, [
-                    'type'    => 'system',
-                    'text'    => '该设备已有活跃连接，请关闭其他页面后重试',
-                ]);
-                $server->close($fd);
-                return;
-            }
-        }
-        // 封禁检查：在建立连接时就拦截被封玩家（不等到 handleJoin）
-        if (BanRepository::isBanned($clientIp, '')) {
-            Logger::info('WS rejected: banned IP', ['fd' => $fd, 'ip' => $clientIp]);
-            if ($server->isEstablished($fd)) {
-                $server->push($fd, json_encode([
-                    'type' => 'error',
-                    'message' => '您已被管理员封禁',
-                ]));
-            }
-            $server->close($fd);
-            return;
-        }
-
-        $this->gameService->addOnline($fd);
-
-        $this->clientInfo[(string)$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
-        $this->ipToFd[$clientIp] = (int)$fd;
-        Logger::info('WebSocket connection opened', [
-            'fd' => $fd,
-            'ip' => $clientIp,
-            'cf-connecting-ip' => $cfConnectingIp ?: '(none)',
-            'x-forwarded-for' => $xForwarded ?: '(none)',
-            'x-real-ip' => ($request->header['x-real-ip'] ?? '(none)'),
-            'remote_addr' => ($request->server['remote_addr'] ?? '(none)'),
-        ]);
-
-        // 发送当前在线人数
-        $onlineCount = $this->gameService->getOnlineCount();
-        $this->sendToPlayer($server, $fd, [
-            'type' => 'online_count',
-            'count' => $onlineCount,
-        ]);
-        // 通知所有已连接客户端在线人数变化
-        $this->broadcastOnlineCount($server, $fd);
+        if (!$this->initConnection($server, $request)) return;
+        // Game-specific: logging already done in initConnection
     }
 
     public function onMessage(Server $server, Frame $frame): void
@@ -256,36 +178,14 @@ class GameWebSocketHandler
         Logger::info('WebSocket connection closed', ['fd' => $fd]);
 
         try {
-            $this->gameService->removeOnline($fd);
-            // 广播在线人数变化
-            $this->broadcastOnlineCount($server);
-            // 清理 IP 反向索引
-            $row = $this->clientInfo[(string)$fd] ?? null;
-            if ($row && ($row['ip'] ?? '')) {
-                $idxFd = $this->ipToFd[$row['ip']] ?? null;
-                if ($idxFd === $fd) {
-                    unset($this->ipToFd[$row['ip']]);
-                }
-            }
-            unset($this->clientInfo[(string)$fd]);
-
             // 清理上榜追踪
             GameService::removePlayerCode($fd);
-
-            // 清理旁观记录
-            foreach ($this->spectatorSessions as $sessionId => $slist) {
-                $slist = array_values(array_filter($slist, fn($afd) => $afd !== $fd));
-                if (empty($slist)) {
-                    unset($this->spectatorSessions[$sessionId]);
-                } else {
-                    $this->spectatorSessions[$sessionId] = $slist;
-                }
-            }
 
             $this->matchService->dequeue($fd);
 
             $session = $this->gameService->getSessionByPlayerFd($fd);
             if (!$session) {
+                $this->cleanupConnection($server, $fd);
                 return;
             }
 
@@ -337,10 +237,19 @@ class GameWebSocketHandler
             });
 
             // 通知旁观者
-            $this->notifySpectatorsEnded($server, $sessionId, '玩家断开连接');
+            if ($this->hasSpectators($sessionId)) {
+                $this->sendToSpectators($server, $sessionId, [
+                    'type' => 'spectate_ended',
+                    'session_id' => $sessionId,
+                    'reason' => '玩家断开连接',
+                ]);
+            }
 
             // 双方确认制：标记该玩家离开，双方都离开才清理
             $this->markAndCheckCleanup($sessionId, $fd);
+
+            // 通用清理（IP 索引 + 旁观者）
+            $this->cleanupConnection($server, $fd);
         } catch (\Throwable $e) {
             Logger::error('onClose: uncaught exception', [
                 'fd'    => $fd,
@@ -573,7 +482,7 @@ class GameWebSocketHandler
             // 延迟 180s 后清理 Redis，给另一名玩家留时间保存聊天记录
             \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
                 $this->gameService->cleanupSession($sessionId);
-                unset($this->spectatorSessions[$sessionId]);
+                unset($this->spectators[$sessionId]);
                 Logger::debug('Session cleaned up (report, delayed)', ['session_id' => $sessionId]);
             });
             Logger::debug('Session cleanup delayed for report', ['session_id' => $sessionId]);
@@ -590,7 +499,7 @@ class GameWebSocketHandler
                 // 玩家有恢复码，延长 180s 后再清理，给前端留时间调用保存 API
                 \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
                     $this->gameService->cleanupSession($sessionId);
-                    unset($this->spectatorSessions[$sessionId]);
+                    unset($this->spectators[$sessionId]);
                 });
                 Logger::debug('Session cleanup delayed for recovery code', ['session_id' => $sessionId]);
                 return;
@@ -599,7 +508,7 @@ class GameWebSocketHandler
 
         // 无举报，直接清理内存
         $this->gameService->cleanupSession($sessionId);
-        unset($this->spectatorSessions[$sessionId]);
+        unset($this->spectators[$sessionId]);
     }
 
     // ==================== 消息处理器 ====================
@@ -631,7 +540,7 @@ class GameWebSocketHandler
 
         $fingerprint = Sanitizer::identifier($data['fingerprint'] ?? '');
         if (true) {
-            $this->clientInfo[(string)$fd]['fingerprint'] = $fingerprint;
+            $this->setClientFingerprint($fd, $fingerprint);
 
             $clientInfo = $this->clientInfo[(string)$fd];
             $clientIp = $clientInfo['ip'] ?? 'unknown';
@@ -701,17 +610,13 @@ class GameWebSocketHandler
             }
         }
 
-        // 昵称全局唯一性校验（跨所有模式，MySQL player_data 表）
-        // 如果提供了恢复码且与昵称配对，说明是本人回归，允许使用
-        $existingPlayer = \App\Services\Repository\PlayerStatsRepository::findByNickname($nickname);
-        if ($existingPlayer !== null) {
-            $recoveryCode = $data['recovery_code'] ?? '';
-            if (empty($recoveryCode) || $recoveryCode !== $existingPlayer['code']) {
-                $this->sendError($server, $fd, '该昵称已被注册，请更换');
-                return;
-            }
-            // 恢复码配对成功，本人回归，允许继续
+        // 统一身份验证（昵称唯一性 + 恢复码校验，跨模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['recovery_code'] ?? ''));
+        if (!$valid['success']) {
+            $this->sendError($server, $fd, $valid['error']);
+            return;
         }
+        $nickname = $valid['nickname'];
 
         $this->matchService->enqueue($fd, $nickname, $duration);
     }
@@ -1044,7 +949,7 @@ class GameWebSocketHandler
                         'opponent_guess' => $updated[$myGuessKey],
                         'opponent_tag' => $updated[$myTagKey] ?? '',
                         'session_id' => $sessionId,
-                        'recovery_code' => $opponentName ? $this->getOrCreatePlayerCode($opponentName, $opponentFd) : null,
+                        'recovery_code' => $opponentName ? $this->getOrCreatePlayerCode($opponentFd, $opponentName) : null,
                     ]);
                 }
 
@@ -1056,7 +961,7 @@ class GameWebSocketHandler
                     'opponent_guess' => $updated[$opponentGuessKey],
                     'opponent_tag' => $updated[$opponentTagKey],
                     'session_id' => $sessionId,
-                    'recovery_code' => $myName ? $this->getOrCreatePlayerCode($myName, $fd) : null,
+                    'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
                 ]);
 
                 // 通知旁观者结果
@@ -1125,7 +1030,7 @@ class GameWebSocketHandler
                         'truth' => $opponentTruth,
                         'opponent_guess' => $botGuess,
                         'session_id' => $sessionId,
-                        'recovery_code' => $myName ? $this->getOrCreatePlayerCode($myName, $fd) : null,
+                        'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
                     ]);
 
                     // 通知旁观者
@@ -1226,7 +1131,7 @@ class GameWebSocketHandler
             'opponent_guess' => $session[$myGuessKey],
             'opponent_tag' => $session[$myTagKey] ?? '',
             'session_id' => $sessionId,
-            'recovery_code' => $session['player' . $opponentIndex . '_nickname'] ? $this->getOrCreatePlayerCode($session['player' . $opponentIndex . '_nickname'], $opponentFd) : null,
+            'recovery_code' => $session['player' . $opponentIndex . '_nickname'] ? $this->getOrCreatePlayerCode($opponentFd, $session['player' . $opponentIndex . '_nickname']) : null,
         ]);
 
         $this->sendToPlayer($server, $fd, [
@@ -1235,7 +1140,7 @@ class GameWebSocketHandler
             'opponent_guess' => $session[$opponentGuessKey],
             'opponent_tag' => $session[$opponentTagKey],
             'session_id' => $sessionId,
-            'recovery_code' => $session['player' . $myIndex . '_nickname'] ? $this->getOrCreatePlayerCode($session['player' . $myIndex . '_nickname'], $fd) : null,
+            'recovery_code' => $session['player' . $myIndex . '_nickname'] ? $this->getOrCreatePlayerCode($fd, $session['player' . $myIndex . '_nickname']) : null,
         ]);
 
         // 通知旁观者结果
@@ -1307,7 +1212,13 @@ class GameWebSocketHandler
             $this->cleanupSessionWithReportCheck($sessionId);
         });
 
-        $this->notifySpectatorsEnded($server, $sessionId, '玩家离开');
+        if ($this->hasSpectators($sessionId)) {
+            $this->sendToSpectators($server, $sessionId, [
+                'type' => 'spectate_ended',
+                'session_id' => $sessionId,
+                'reason' => '玩家离开',
+            ]);
+        }
 
         // 双方确认制：标记该玩家离开，双方都离开才清理
         $this->markAndCheckCleanup($sessionId, $fd);
@@ -1344,7 +1255,7 @@ class GameWebSocketHandler
             return;
         }
 
-        $opponentInfo = $this->clientInfo[(string)$opponentFd] ?? null;
+        $opponentInfo = $this->getClientInfo($opponentFd);
         if (!$opponentInfo) {
             $this->sendError($server, $fd, '无法获取对方信息');
             return;
@@ -1665,14 +1576,14 @@ class GameWebSocketHandler
                         'reason' => 'opponent_timeout',
                         'opponent_truth' => $p2Truth,
                         'session_id' => $sessionId,
-                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($p1Name, $session['player1_fd']) : null,
+                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($session['player1_fd'], $p1Name) : null,
                     ]);
                     $this->sendToPlayer($server, $session['player2_fd'], [
                         'type' => 'timeout',
                         'reason' => 'you_timeout',
                         'opponent_truth' => $session['player1_truth'] ?? 'ai',
                         'session_id' => $sessionId,
-                        'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($p2Name, $session['player2_fd']) : null,
+                        'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($session['player2_fd'], $p2Name) : null,
                     ]);
                 } elseif (!$p1Guess && $p2Guess) {
                     // 玩家2 已判定，玩家1 超时
@@ -1684,14 +1595,14 @@ class GameWebSocketHandler
                         'reason' => 'you_timeout',
                         'opponent_truth' => $session['player2_truth'] ?? 'ai',
                         'session_id' => $sessionId,
-                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($p1Name, $session['player1_fd']) : null,
+                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($session['player1_fd'], $p1Name) : null,
                     ]);
                     $this->sendToPlayer($server, $session['player2_fd'], [
                         'type' => 'timeout',
                         'reason' => 'opponent_timeout',
                         'opponent_truth' => $p1Truth,
                         'session_id' => $sessionId,
-                        'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($p2Name, $session['player2_fd']) : null,
+                        'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($session['player2_fd'], $p2Name) : null,
                     ]);
                 } else {
                     // 双方都超时
@@ -1704,7 +1615,7 @@ class GameWebSocketHandler
                         'reason' => 'both_timeout',
                         'opponent_truth' => $p2Truth,
                         'session_id' => $sessionId,
-                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($p1Name, $session['player1_fd']) : null,
+                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($session['player1_fd'], $p1Name) : null,
                     ]);
                     if ($session['player2_fd'] > 0) {
                         $this->sendToPlayer($server, $session['player2_fd'], [
@@ -1712,12 +1623,18 @@ class GameWebSocketHandler
                             'reason' => 'both_timeout',
                             'opponent_truth' => $p1Truth,
                             'session_id' => $sessionId,
-                            'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($p2Name, $session['player2_fd']) : null,
+                            'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($session['player2_fd'], $p2Name) : null,
                         ]);
                     }
                 }
 
-                $this->notifySpectatorsEnded($server, $sessionId, '判定超时');
+                if ($this->hasSpectators($sessionId)) {
+                    $this->sendToSpectators($server, $sessionId, [
+                        'type' => 'spectate_ended',
+                        'session_id' => $sessionId,
+                        'reason' => '判定超时',
+                    ]);
+                }
 
                 $this->gameService->transitionState($sessionId, 'finished');
 
@@ -1789,7 +1706,7 @@ class GameWebSocketHandler
                 'truth' => 'ai',
                 'opponent_guess' => $botGuess,
                 'session_id' => $sessionId,
-                'recovery_code' => $session['player1_nickname'] ? $this->getOrCreatePlayerCode($session['player1_nickname'], $playerFd) : null,
+                'recovery_code' => $session['player1_nickname'] ? $this->getOrCreatePlayerCode($playerFd, $session['player1_nickname']) : null,
             ]);
 
             // 通知旁观者
@@ -2009,115 +1926,10 @@ class GameWebSocketHandler
 
     // ==================== 辅助方法 ====================
 
-    // ── 跨 Worker 共享状态读写 ──
-
-    public function getClientInfo(int $fd): ?array
+    /** 查询 fd 是否正在对局中（供 WebSocketHandler 广播在线人数使用） */
+    public function isPlayerInGame(int $fd): bool
     {
-        return $this->clientInfo[(string)$fd] ?? null;
-    }
-
-    /** @return array */
-    public function allSpectatorSessions(): array
-    {
-        return $this->spectatorSessions;
-    }
-
-    /**
-     * 从所有旁观会话中移除指定 fd
-     */
-    public function removeSpectatorFdAll(int $fd): void
-    {
-        foreach ($this->spectatorSessions as $sessionId => $slist) {
-            $slist = array_values(array_filter($slist, fn($afd) => $afd !== $fd));
-            if (empty($slist)) {
-                unset($this->spectatorSessions[$sessionId]);
-            } else {
-                $this->spectatorSessions[$sessionId] = $slist;
-            }
-        }
-    }
-
-    /** @return int[] */
-    public function getSpectatorFds(string $sessionId): array
-    {
-        return $this->spectatorSessions[$sessionId] ?? [];
-    }
-
-    public function addSpectatorFd(string $sessionId, int $fd): void
-    {
-        if (!isset($this->spectatorSessions[$sessionId])) {
-            $this->spectatorSessions[$sessionId] = [];
-        }
-        if (!in_array($fd, $this->spectatorSessions[$sessionId], true)) {
-            $this->spectatorSessions[$sessionId][] = $fd;
-        }
-    }
-
-    public function removeSpectatorFd(string $sessionId, int $fd): void
-    {
-        if (!isset($this->spectatorSessions[$sessionId])) return;
-        $this->spectatorSessions[$sessionId] = array_values(
-            array_filter($this->spectatorSessions[$sessionId], fn($f) => $f !== $fd)
-        );
-        if (empty($this->spectatorSessions[$sessionId])) {
-            unset($this->spectatorSessions[$sessionId]);
-        }
-    }
-
-    public function hasSpectators(string $sessionId): bool
-    {
-        return isset($this->spectatorSessions[$sessionId]);
-    }
-
-    /**
-     * 向所有已连接客户端广播在线人数（排除指定 fd）
-     * 跳过正在对局中的玩家（他们不需要）
-     */
-    private function broadcastOnlineCount(Server $server, int $excludeFd = 0): void
-    {
-        $count = $this->gameService->getOnlineCount();
-        foreach ($server->connections as $clientFd) {
-            if ($clientFd === $excludeFd) continue;
-            // 只推给已建立 WebSocket 握手的客户端（排除 HTTP 连接）
-            if (!$server->isEstablished($clientFd)) continue;
-            // 跳过已在游戏中的玩家
-            if ($this->gameService->getSessionByPlayerFd($clientFd) !== null) continue;
-            $this->sendToPlayer($server, $clientFd, [
-                'type' => 'online_count',
-                'count' => $count,
-            ]);
-        }
-    }
-
-    public function sendToPlayer(Server $server, int $fd, array $data): void
-    {
-        if (!$server->exist($fd)) {
-            Logger::warning('WS push skipped: fd not exist', [
-                'fd' => $fd,
-                'type' => $data['type'] ?? 'unknown',
-            ]);
-            return;
-        }
-
-        $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if ($payload === false) {
-            Logger::error('WS push failed: json_encode error', [
-                'fd' => $fd,
-                'type' => $data['type'] ?? 'unknown',
-                'json_error' => json_last_error_msg(),
-            ]);
-            return;
-        }
-
-        $result = $server->push($fd, $payload);
-        if ($result === false) {
-            Logger::error('WS push failed', [
-                'fd'         => $fd,
-                'type'       => $data['type'] ?? 'unknown',
-                'exist'      => $server->exist($fd),
-                'data_len'   => strlen($payload),
-            ]);
-        }
+        return $this->gameService->getSessionByPlayerFd($fd) !== null;
     }
 
     private function sendToSessionPlayers(Server $server, array $session, array $data): void
@@ -2128,44 +1940,6 @@ class GameWebSocketHandler
         if ($session['player2_fd'] > 0) {
             $this->sendToPlayer($server, $session['player2_fd'], $data);
         }
-    }
-
-    /**
-     * 向某个会话的旁观管理员转发消息
-     */
-    public function sendToSpectators(Server $server, string $sessionId, array $data): void
-    {
-        if (!$this->hasSpectators($sessionId)) {
-            return;
-        }
-        foreach ($this->getSpectatorFds($sessionId) as $adminFd) {
-            if ($server->isEstablished($adminFd)) {
-                $this->sendToPlayer($server, $adminFd, $data);
-            }
-        }
-    }
-
-    /**
-     * 通知旁观者会话已结束
-     */
-    private function notifySpectatorsEnded(Server $server, string $sessionId, string $reason): void
-    {
-        if (!$this->hasSpectators($sessionId)) {
-            return;
-        }
-        $this->sendToSpectators($server, $sessionId, [
-            'type' => 'spectate_ended',
-            'session_id' => $sessionId,
-            'reason' => $reason,
-        ]);
-    }
-
-    public function sendError(Server $server, int $fd, string $message): void
-    {
-        $this->sendToPlayer($server, $fd, [
-            'type' => 'error',
-            'message' => $message,
-        ]);
     }
 
     /**
@@ -2285,26 +2059,5 @@ class GameWebSocketHandler
 
         PlayerStatsRepository::updateNickname($code, $nickname, $this->clientInfo[(string)$fd]['ip'] ?? '', $fp);
         $this->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'success' => true]);
-    }
-
-    /**
-     * 获取或创建玩家的恢复码（与昵称绑定）
-     * 首次对局结束后自动生成，后续对局直接复用
-     */
-    private function getOrCreatePlayerCode(string $nickname, int $fd): ?string
-    {
-        $row = $this->clientInfo[(string)$fd] ?? [];
-        $fp = Sanitizer::identifier($row['fp'] ?? '');
-        $ip = $row['ip'] ?? '';
-
-        $existing = PlayerStatsRepository::findByNickname($nickname);
-        if ($existing) {
-            return $existing['code'];
-        }
-
-        $code = PlayerStatsRepository::generateCode();
-        PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
-        Logger::info('Recovery code created after game', ['fd' => $fd, 'code' => $code, 'nickname' => $nickname]);
-        return $code;
     }
 }
