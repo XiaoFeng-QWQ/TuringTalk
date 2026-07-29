@@ -125,6 +125,14 @@ let btnRefreshSessions, searchSessionsInput, sessionsList;
 // 标签
 let tabSessions, tabReports, tabStickers;
 let panelSessions, panelReports, panelStickers;
+// 聊天室管理
+let tabLobby, panelLobby, btnLobbyRefresh, btnLobbyHistory, lobbySearchInput, lobbyPlayersList, lobbyMessagesList;
+let lobbyPlayersActions, lobbyPlayersSelectAll, btnLobbyBatchBan;
+let lobbyMessagesActions, lobbyMessagesSelectAll, btnLobbyBatchDelete;
+let lobbyAnnounceInput, btnLobbyAnnounce;
+let lobbyRateInput, btnLobbyRateSet, btnLobbyRateQuery, lobbyRateStatus;
+let _lobbyAllMessages = [];
+let _lobbyPage = 1, _lobbyTotal = 0, _lobbyPageSize = 20;
 // 谁是AI
 let tabWhoisAI, panelWhoisAI, WhoisAIRoomsList;
 // 举报审核
@@ -581,6 +589,34 @@ function handleAdminMessage(data) {
             }
             break;
 
+        case 'admin_lobby_players':
+            renderLobbyPlayers(data.players || []);
+            break;
+
+        case 'admin_lobby_messages':
+            renderLobbyMessages(data.messages || [], data.total, data.page, data.page_size);
+            break;
+
+        case 'lobby_rate_limit_info':
+            if (lobbyRateStatus && lobbyRateInput) {
+                const sec = data.seconds || 0;
+                lobbyRateStatus.textContent = sec <= 0 ? '当前：不限' : '当前：' + sec + ' 秒';
+                lobbyRateStatus.style.color = sec <= 0 ? 'var(--text-muted)' : 'var(--danger)';
+                lobbyRateInput.value = sec;
+            }
+            break;
+
+        case 'system':
+            showAdminToast(data.text || '', 'info');
+            // 操作成功后自动刷新对应列表
+            if ((data.text || '').includes('删除')) {
+                loadLobbyPage(_lobbyPage);
+            }
+            if ((data.text || '').includes('封禁')) {
+                adminSend('admin_lobby_players');
+            }
+            break;
+
         case 'broadcast_result':
             broadcastStatus.style.display = 'block';
             broadcastStatus.textContent = data.message || '已发送';
@@ -600,6 +636,7 @@ function handleAdminMessage(data) {
             reportDetailOverlay.style.display = 'none';
             _currentDetailReportId = null;
             loadReports(_reportsPage);
+            showAdminToast(data.message || '已标记为已审核', 'success');
             break;
 
         case 'admin_ban_player_result':
@@ -687,7 +724,7 @@ function handleAdminMessage(data) {
                     div.style.cssText = 'text-align:center;font-size:12px;color:#d32f2f;padding:6px 0;font-weight:bold;';
                     div.textContent = '【管理公告】' + data.text;
                     chatBody.appendChild(div);
-                    chatBody.scrollTop = chatBody.scrollHeight;
+                    _scrollChatToBottom(chatBody);
                 }
             }
             break;
@@ -726,6 +763,7 @@ function switchAdminTab(tab) {
         { btn: tabWhoisAI, panel: panelWhoisAI, name: 'WhoisAI' },
         { btn: tabReports, panel: panelReports, name: 'reports' },
         { btn: tabStickers, panel: panelStickers, name: 'stickers' },
+        { btn: tabLobby, panel: panelLobby, name: 'lobby' },
     ];
 
     if (_isSuperAdmin && tabAdmin && tabLogs) {
@@ -757,6 +795,10 @@ function switchAdminTab(tab) {
     }
     if (tab === 'logs') {
         loadLogs(1);
+    }
+    if (tab === 'lobby') {
+        adminSend('admin_lobby_players');
+        loadLobbyPage(1);
     }
 }
 
@@ -1162,11 +1204,34 @@ function exitSpectatorView() {
 // ==================== 旁观消息渲染（独立版，不依赖 script.js）====================
 
 /**
+ * 智能滚动到底部：仅当用户已在底部（阈值50px）时才自动滚动，不影响翻阅历史
+ */
+function _scrollChatToBottom(chatBody) {
+    if (!chatBody) return;
+    // 使用 requestAnimationFrame 确保 DOM 已布局完成再滚动
+    requestAnimationFrame(function () {
+        var isAtBottom = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight < 50;
+        if (isAtBottom) {
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+    });
+}
+
+/**
  * 向旁观聊天区追加消息
  */
 function _adminAppendMessage(text, side, sender) {
     const chatBody = document.getElementById('chat-body');
     if (!chatBody) return;
+
+    // 检测是否为表情包消息
+    if (_isStickerText(text)) {
+        var stickerId = _parseStickerId(text);
+        if (stickerId) {
+            _adminAppendSticker(stickerId, '', side, sender);
+            return;
+        }
+    }
 
     const wrapper = document.createElement('div');
     wrapper.className = 'chat-bubble-wrapper';
@@ -1189,7 +1254,7 @@ function _adminAppendMessage(text, side, sender) {
     wrapper.appendChild(bubble);
 
     chatBody.appendChild(wrapper);
-    chatBody.scrollTop = chatBody.scrollHeight;
+    _scrollChatToBottom(chatBody);
 }
 
 /**
@@ -1204,7 +1269,7 @@ function _adminAppendSystem(text) {
     div.style.cssText = 'text-align:center;font-size:12px;color:#888;padding:6px 0;';
     div.textContent = text;
     chatBody.appendChild(div);
-    chatBody.scrollTop = chatBody.scrollHeight;
+    _scrollChatToBottom(chatBody);
 }
 
 /**
@@ -1236,7 +1301,22 @@ function _adminAppendSticker(stickerId, stickerName, side, sender) {
     wrapper.appendChild(img);
 
     chatBody.appendChild(wrapper);
-    chatBody.scrollTop = chatBody.scrollHeight;
+    _scrollChatToBottom(chatBody);
+}
+
+/**
+ * 检测文本是否为表情包消息
+ */
+function _isStickerText(text) {
+    return text && /^\[sticker:/.test(text);
+}
+
+/**
+ * 从 [sticker:ID] 格式文本中提取表情包 ID
+ */
+function _parseStickerId(text) {
+    var m = text.match(/^\[sticker:([^\]]+)\]/);
+    return m ? m[1] : null;
 }
 
 /**
@@ -1245,9 +1325,11 @@ function _adminAppendSticker(stickerId, stickerName, side, sender) {
 function showAdminPanelContent() {
     const prompt = document.getElementById('admin-login-prompt');
     const panel = document.getElementById('admin-panel-content');
+    const chatPage = document.getElementById('chat-page');
     const headerBtn = document.getElementById('btn-exit-admin-header');
     if (prompt) prompt.style.display = 'none';
     if (panel) panel.style.display = '';
+    if (chatPage) chatPage.style.display = 'none';
     if (headerBtn) headerBtn.style.display = '';
 }
 
@@ -1909,6 +1991,163 @@ function _adminToastDismiss(el) {
 // 覆盖 shared.js 的 repositionToasts（新版 toast 固定右上角，无需重新定位）
 function repositionToasts() {}
 
+// ==================== 聊天室管理 ====================
+
+function renderLobbyPlayers(players) {
+    if (!lobbyPlayersList) return;
+    if (!players.length) {
+        lobbyPlayersList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">暂无在线玩家</div>';
+        if (lobbyPlayersActions) lobbyPlayersActions.style.display = 'none';
+        return;
+    }
+    if (lobbyPlayersActions) lobbyPlayersActions.style.display = 'flex';
+    let html = '';
+    players.forEach(p => {
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--border-light);font-size:12px;">' +
+            '<span><input type="checkbox" class="lobby-player-check" data-fd="' + p.fd + '" style="margin:0 6px 0 0;vertical-align:middle;">' +
+            '<strong>' + escapeHtml(p.nickname) + '</strong> <span style="color:var(--text-muted);">(fd=' + p.fd + ')</span></span>' +
+            '<span style="display:flex;gap:4px;">' +
+                '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-ban-fd="' + p.fd + '" data-ban-name="' + escapeHtmlAttr(p.nickname) + '">封禁</button>' +
+            '</span>' +
+        '</div>';
+    });
+    lobbyPlayersList.innerHTML = html;
+
+    // 全选
+    if (lobbyPlayersSelectAll) {
+        lobbyPlayersSelectAll.checked = false;
+        lobbyPlayersSelectAll.onclick = function () {
+            lobbyPlayersList.querySelectorAll('.lobby-player-check').forEach(cb => cb.checked = this.checked);
+        };
+    }
+
+    // 单个封禁按钮
+    lobbyPlayersList.querySelectorAll('[data-ban-fd]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetFd = btn.dataset.banFd;
+            const targetName = btn.dataset.banName;
+            showBanReasonDialog(
+                `封禁聊天室玩家 ${targetName}？`,
+                (reason) => {
+                    adminSend('admin_lobby_ban', { target_fd: parseInt(targetFd), reason });
+                }
+            );
+        });
+    });
+}
+
+function renderLobbyMessages(messages, total, page, pageSize) {
+    _lobbyAllMessages = messages;
+    _lobbyTotal = total || 0;
+    _lobbyPage = page || 1;
+    _lobbyPageSize = pageSize || 20;
+    _doRenderLobbyMessages();
+}
+
+function _doRenderLobbyMessages() {
+    if (!lobbyMessagesList) return;
+    if (!_lobbyAllMessages.length) {
+        lobbyMessagesList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">暂无消息</div>';
+        if (lobbyMessagesActions) lobbyMessagesActions.style.display = 'none';
+        return;
+    }
+    if (lobbyMessagesActions) lobbyMessagesActions.style.display = 'flex';
+    let html = '';
+    _lobbyAllMessages.forEach(m => {
+        const timeStr = m.created_at || m.time || '';
+        html += '<div style="padding:2px 0;border-bottom:1px dashed var(--border-lighter);word-break:break-all;">' +
+            '<input type="checkbox" class="lobby-msg-check" data-id="' + m.id + '" style="margin:0 4px 0 0;vertical-align:middle;">' +
+            '<span style="color:var(--text-muted);">#' + m.id + '</span> ' +
+            '<strong>' + escapeHtml(m.sender_name || '') + '</strong>: ' +
+            escapeHtml(m.content || '') +
+            ' <span style="color:var(--text-muted);font-size:10px;">' + escapeHtml(timeStr) + '</span>' +
+            ' <button class="doodle-btn" style="font-size:10px;padding:0 4px;margin-left:4px;" data-del-id="' + m.id + '">删除</button>' +
+        '</div>';
+    });
+    lobbyMessagesList.innerHTML = html;
+
+    // 全选
+    if (lobbyMessagesSelectAll) {
+        lobbyMessagesSelectAll.checked = false;
+        lobbyMessagesSelectAll.onclick = function () {
+            lobbyMessagesList.querySelectorAll('.lobby-msg-check').forEach(cb => cb.checked = this.checked);
+        };
+    }
+
+    lobbyMessagesList.querySelectorAll('[data-del-id]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const msgId = btn.dataset.delId;
+            if (confirm('确定删除消息 #' + msgId + ' 吗？')) {
+                adminSend('admin_lobby_delete', { message_id: parseInt(msgId) });
+            }
+        });
+    });
+
+    // 分页
+    _renderLobbyPagination();
+}
+
+function loadLobbyPage(page) {
+    const nickname = lobbySearchInput ? lobbySearchInput.value.trim() : '';
+    adminSend('admin_lobby_messages', { page: page, page_size: _lobbyPageSize, nickname: nickname });
+}
+
+function _renderLobbyPagination() {
+    const totalPages = Math.ceil(_lobbyTotal / _lobbyPageSize);
+    const bar = document.getElementById('lobby-messages-pagination');
+    if (!bar) return;
+    if (totalPages <= 1) { bar.innerHTML = ''; return; }
+
+    const cur = _lobbyPage;
+    const WINDOW = 2;
+
+    let pageHtml = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + _lobbyTotal + ' 条</span>';
+
+    function pageBtn(i, isCurrent) {
+        if (isCurrent) {
+            return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + i + '</span>';
+        }
+        return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-lobby-pg="' + i + '">' + i + '</span>';
+    }
+
+    if (totalPages <= 9) {
+        // 总页数少时全部展示
+        for (let i = 1; i <= totalPages; i++) {
+            pageHtml += pageBtn(i, i === cur);
+        }
+    } else {
+        // 始终显示第一页
+        pageHtml += pageBtn(1, cur === 1);
+
+        const left = Math.max(2, cur - WINDOW);
+        const right = Math.min(totalPages - 1, cur + WINDOW);
+
+        if (left > 2) {
+            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        } else if (left === 2) {
+            pageHtml += pageBtn(2, cur === 2);
+        }
+
+        for (let i = left; i <= right; i++) {
+            if (i === 1 || i === totalPages) continue; // 跳过已处理的首页/末页
+            if (i === 2 && left <= 2) continue; // 避免重复
+            pageHtml += pageBtn(i, i === cur);
+        }
+
+        if (right < totalPages - 1) {
+            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        }
+
+        // 始终显示最后一页
+        pageHtml += pageBtn(totalPages, cur === totalPages);
+    }
+
+    bar.innerHTML = pageHtml;
+    bar.querySelectorAll('[data-lobby-pg]').forEach(el => {
+        el.addEventListener('click', () => loadLobbyPage(parseInt(el.dataset.lobbyPg)));
+    });
+}
+
 // ==================== 谁是AI 管理 ====================
 
 /**
@@ -2221,6 +2460,33 @@ function appendWhoisAISpectateMessage(msg) {
     const sender = msg.sender_name || (msg.sender_seat + '号');
     const time = msg.time || '';
 
+    // 检测是否为表情包消息
+    if (_isStickerText(msg.text)) {
+        var stickerId = _parseStickerId(msg.text);
+        if (stickerId) {
+            var url = (typeof stickerMap !== 'undefined' && stickerMap[stickerId]) ? stickerMap[stickerId].url : '';
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'chat-bubble-wrapper';
+
+            const senderEl = document.createElement('div');
+            senderEl.style.cssText = 'font-size:11px;color:#888;margin-bottom:2px;padding:0 4px;';
+            senderEl.textContent = sender + (time ? ' · ' + time : '');
+            wrapper.appendChild(senderEl);
+
+            const img = document.createElement('img');
+            img.src = url;
+            img.alt = '';
+            img.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;';
+            img.onerror = function () { this.style.display = 'none'; };
+            wrapper.appendChild(img);
+
+            chatBody.appendChild(wrapper);
+            _scrollChatToBottom(chatBody);
+            return;
+        }
+    }
+
     const wrapper = document.createElement('div');
     wrapper.className = 'chat-bubble-wrapper';
 
@@ -2238,7 +2504,7 @@ function appendWhoisAISpectateMessage(msg) {
     wrapper.appendChild(bubble);
 
     chatBody.appendChild(wrapper);
-    chatBody.scrollTop = chatBody.scrollHeight;
+    _scrollChatToBottom(chatBody);
 }
 
 /**
@@ -2254,7 +2520,7 @@ function appendWhoisAISpectateSystem(text) {
     div.style.cssText = 'text-align:center;font-size:12px;color:#888;padding:6px 0;';
     div.textContent = text;
     chatBody.appendChild(div);
-    chatBody.scrollTop = chatBody.scrollHeight;
+    _scrollChatToBottom(chatBody);
 }
 
 /**
@@ -2329,6 +2595,25 @@ function initAdminDOMRefs() {
     panelReports = document.getElementById('panel-reports');
     panelStickers = document.getElementById('panel-stickers');
     panelWhoisAI = document.getElementById('panel-WhoisAI');
+    tabLobby = document.getElementById('tab-lobby');
+    panelLobby = document.getElementById('panel-lobby');
+    btnLobbyRefresh = document.getElementById('btn-lobby-refresh');
+    btnLobbyHistory = document.getElementById('btn-lobby-history');
+    lobbySearchInput = document.getElementById('lobby-search-input');
+    lobbyPlayersList = document.getElementById('lobby-players-list');
+    lobbyMessagesList = document.getElementById('lobby-messages-list');
+    lobbyPlayersActions = document.getElementById('lobby-players-actions');
+    lobbyPlayersSelectAll = document.getElementById('lobby-players-select-all');
+    btnLobbyBatchBan = document.getElementById('btn-lobby-batch-ban');
+    lobbyMessagesActions = document.getElementById('lobby-messages-actions');
+    lobbyMessagesSelectAll = document.getElementById('lobby-messages-select-all');
+    btnLobbyBatchDelete = document.getElementById('btn-lobby-batch-delete');
+    lobbyAnnounceInput = document.getElementById('lobby-announce-input');
+    btnLobbyAnnounce = document.getElementById('btn-lobby-announce');
+    lobbyRateInput = document.getElementById('lobby-rate-input');
+    btnLobbyRateSet = document.getElementById('btn-lobby-rate-set');
+    btnLobbyRateQuery = document.getElementById('btn-lobby-rate-query');
+    lobbyRateStatus = document.getElementById('lobby-rate-status');
     WhoisAIRoomsList = document.getElementById('WhoisAI-rooms-list');
     reportsList = document.getElementById('reports-list');
     reportsPagination = document.getElementById('reports-pagination');
@@ -2435,6 +2720,9 @@ function initAdminEvents() {
     }
     if (tabStickers) {
         tabStickers.addEventListener('click', () => switchAdminTab('stickers'));
+    }
+    if (tabLobby) {
+        tabLobby.addEventListener('click', () => switchAdminTab('lobby'));
     }
 
     // 举报审核筛选按钮
@@ -2619,6 +2907,75 @@ function initAdminEvents() {
                 stickerLightbox.style.display = 'none';
             });
         }
+    }
+
+    // 聊天室管理按钮
+    if (btnLobbyRefresh) {
+        btnLobbyRefresh.addEventListener('click', () => adminSend('admin_lobby_players'));
+    }
+    if (btnLobbyHistory) {
+        btnLobbyHistory.addEventListener('click', () => loadLobbyPage(1));
+    }
+    if (lobbySearchInput) {
+        lobbySearchInput.addEventListener('input', () => loadLobbyPage(1));
+    }
+
+    // 聊天室公告
+    if (btnLobbyAnnounce && lobbyAnnounceInput) {
+        btnLobbyAnnounce.addEventListener('click', () => {
+            const text = lobbyAnnounceInput.value.trim();
+            if (!text) { showAdminToast('请输入公告内容'); return; }
+            adminSend('admin_lobby_announce', { text: text });
+            lobbyAnnounceInput.value = '';
+        });
+        lobbyAnnounceInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); btnLobbyAnnounce.click(); }
+        });
+    }
+
+    // 发言频率设置
+    if (btnLobbyRateSet && lobbyRateInput && lobbyRateStatus) {
+        btnLobbyRateSet.addEventListener('click', () => {
+            const seconds = parseInt(lobbyRateInput.value);
+            if (isNaN(seconds) || seconds < 0 || seconds > 60) {
+                showAdminToast('请输入 0~60 之间的秒数'); return;
+            }
+            adminSend('admin_lobby_rate_limit', { seconds: seconds });
+        });
+        lobbyRateInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); btnLobbyRateSet.click(); }
+        });
+    }
+    if (btnLobbyRateQuery) {
+        btnLobbyRateQuery.addEventListener('click', () => {
+            adminSend('admin_lobby_rate_limit', {});
+        });
+    }
+
+    // 批量封禁
+    if (btnLobbyBatchBan) {
+        btnLobbyBatchBan.addEventListener('click', () => {
+            const checks = lobbyPlayersList.querySelectorAll('.lobby-player-check:checked');
+            if (!checks.length) { showAdminToast('请选择要封禁的玩家'); return; }
+            const fds = Array.from(checks).map(c => parseInt(c.dataset.fd)).filter(f => f > 0);
+            showBanReasonDialog(
+                `批量封禁 ${fds.length} 名玩家？`,
+                (reason) => {
+                    adminSend('admin_lobby_batch_ban', { target_fds: fds, reason: reason });
+                }
+            );
+        });
+    }
+
+    // 批量删除
+    if (btnLobbyBatchDelete) {
+        btnLobbyBatchDelete.addEventListener('click', () => {
+            const checks = lobbyMessagesList.querySelectorAll('.lobby-msg-check:checked');
+            if (!checks.length) { showAdminToast('请选择要删除的消息'); return; }
+            const ids = Array.from(checks).map(c => parseInt(c.dataset.id)).filter(id => id > 0);
+            if (!confirm('确定删除选中的 ' + ids.length + ' 条消息吗？')) return;
+            adminSend('admin_lobby_batch_delete', { message_ids: ids });
+        });
     }
 
     // 管理员管理 - 延迟绑定（面板动态创建）

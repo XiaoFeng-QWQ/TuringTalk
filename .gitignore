@@ -2,10 +2,7 @@
 vendor/
 
 # 日志和运行时文件
-Storage/Logs/*.log
-Storage/*.pid
-Storage/*.db
-TOKENS.txt
+Storage/
 
 # 配置文件
 Config/App.php
@@ -13,6 +10,8 @@ Config/App.php
 # IDE
 .idea/
 .vscode/
+.trae/
+.workbuddy/
 *.swp
 *.swo
 

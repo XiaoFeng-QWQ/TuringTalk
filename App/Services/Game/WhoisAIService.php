@@ -127,20 +127,41 @@ class WhoisAIService
             return [];
         }
 
-        // 按加入时间排序，取前 N 人
+        // 按加入时间排序，取前 N 人作为候选
         uasort($pool, fn($a, $b) => ($a['joined_at'] ?? 0) <=> ($b['joined_at'] ?? 0));
-        $players = array_slice($pool, 0, $maxPlayers, true);
+        $candidates = array_slice($pool, 0, $maxPlayers, true);
+
+        // 二次校验：确认每个候选玩家仍在匹配中（防止竞态：玩家在 drain 快照后取消了匹配）
+        $players = [];
+        foreach ($candidates as $fd => $p) {
+            $state = $redis->hGet(RedisService::KP_WHOIS_AI_PLAYER . $fd, 'state');
+            if ($state === self::STATE_MATCHMAKING) {
+                $players[$fd] = $p;
+            } else {
+                Logger::warning('WhoisAI player excluded from drain (no longer matchmaking)', [
+                    'fd' => (int)$fd,
+                    'actual_state' => $state ?: '(none)',
+                ]);
+            }
+        }
+
+        if (count($players) < 4) {
+            Logger::warning('WhoisAI pool drain aborted (insufficient valid players)', [
+                'candidates' => count($candidates),
+                'valid' => count($players),
+            ]);
+            return [];
+        }
+
         $playerCount = count($players);
 
         // 清空匹配池中的这些玩家
-        $playerFds = [];
         foreach ($players as $fd => $p) {
             $redis->hDel(RedisService::KP_WHOIS_AI_POOL, (string)$fd);
-            $playerFds[] = $fd;
         }
 
-        // 计算 AI 数量：每3人配1个AI，至少1个
-        $aiCount = max(1, (int)floor($playerCount / 3));
+        // 计算 AI 数量：每2人配1个AI，至少1个
+        $aiCount = max(1, (int)floor($playerCount / 2));
 
         // 随机选择哪些玩家是 AI
         $fdList = array_keys($players);
@@ -432,9 +453,10 @@ class WhoisAIService
 
     /**
      * 检查胜负条件
+     * @param string $reason 'vote' 或 'disconnect'，断线时人类剩 1 人不判 AI 胜
      * @return ?string 'human' | 'ai' | null
      */
-    public function checkWin(string $roomId): ?string
+    public function checkWin(string $roomId, string $reason = 'vote'): ?string
     {
         $players = $this->getAlivePlayers($roomId);
         $aiAlive = 0;
@@ -446,7 +468,13 @@ class WhoisAIService
         }
 
         if ($aiAlive === 0) return 'human';
-        if ($humanAlive <= 1) return 'ai';
+        // 断线时：只有人类全部淘汰才判 AI 胜，剩 1 人不结束对局
+        // 投票时：人类剩 0 或 1 人判 AI 胜（因为投票可能投出最后一名人类）
+        if ($reason === 'disconnect') {
+            if ($humanAlive === 0) return 'ai';
+        } else {
+            if ($humanAlive <= 1) return 'ai';
+        }
 
         return null;
     }
@@ -478,6 +506,7 @@ class WhoisAIService
         foreach ($players as $seat => $p) {
             $list[] = [
                 'seat'     => (int)$seat,
+                'fd'       => (int)($p['fd'] ?? 0),
                 'nickname' => $p['nickname'],
                 'identity' => $p['identity'] ?? '',
                 'is_ai'    => ($p['identity'] ?? '') === self::IDENTITY_AI,
@@ -514,6 +543,16 @@ class WhoisAIService
         $redis->del(RedisService::KP_WHOIS_AI_PLAYERS . $roomId);
         $redis->del(RedisService::KP_WHOIS_AI_MSGS . $roomId);
         $redis->sRem(RedisService::KP_WHOIS_AI_ROOMS, $roomId);
+
+        // 清理该房间的举报去重记录
+        $reportedKey = RedisService::KP_WHOIS_AI_REPORTED;
+        $it = null;
+        do {
+            $result = $redis->sScan($reportedKey, $it, $roomId . ':*', 50);
+            if ($result) {
+                $redis->sRem($reportedKey, ...$result);
+            }
+        } while ($it > 0);
 
         Logger::info('WhoisAI room cleaned', ['room_id' => $roomId]);
     }

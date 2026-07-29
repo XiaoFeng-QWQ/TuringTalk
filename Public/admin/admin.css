@@ -1,8 +1,3 @@
-/* ============================================================
-   ç®¡ç†åŽå°æ ·å¼ â€”â€” Vercel é£Žæ ¼
-   ============================================================ */
-
-/* ---------- Reset & Base ---------- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -51,7 +46,7 @@ body {
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ---------- Header ---------- */
+
 header {
     display: flex;
     align-items: center;
@@ -85,7 +80,7 @@ header svg.icon {
     stroke-linejoin: round;
 }
 
-/* ---------- Buttons ---------- */
+
 .doodle-btn {
     display: inline-flex;
     align-items: center;
@@ -111,7 +106,7 @@ header svg.icon {
 .doodle-btn.success { color: var(--success); border-color: var(--success); }
 .doodle-btn.success:hover { background: var(--success-bg); }
 
-/* Icon inside button */
+
 .doodle-btn .icon {
     width: 15px; height: 15px;
     fill: none; stroke: currentColor;
@@ -119,7 +114,7 @@ header svg.icon {
     flex-shrink: 0;
 }
 
-/* Card = doodle-border */
+
 .doodle-border {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -129,7 +124,7 @@ header svg.icon {
     margin-bottom: 16px;
 }
 
-/* setting-row = card variant */
+
 .setting-row {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -151,7 +146,7 @@ header svg.icon {
 .setting-row h4 svg.icon { width: 16px; height: 16px; }
 .setting-row p { font-size: 12px; color: var(--text-muted); margin-bottom: 10px; }
 
-/* ---------- Inputs ---------- */
+
 input[type="text"],
 input[type="password"],
 input[type="search"],
@@ -173,16 +168,16 @@ input:focus, textarea:focus {
 }
 input::placeholder { color: var(--text-muted); }
 
-/* ---------- Main Layout ---------- */
+
 main { padding: 24px; max-width: 760px; margin: 0 auto; }
 
 h2 { font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
 h3 { font-size: 16px; font-weight: 600; }
 
-/* ---------- Login Prompt ---------- */
+
 #admin-login-prompt h2 { margin-bottom: 8px; }
 
-/* ---------- Login Overlay (dynamic, from admin.js) ---------- */
+
 #admin-login-overlay {
     position: fixed;
     inset: 0;
@@ -200,10 +195,10 @@ h3 { font-size: 16px; font-weight: 600; }
 #admin-login-overlay input { margin-bottom: 10px; }
 #admin-login-overlay .doodle-btn { justify-content: center; font-size: 14px; }
 
-/* Login error */
+
 [id$="-login-err"] { font-size: 12px; color: var(--danger); text-align: center; margin-top: 8px; display: none; }
 
-/* ---------- Tab Bar ---------- */
+
 .admin-tab-bar {
     display: flex;
     border: 1px solid var(--border);
@@ -228,7 +223,7 @@ h3 { font-size: 16px; font-weight: 600; }
 .admin-tab-btn:hover { color: var(--text); background: var(--bg-hover); }
 .admin-tab-btn.active { color: var(--primary); background: var(--primary-bg); font-weight: 600; }
 
-/* ---------- Sessions List ---------- */
+
 #sessions-list { max-height: 280px; overflow-y: auto; }
 
 .session-row {
@@ -268,7 +263,7 @@ h3 { font-size: 16px; font-weight: 600; }
 .spectate-btn:hover,
 .WhoisAI-spectate-btn:hover { background: var(--primary-bg) !important; }
 
-/* ---------- Reports ---------- */
+
 #reports-pagination { font-size: 12px; color: var(--text-muted); }
 
 .report-filter-btn.active {
@@ -277,13 +272,13 @@ h3 { font-size: 16px; font-weight: 600; }
     border-color: var(--primary) !important;
 }
 
-/* Report Detail Overlay */
+
 #report-detail-overlay .doodle-border {
     max-width: 600px; width: 90%; max-height: 90vh;
     overflow-y: auto; margin: 0;
 }
 
-/* ---------- Stickers ---------- */
+
 #sticker-list { max-height: 300px; overflow-y: auto; }
 
 .sticker-item {
@@ -312,7 +307,7 @@ h3 { font-size: 16px; font-weight: 600; }
 }
 .sticker-item .sticker-delete:hover { background: var(--danger); color: #fff; }
 
-/* Sticker lightbox */
+
 #sticker-lightbox {
     position: fixed; inset: 0; z-index: 10002;
     display: flex; align-items: center; justify-content: center;
@@ -325,10 +320,10 @@ h3 { font-size: 16px; font-weight: 600; }
     border-radius: var(--radius); box-shadow: var(--shadow-md);
 }
 
-/* ---------- Ban Reason Dialog ---------- */
+
 .ban-reason-overlay .doodle-border { max-width: 380px; width: 90%; margin: 0; }
 
-/* ---------- Admin / Log Tables ---------- */
+
 .admin-table-wrap, .log-table-wrap { max-height: 360px; overflow-y: auto; }
 
 .admin-table, .log-table {
@@ -370,11 +365,11 @@ h3 { font-size: 16px; font-weight: 600; }
 .log-pagination button:hover { background: var(--bg-hover); }
 .log-pagination button:disabled { opacity: .4; cursor: default; }
 
-/* Log filter buttons */
+
 .log-filter-btn { border-radius: var(--radius-sm) !important; }
 .log-filter-btn.active { background: var(--primary-bg) !important; color: var(--primary) !important; border-color: var(--primary) !important; }
 
-/* ---------- Online Status Bar ---------- */
+
 .admin-online-bar {
     display: flex; align-items: center; gap: 8px;
     padding: 10px 14px; margin-bottom: 12px;
@@ -394,10 +389,10 @@ h3 { font-size: 16px; font-weight: 600; }
 }
 .admin-online-bar .tag .op { color: var(--warning); font-weight: 500; }
 
-/* ---------- Spectate Info ---------- */
+
 #spectate-info h4 { color: #ea580c !important; }
 
-/* ---------- Exit Admin Header Button ---------- */
+
 #btn-exit-admin-header {
     color: #ef4444 !important;
     border-color: #ef4444 !important;
@@ -405,9 +400,7 @@ h3 { font-size: 16px; font-weight: 600; }
     font-size: 13px !important;
 }
 
-/* ============================================================
-   æ—è§‚èŠå¤©è§†å›¾ï¼ˆæ›¿ä»£ style.css ä¸­çš„ chat ç›¸å…³æ ·å¼ï¼‰
-   ============================================================ */
+
 #chat-page {
     display: none;
     flex-direction: column;
@@ -421,14 +414,14 @@ h3 { font-size: 16px; font-weight: 600; }
     box-shadow: var(--shadow);
 }
 
-/* notebook-container */
+
 .notebook-container {
     display: flex;
     flex-direction: column;
     height: 100%;
 }
 
-/* chat-header */
+
 .chat-header {
     display: flex;
     align-items: center;
@@ -455,7 +448,7 @@ h3 { font-size: 16px; font-weight: 600; }
 
 .chat-header .opponent-info .avatar svg { width: 22px; height: 22px; }
 
-/* timer-sketch */
+
 .timer-sketch {
     font-size: 14px;
     font-weight: 600;
@@ -467,7 +460,7 @@ h3 { font-size: 16px; font-weight: 600; }
     border: 1px solid var(--border);
 }
 
-/* chat-body */
+
 .chat-body {
     flex: 1;
     overflow-y: auto;
@@ -475,7 +468,7 @@ h3 { font-size: 16px; font-weight: 600; }
     background: var(--bg);
 }
 
-/* chat-bubble */
+
 .chat-bubble-wrapper {
     display: flex;
     flex-direction: column;
@@ -504,7 +497,7 @@ h3 { font-size: 16px; font-weight: 600; }
     border-bottom-right-radius: 4px;
 }
 
-/* sys-msg */
+
 .sys-msg {
     text-align: center;
     font-size: 12px;
@@ -512,9 +505,7 @@ h3 { font-size: 16px; font-weight: 600; }
     padding: 6px 0;
 }
 
-/* ============================================================
-   æ—è§‚æ¨ªå¹…ï¼ˆSpectate Bannerï¼‰
-   ============================================================ */
+
 #spectate-banner,
 #WhoisAI-spectate-banner {
     background: linear-gradient(135deg, #ea580c, #f97316);
@@ -600,9 +591,7 @@ h3 { font-size: 16px; font-weight: 600; }
 
 .spectate-ban-btn {border-color: #facc15 !important;}
 
-/* ============================================================
-   Toast Notificationsï¼ˆVercel é£Žæ ¼ - å³ä¸Šè§’ï¼‰
-   ============================================================ */
+
 .admin-toast-container {
     position: fixed;
     top: 68px;
@@ -656,7 +645,7 @@ h3 { font-size: 16px; font-weight: 600; }
 .admin-toast:hover .admin-toast-close { opacity: 1; }
 .admin-toast-close:hover { background: var(--bg-hover); color: var(--text); }
 
-/* è¿›åº¦æ¡ */
+
 .admin-toast-bar {
     position: absolute;
     bottom: 0; left: 0;
@@ -666,7 +655,7 @@ h3 { font-size: 16px; font-weight: 600; }
     border-radius: 0 0 var(--radius) var(--radius);
 }
 
-/* ç±»åž‹é…è‰² */
+
 .admin-toast.error { border-left: 3px solid var(--danger); }
 .admin-toast.error .admin-toast-icon { color: var(--danger); }
 .admin-toast.error .admin-toast-bar { background: var(--danger); }
@@ -679,7 +668,7 @@ h3 { font-size: 16px; font-weight: 600; }
 .admin-toast.info .admin-toast-icon { color: var(--primary); }
 .admin-toast.info .admin-toast-bar { background: var(--primary); }
 
-/* åŠ¨ç”» */
+
 @keyframes toast-in {
     from { opacity: 0; transform: translateX(100%) scale(.95); }
     to   { opacity: 1; transform: translateX(0) scale(1); }
@@ -689,13 +678,13 @@ h3 { font-size: 16px; font-weight: 600; }
     to   { opacity: 0; transform: translateX(100%) scale(.95); }
 }
 
-/* ---------- Scrollbar ---------- */
+
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #aaa; }
 
-/* ---------- Utility ---------- */
+
 .text-muted { color: var(--text-muted); }
 .text-xs { font-size: 11px; }
 .text-sm { font-size: 12px; }

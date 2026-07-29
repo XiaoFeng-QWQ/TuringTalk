@@ -21,16 +21,8 @@ class Router
         $this->routes = [
             'GET' => [
                 '/' => [GameController::class, 'index'],
-                '/script.js' => [GameController::class, 'script'],
-                '/style.css' => [GameController::class, 'style'],
-                '/favicon.svg' => [GameController::class, 'favicon'],
-                '/favicon-admin.svg' => [GameController::class, 'faviconAdmin'],
-                '/shared.js' => [GameController::class, 'shared'],
-                '/admin.js' => [GameController::class, 'adminScript'],
-                '/admin.css' => [GameController::class, 'adminStyle'],
                 '/WhoisAI' => [GameController::class, 'WhoisAIIndex'],
-                '/whoisai_style.css' => [GameController::class, 'WhoisAIStyle'],
-                '/whoisai_script.js' => [GameController::class, 'WhoisAIScript'],
+                '/lobby' => [GameController::class, 'lobbyIndex'],
                 '/api/generate-code' => [GameController::class, 'generateCode'],
                 '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
@@ -41,6 +33,11 @@ class Router
                 '/api/upload-userdata' => [GameController::class, 'uploadUserData'],
             ],
         ];
+
+        // 从数组批量注册静态资源
+        foreach (GameController::STATIC_RESOURCES as $url => $_) {
+            $this->routes['GET'][$url] = [GameController::class, 'serveStatic'];
+        }
 
         // 动态添加管理员路由
         if ($adminPath !== '/') {

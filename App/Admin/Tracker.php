@@ -46,6 +46,18 @@ class Tracker
         return isset($this->adminFds[(string)$fd]);
     }
 
+    /**
+     * 通过 IP 判断是否为管理员（跨 handler 检查用，如聊天室通过 /ws/lobby 连接的管理员）
+     */
+    public function isAdminIp(string $ip): bool
+    {
+        if ($ip === '') return false;
+        foreach ($this->adminFds as $info) {
+            if (($info['ip'] ?? '') === $ip) return true;
+        }
+        return false;
+    }
+
     public function getAdminInfo(int $fd): ?array
     {
         return $this->adminFds[(string)$fd] ?? null;

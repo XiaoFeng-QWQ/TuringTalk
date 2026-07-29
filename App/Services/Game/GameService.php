@@ -21,8 +21,7 @@ use App\Config\Config;
  */
 class GameService
 {
-    /** 在线 fd 集合（worker_num=1 下 PHP 数组即可，无需 Redis/锁） */
-    private array $onlineFds = [];
+    private array $clients = [];
 
     /** 会话级互斥锁（per-session Channel(1)） */
     private static array $sessionLocks = [];
@@ -425,23 +424,6 @@ class GameService
         if (!empty($toDelete)) {
             Logger::debug('Session locks evicted', ['count' => count($toDelete)]);
         }
-    }
-
-    // ==================== 在线状态 ====================
-
-    public function addOnline(int $fd): void
-    {
-        $this->onlineFds[$fd] = true;
-    }
-
-    public function removeOnline(int $fd): void
-    {
-        unset($this->onlineFds[$fd]);
-    }
-
-    public function getOnlineCount(): int
-    {
-        return count($this->onlineFds);
     }
 
     // ==================== 查询 ====================

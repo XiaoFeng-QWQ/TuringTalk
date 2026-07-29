@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>?! 谁是AI !?</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="theme-color" content="#2c3e50">
     <link href="https://fonts.googleapis.com/css2?family=Pangolin&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css?v=">
-    <link rel="stylesheet" href="/admin.css?v=">
-    <link rel="stylesheet" href="/whoisai_style.css?v=">
-    <script src="shared.js?v="></script>
+    <link rel="stylesheet" href="/whoisai/whoisai.css?v=">
+    <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+    <script src="/shared.js?v="></script>
 </head>
 <body>
 
@@ -39,18 +39,11 @@
                     <path d="M18.36 5.64l1.42-1.42" />
                 </svg>
             </button>
-            <button class="doodle-btn" id="btn-admin-panel"
-                style="display:none;border-color:var(--ink-blue);color:var(--ink-blue);padding:8px 8px;" title="管理">
-                <svg class="icon" viewBox="0 0 24 24">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-            </button>
         </div>
     </header>
 
     <main>
-        <!-- ==================== 匹配面板 ==================== -->
+        
         <section id="whoisai-match-panel">
             <div class="sticky-hero" style="max-width:440px;">
                 <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 02</div>
@@ -59,7 +52,7 @@
             </div>
 
             <div class="id-card doodle-border whoisai-match-card">
-                <!-- 有身份状态 -->
+                
                 <div id="whoisai-has-identity" style="display:none;text-align:center;width:100%;">
                     <svg class="icon" viewBox="0 0 24 24" style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
                         <circle cx="12" cy="8" r="4"/>
@@ -76,7 +69,7 @@
                     </button>
                 </div>
 
-                <!-- 无身份状态 -->
+                
                 <div id="whoisai-no-identity" style="display:none;text-align:center;width:100%;">
                     <div style="font-size:48px;margin-bottom:8px;">?</div>
                     <h2 style="font-size:18px;margin:0 0 4px;color:var(--text-secondary);">您还没有身份记录</h2>
@@ -100,7 +93,7 @@
                     </button>
                 </div>
 
-                <!-- 填写昵称状态 -->
+                
                 <div id="whoisai-fill-name" style="display:none;text-align:center;width:100%;">
                     <svg class="icon" viewBox="0 0 24 24" style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
                         <circle cx="12" cy="8" r="4"/>
@@ -119,11 +112,11 @@
                 </div>
 
                 <div id="whoisai-match-status" class="whoisai-match-status"></div>
+                <div id="whoisai-match-tips" class="whoisai-match-tips"></div>
                 <div id="whoisai-pool-list" class="whoisai-pool-list"></div>
             </div>
         </section>
 
-        <!-- ==================== 对局面板 ==================== -->
         <section id="whoisai-game-panel" class="whoisai-game-panel" style="display:none;">
             <div class="whoisai-notebook">
                 <div id="whoisai-game-header" class="whoisai-game-header">
@@ -193,12 +186,16 @@
         </section>
     </main>
 
-    <!-- 表情选择器（复用常规模式样式） -->
+    
     <div id="whoisai-sticker-picker" class="sticker-picker" style="display:none;">
         <div class="sticker-picker-header">
             <span>选择表情</span>
             <button class="doodle-btn" id="whoisai-btn-close-sticker-picker"
                 style="padding:2px 8px;font-size:14px;">&times;</button>
+        </div>
+        <div class="sticker-picker-tabs">
+            <span class="sticker-picker-tab active" data-tab="all">全部</span>
+            <span class="sticker-picker-tab" data-tab="favs">收藏</span>
         </div>
         <div class="sticker-picker-body" id="whoisai-sticker-picker-body">
             <div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情</div>
@@ -212,6 +209,6 @@
             style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
     </div>
 
-    <script src="/whoisai_script.js?v="></script>
+    <script src="/whoisai/whoisai.js?v="></script>
 </body>
 </html>

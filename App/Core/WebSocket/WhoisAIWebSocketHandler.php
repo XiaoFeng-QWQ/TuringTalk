@@ -6,7 +6,10 @@ use App\Core\Sanitizer;
 use App\Services\Game\WhoisAIService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
-use App\Admin\Tracker;
+use App\Services\Infrastructure\StickerService;
+use App\Services\Infrastructure\AsyncDbWriter;
+use App\Services\Repository\BanRepository;
+use App\Services\Repository\ReportRepository;
 use Swoole\WebSocket\Server;
 use Swoole\Timer;
 use Swoole\WebSocket\Frame;
@@ -86,13 +89,16 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         // 对局中：标记死亡
         $seat = $pr['seat'];
         if ($seat > 0) {
-            $this->WhoisAIService->eliminatePlayer($roomId, $seat);
-            $this->broadcastToRoom($server, $roomId, [
-                'type' => 'WhoisAI_system',
-                'text' => "玩家{$seat} 断线离开，已被淘汰",
-            ]);
-            $this->updatePlayerList($server, $roomId);
-            $this->checkAndEndGame($server, $roomId, 'disconnect');
+            $alreadyEliminated = empty($pr['alive']);
+            if (!$alreadyEliminated) {
+                $this->WhoisAIService->eliminatePlayer($roomId, $seat);
+                $this->broadcastToRoom($server, $roomId, [
+                    'type' => 'WhoisAI_system',
+                    'text' => "玩家{$seat} 断线离开，已被淘汰",
+                ]);
+                $this->updatePlayerList($server, $roomId);
+                $this->checkAndEndGame($server, $roomId, 'disconnect');
+            }
         }
     }
 
@@ -112,6 +118,10 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                     $this->sendToPlayer($server, $fd, ['type' => 'pong']);
                     return;
 
+                case 'get_stickers':
+                    $this->handleGetStickers($server, $fd);
+                    break;
+
                 case 'WhoisAI_match':
                     $this->handleMatch($server, $fd, $data);
                     break;
@@ -125,11 +135,17 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                     break;
 
                 case 'WhoisAI_chat':
+                    if ($this->isPlayerEliminated($fd)) break;
                     $this->handleChat($server, $fd, $data);
                     break;
 
                 case 'WhoisAI_vote':
+                    if ($this->isPlayerEliminated($fd)) break;
                     $this->handleVote($server, $fd, $data);
+                    break;
+
+                case 'WhoisAI_report':
+                    $this->handleReport($server, $fd, $data);
                     break;
 
                 default:
@@ -160,6 +176,20 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         $nickname = $valid['nickname'];
         $recoveryCode = $valid['recovery_code'];
 
+        // 封禁检查（IP + 指纹）
+        $fingerprint = Sanitizer::identifier($data['fp'] ?? '');
+        $this->setClientFingerprint($fd, $fingerprint);
+        $clientIp = $this->clientInfo[(string)$fd]['ip'] ?? '';
+        if (BanRepository::isBanned($clientIp, $fingerprint)) {
+            $banReason = BanRepository::getBanReason($clientIp, $fingerprint);
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'WhoisAI_error',
+                'text' => '您已被管理员封禁' . ($banReason ? '，原因：' . $banReason : ''),
+            ]);
+            $server->close($fd);
+            return;
+        }
+
         // 检查匹配池中是否已有同名玩家（防止绕过数据库检查，WhoisAI 特有）
         $pool = $this->WhoisAIService->getPool();
         foreach ($pool as $poolFd => $poolPlayer) {
@@ -170,6 +200,11 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         }
 
         $result = $this->WhoisAIService->joinPool($fd, $nickname);
+
+        // 记录实时昵称，供管理员旁观时获取最新名
+        $this->clientInfo[(string)$fd] = array_merge($this->clientInfo[(string)$fd] ?? [], [
+            'nickname' => $nickname,
+        ]);
 
         if ($result['already_in_game']) {
             $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '你已在其他对局中']);
@@ -339,7 +374,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         if (!$room) return;
 
         $round = (int)$room['round'];
-        $discussionSec = 300; // 5 分钟
+        $discussionSec = 180; // 3 分钟
 
         $players = $this->WhoisAIService->getRoomPlayers($roomId);
 
@@ -372,7 +407,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'room_id' => $roomId,
             'round'   => $round,
             'duration' => $discussionSec,
-            'players'  => WhoisAIService::getFullPlayers($players),
+            'players'  => WhoisAIService::getFullPlayers($this->resolvePlayerNicknames($server, $players)),
         ]);
 
         // 讨论倒计时
@@ -442,12 +477,13 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'text' => "投票开始，{$voteSec} 秒内投票选出你认为的 AI，不投视为弃权",
         ]);
 
+        $votingPlayers = $this->WhoisAIService->getRoomPlayers($roomId);
         $this->sendToSpectators($server, $roomId, [
             'type'    => 'WhoisAI_phase_voting',
             'room_id' => $roomId,
             'round'   => $round,
             'duration' => $voteSec,
-            'players'  => WhoisAIService::getFullPlayers($this->WhoisAIService->getRoomPlayers($roomId)),
+            'players'  => WhoisAIService::getFullPlayers($this->resolvePlayerNicknames($server, $votingPlayers)),
         ]);
 
         // 投票倒计时
@@ -493,15 +529,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         ]);
 
         // 全部存活玩家都投了 → 提前结算
-        $humanAlive = array_filter($alivePlayers, fn($p) => $p['fd'] > 0);
-        $humanVoted = 0;
-        foreach ($votes as $voterSeat => $target) {
-            if (isset($alivePlayers[(int)$voterSeat]) && $alivePlayers[(int)$voterSeat]['fd'] > 0) {
-                $humanVoted++;
-            }
-        }
-
-        if ($humanVoted >= count($humanAlive)) {
+        if ($votedCount >= $aliveCount) {
             $this->clearRoomTimer($roomId, 'voting');
             $this->resolveVotes($server, $roomId);
         }
@@ -531,7 +559,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                 'round'   => $round,
                 'result'  => 'tie',
                 'text'    => '投票平票，无人淘汰',
-                'players' => WhoisAIService::getFullPlayers($fullPlayers),
+                'players' => WhoisAIService::getFullPlayers($this->resolvePlayerNicknames($server, $fullPlayers)),
             ]);
         } else {
             $identity = $this->WhoisAIService->getPlayerIdentity($roomId, $eliminated);
@@ -554,7 +582,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                 'eliminated_seat' => $eliminated,
                 'identity'        => $identity,
                 'text'            => "玩家{$eliminated} 被投票淘汰，真实身份是 {$label}！",
-                'players'         => WhoisAIService::getFullPlayers($this->WhoisAIService->getRoomPlayers($roomId)),
+                'players'         => WhoisAIService::getFullPlayers($this->resolvePlayerNicknames($server, $this->WhoisAIService->getRoomPlayers($roomId))),
             ]);
         }
 
@@ -572,7 +600,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
 
     private function checkAndEndGame(Server $server, string $roomId, string $reason = 'vote'): bool
     {
-        $winner = $this->WhoisAIService->checkWin($roomId);
+        $winner = $this->WhoisAIService->checkWin($roomId, $reason);
         if (!$winner) return false;
 
         $this->WhoisAIService->setRoomState($roomId, WhoisAIService::STATE_GAME_OVER);
@@ -589,23 +617,34 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             $winText = '人类仅剩一人，AI 胜利！';
         }
 
+        // 用实时昵称覆盖可能冻结的旧昵称
+        $resolvedPlayers = $this->resolvePlayerNicknames($server, $players);
+
         // 揭示所有人身份
         foreach ($players as $p) {
             $fd = (int)$p['fd'];
             if ($fd > 0 && $server->isEstablished($fd)) {
                 // 对局结束后自动为无恢复码的玩家生成恢复码
-                $playerCode = $this->getOrCreatePlayerCode($fd, $p['name'] ?? $p['nickname'] ?? '');
+                $rp = $resolvedPlayers[$p['seat']] ?? $p;
+                $playerCode = $this->getOrCreatePlayerCode($fd, $rp['name'] ?? $rp['nickname'] ?? '');
                 $this->sendToPlayer($server, $fd, [
                     'type'          => 'WhoisAI_game_over',
                     'room_id'       => $roomId,
                     'winner'        => $winner,
                     'text'          => $winText,
                     'reason'        => $reason,
-                    'players'       => WhoisAIService::getFullPlayers($players),
+                    'players'       => WhoisAIService::getFullPlayers($resolvedPlayers),
                     'my_seat'       => $p['seat'],
                     'recovery_code' => $playerCode,
                     'messages'      => $messages,
                 ]);
+
+                // 异步写入战绩（WhoisAI 所有玩家都是真人）
+                if ($playerCode) {
+                    $identity = $p['identity'] ?? '';
+                    $win = ($identity === WhoisAIService::IDENTITY_HUMAN) ? ($winner === 'human') : ($winner === 'ai');
+                    AsyncDbWriter::pushWhoisAIStats($playerCode, $win);
+                }
             }
         }
 
@@ -622,7 +661,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'winner'  => $winner,
             'text'    => $winText,
             'reason'  => $reason,
-            'players' => WhoisAIService::getFullPlayers($players),
+            'players' => WhoisAIService::getFullPlayers($resolvedPlayers),
             'messages' => $messages,
         ]);
 
@@ -647,7 +686,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         $players = $this->WhoisAIService->getRoomPlayers($roomId);
         foreach ($players as $p) {
             $fd = (int)$p['fd'];
-            if ($fd > 0 && !empty($p['alive']) && $server->isEstablished($fd)) {
+            if ($fd > 0 && $server->isEstablished($fd)) {
                 $this->sendToPlayer($server, $fd, $data);
             }
         }
@@ -661,9 +700,10 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'type'    => 'WhoisAI_player_list',
             'players' => WhoisAIService::getAnonymousPlayers($players),
         ]);
+        $resolved = $this->resolvePlayerNicknames($server, $players);
         $this->sendToSpectators($server, $roomId, [
             'type'    => 'WhoisAI_player_list',
-            'players' => WhoisAIService::getFullPlayers($players),
+            'players' => WhoisAIService::getFullPlayers($resolved),
         ]);
     }
 
@@ -693,6 +733,137 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
     public function isPlayerInGame(int $fd): bool
     {
         return $this->WhoisAIService->getPlayerRoom($fd) !== null;
+    }
+
+    private function isPlayerEliminated(int $fd): bool
+    {
+        $pr = $this->WhoisAIService->getPlayerRoom($fd);
+        return $pr !== null && empty($pr['alive']);
+    }
+
+    /**
+     * 举报消息
+     */
+    private function handleReport(Server $server, int $fd, array $data): void
+    {
+        $pr = $this->WhoisAIService->getPlayerRoom($fd);
+        if (!$pr) {
+            $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '您不在任何房间中']);
+            return;
+        }
+
+        $roomId = $pr['room_id'];
+        $room = $this->WhoisAIService->getRoom($roomId);
+        if (!$room) {
+            $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '房间不存在']);
+            return;
+        }
+
+        $reporterInfo = $this->clientInfo[(string)$fd] ?? [];
+        $reporterName = Sanitizer::nickname($reporterInfo['nickname'] ?? '') ?: ('玩家' . $pr['seat']);
+        $targetName = Sanitizer::text($data['target_name'] ?? '', 50) ?: '玩家?';
+        $messageText = Sanitizer::text($data['message_text'] ?? '', 500);
+        $reason = Sanitizer::text($data['reason'] ?? '', 255);
+
+        // 防止重复举报同一房间（按 reporter IP + roomId 去重）
+        $redis = RedisService::connect();
+        $dedupKey = $roomId . ':' . $fd;
+        if ($redis->sIsMember(RedisService::KP_WHOIS_AI_REPORTED, $dedupKey)) {
+            $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '您已举报过该房间的消息']);
+            return;
+        }
+
+        // 查找被举报玩家的 info
+        $players = $this->WhoisAIService->getRoomPlayers($roomId);
+        $targetFd = 0;
+        $targetIp = '';
+        $targetFp = '';
+        foreach ($players as $p) {
+            $pName = $p['nickname'] ?? ('玩家' . $p['seat']);
+            if ($pName === $targetName) {
+                $targetFd = (int)($p['fd'] ?? 0);
+                if ($targetFd > 0) {
+                    $tInfo = $this->clientInfo[(string)$targetFd] ?? [];
+                    $targetIp = $tInfo['ip'] ?? '';
+                    $targetFp = $tInfo['fingerprint'] ?? '';
+                }
+                break;
+            }
+        }
+
+        $reporterIp = $reporterInfo['ip'] ?? '';
+        $reporterFp = $reporterInfo['fingerprint'] ?? '';
+
+        $result = ReportRepository::report(
+            'whoisai:' . $roomId,
+            $fd,
+            $reporterIp,
+            $reporterFp,
+            $targetFd,
+            $targetIp,
+            $targetFp,
+            $reason . ($messageText ? ' | 内容: ' . $messageText : ''),
+            $reporterName,
+            $targetName
+        );
+
+        if ($result['success']) {
+            $redis->sAdd(RedisService::KP_WHOIS_AI_REPORTED, $dedupKey);
+            $this->sendToPlayer($server, $fd, [
+                'type'    => 'WhoisAI_report_ok',
+                'message' => '举报已提交，管理员将尽快处理',
+            ]);
+        } else {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'WhoisAI_error',
+                'text' => $result['message'] ?? '举报提交失败',
+            ]);
+        }
+
+        Logger::info('WhoisAI message reported', [
+            'room_id'  => $roomId,
+            'reporter' => $reporterName,
+            'target'   => $targetName,
+            'reason'   => $reason,
+        ]);
+    }
+
+    private function handleGetStickers(Server $server, int $fd): void
+    {
+        $stickers = StickerService::list();
+        $result = [];
+        foreach ($stickers as $s) {
+            $result[] = [
+                'id'   => $s['id'],
+                'name' => $s['name'] ?? '',
+                'url'  => $s['url'] ?? '',
+            ];
+        }
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'stickers_list',
+            'stickers' => $result,
+        ]);
+    }
+
+    /**
+     * 用 clientInfo 中的实时昵称覆盖 Redis 中冻结的旧昵称
+     * （解决玩家改名后管理员旁观仍显示旧名的问题）
+     */
+    private function resolvePlayerNicknames(Server $server, array $players): array
+    {
+        $resolved = [];
+        foreach ($players as $seat => $p) {
+            $fd = (int)($p['fd'] ?? 0);
+            $nickname = $p['nickname'];
+            if ($fd > 0 && $server->isEstablished($fd)) {
+                $info = $this->clientInfo[(string)$fd] ?? null;
+                if ($info && !empty($info['nickname'])) {
+                    $nickname = $info['nickname'];
+                }
+            }
+            $resolved[$seat] = array_merge($p, ['nickname' => $nickname]);
+        }
+        return $resolved;
     }
 
 }

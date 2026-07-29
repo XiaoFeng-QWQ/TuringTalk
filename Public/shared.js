@@ -177,6 +177,26 @@ function setUserNickname(name) { const d = getUserdata(); d.nickname = name; sav
 function getUserRecoveryCode() { return getUserdata().recovery_code || ''; }
 function setUserRecoveryCode(code) { const d = getUserdata(); d.recovery_code = code; saveUserdata(d); }
 
+function getStickerFavorites() {
+    return getUserdata().stickerFavorites || [];
+}
+function setStickerFavorites(ids) {
+    const d = getUserdata();
+    d.stickerFavorites = ids;
+    saveUserdata(d);
+}
+function toggleStickerFavorite(id) {
+    const favs = getStickerFavorites();
+    const idx = favs.indexOf(id);
+    if (idx === -1) {
+        favs.push(id);
+    } else {
+        favs.splice(idx, 1);
+    }
+    setStickerFavorites(favs);
+    return idx === -1;
+}
+
 // ---- Sticker 跨页面缓存（供 whoisai 等子页面复用 stickerMap） ----
 var STICKER_CACHE_KEY = 'sticker_cache';
 
@@ -193,6 +213,137 @@ function loadStickerCache() {
     } catch (_) { return {}; }
 }
 
+function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
+    var favs = getStickerFavorites();
+    var activeTab = bodyEl.dataset.tab || 'all';
+    var ids = Object.keys(stickerMap);
+
+    if (activeTab === 'favs') {
+        ids = ids.filter(function (id) { return favs.indexOf(id) !== -1; });
+    }
+
+    bodyEl.innerHTML = '';
+    if (ids.length === 0) {
+        bodyEl.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:13px;">' +
+            (activeTab === 'favs' ? '暂无收藏表情' : '暂无可用表情') + '</div>';
+        return;
+    }
+
+    ids.forEach(function (id) {
+        var s = stickerMap[id];
+        var item = document.createElement('div');
+        item.className = 'sticker-picker-item';
+        if (favs.indexOf(id) !== -1) item.classList.add('favorited');
+        item.title = s.name;
+        item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
+
+        item.addEventListener('click', function () {
+            onClickSticker(id);
+        });
+
+        item.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            var added = toggleStickerFavorite(id);
+            if (added) {
+                item.classList.add('favorited');
+            } else {
+                item.classList.remove('favorited');
+                if (activeTab === 'favs') item.style.display = 'none';
+            }
+        });
+
+        var pressTimer = null;
+        item.addEventListener('touchstart', function (e) {
+            pressTimer = setTimeout(function () {
+                pressTimer = null;
+                e.preventDefault();
+                var added = toggleStickerFavorite(id);
+                if (added) {
+                    item.classList.add('favorited');
+                } else {
+                    item.classList.remove('favorited');
+                    if (activeTab === 'favs') item.style.display = 'none';
+                }
+            }, 600);
+        }, { passive: true });
+        item.addEventListener('touchend', function () {
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        });
+        item.addEventListener('touchmove', function () {
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        });
+
+        bodyEl.appendChild(item);
+    });
+}
+
+// 表情面板 tab 切换（由各页面绑定）
+function bindStickerPickerTabs(pickerId, renderFn) {
+    var picker = document.getElementById(pickerId);
+    if (!picker) return;
+    var tabs = picker.querySelectorAll('.sticker-picker-tab');
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            var body = picker.querySelector('.sticker-picker-body');
+            tabs.forEach(function (t) { t.classList.remove('active'); });
+            this.classList.add('active');
+            body.dataset.tab = this.dataset.tab;
+            if (renderFn) renderFn();
+        });
+    });
+}
+
 function escapeHtmlAttr(str) {
     return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---- 浏览器指纹 ----
+//
+// 使用 FingerprintJS v3 生成稳定指纹，旧算法作为回退
+//
+
+// 回退算法（FingerprintJS 不可用时使用）
+function generateFingerprint() {
+    var data = [
+        navigator.userAgent || '',
+        navigator.language || '',
+        screen.colorDepth || '',
+        screen.width || '',
+        screen.height || '',
+        new Date().getTimezoneOffset(),
+        navigator.hardwareConcurrency || 0,
+        navigator.deviceMemory || 0,
+    ].join('|');
+    var hash = 0;
+    for (var i = 0; i < data.length; i++) {
+        var chr = data.charCodeAt(i);
+        hash = ((hash << 5) - hash) + chr;
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+}
+
+var _fingerprint = generateFingerprint(); // 先用回退值，FingerprintJS 完成后会更新
+
+// 异步初始化 FingerprintJS
+(function initFingerprintJS() {
+    if (typeof FingerprintJS === 'undefined') return;
+
+    FingerprintJS.load()
+        .then(function (fp) { return fp.get(); })
+        .then(function (result) {
+            if (result && result.visitorId) {
+                _fingerprint = result.visitorId;
+                if (typeof window.onFingerprintReady === 'function') {
+                    window.onFingerprintReady(_fingerprint);
+                }
+            }
+        })
+        .catch(function () {
+            // FingerprintJS 失败，保持回退值
+        });
+})();
+
+function getFingerprint() {
+    return _fingerprint;
 }

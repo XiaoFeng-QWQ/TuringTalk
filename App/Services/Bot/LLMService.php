@@ -4,6 +4,8 @@ namespace App\Services\Bot;
 
 use App\Services\Infrastructure\Logger;
 use App\Config\Config;
+use Swoole\Coroutine\Http\Client;
+use Swoole\Coroutine;
 
 /**
  * 通用 LLM 服务 —— OpenAI 兼容 HTTP API (cURL)
@@ -104,7 +106,13 @@ class LLMService
         $model   = Config::get('LLM.Model', 'gpt-4o-mini');
         $timeout = Config::get('LLM.Timeout', 15);
 
-        $url  = $apiBase . '/chat/completions';
+        // 解析 API Base URL
+        $urlParts = parse_url($apiBase);
+        $host = $urlParts['host'] ?? '';
+        $port = $urlParts['port'] ?? ($urlParts['scheme'] === 'https' ? 443 : 80);
+        $ssl = ($urlParts['scheme'] ?? '') === 'https';
+        $path = ($urlParts['path'] ?? '') . '/chat/completions';
+
         $body = [
             'model'       => $model,
             'messages'    => $messages,
@@ -115,31 +123,46 @@ class LLMService
 
         $lastErr = null;
         for ($attempt = 0; $attempt < self::MAX_RETRIES; $attempt++) {
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => $json,
-                CURLOPT_HTTPHEADER     => [
-                    'Content-Type: application/json',
-                    'Authorization: Bearer ' . $apiKey,
-                ],
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT        => $timeout,
-                CURLOPT_CONNECTTIMEOUT => max(3, $timeout),
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => 0,
-                CURLOPT_SSL_VERIFYSTATUS => false,
-                CURLOPT_CAINFO         => $this->getCaBundlePath(),
+            // 创建客户端
+            $client = new Client($host, $port, $ssl);
+            $client->set([
+                'timeout' => $timeout,
+                'ssl_verify_peer' => false,
+                'ssl_allow_self_signed' => true,
+                'connect_timeout' => 5, // 连接超时固定为5秒
             ]);
 
-            $responseBody = curl_exec($ch);
-            $errNo        = curl_errno($ch);
-            $errMsg       = curl_error($ch);
-            $statusCode   = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+            // 设置请求头
+            $client->setHeaders([
+                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $apiKey,
+            ]);
+
+            // 发送 POST 请求
+            $client->post($path, $json);
+
+            $statusCode = $client->statusCode;
+            $responseBody = $client->body;
+            $errCode = $client->errCode;
+            $errMsg = $client->errMsg;
+
+            // 关闭客户端
+            $client->close();
+
+            // 检查网络/超时错误
+            if ($errCode !== 0) {
+                $lastErr = "Swoole errCode={$errCode}: {$errMsg}";
+                $wait = 1.5 * ($attempt + 1);
+                Logger::warning("LLM: 网络错误，{$wait}s 后重试({$attempt}+1/" . self::MAX_RETRIES . ")", [
+                    'errCode' => $errCode,
+                    'errMsg' => $errMsg,
+                ]);
+                Coroutine::sleep($wait); // 非阻塞等待
+                continue;
+            }
 
             // 成功
-            if ($errNo === 0 && $statusCode === 200) {
+            if ($statusCode === 200) {
                 $data = json_decode((string)$responseBody, true);
                 if (!is_array($data)) {
                     Logger::error('LLM: invalid JSON response');
@@ -159,18 +182,7 @@ class LLMService
                 return $content;
             }
 
-            // 网络/超时错误
-            if ($errNo !== 0) {
-                $lastErr = "cURL errNo={$errNo}: {$errMsg}";
-                $wait = 1.5 * ($attempt + 1);
-                Logger::warning("LLM: 网络错误，{$wait}s 后重试({$attempt}+1/" . self::MAX_RETRIES . ")", [
-                    'errNo' => $errNo, 'errMsg' => $errMsg,
-                ]);
-                usleep((int)($wait * 1000000));
-                continue;
-            }
-
-            // HTTP 错误
+            // HTTP 错误处理
             // 401/403 不可重试
             if ($statusCode === 401 || $statusCode === 403) {
                 Logger::error("LLM: HTTP {$statusCode}（API Key 无效/无权限），停止重试", [
@@ -181,22 +193,22 @@ class LLMService
 
             // 400/429/5xx：可重试
             if ($statusCode === 400 && $attempt < self::MAX_RETRIES - 1) {
-                // 400 可能是临时错误，尝试用不同 key
                 Logger::warning("LLM: HTTP 400，尝试更换 API Key 重试", [
                     'body' => substr((string)$responseBody, 0, 200),
                 ]);
                 $apiKey = $this->getApiKey(); // 重新随机取 key
                 $lastErr = "HTTP {$statusCode}";
-                usleep(500000); // 0.5s 后再试
+                Coroutine::sleep(0.5); // 非阻塞等待 0.5s
                 continue;
             }
 
+            // 其他可重试的 HTTP 错误
             $wait = 1.5 * ($attempt + 1);
             Logger::warning("LLM: HTTP {$statusCode}，{$wait}s 后重试({$attempt}+1/" . self::MAX_RETRIES . ")", [
                 'body' => substr((string)$responseBody, 0, 200),
             ]);
             $lastErr = "HTTP {$statusCode}";
-            usleep((int)($wait * 1000000));
+            Coroutine::sleep($wait); // 非阻塞等待
         }
 
         Logger::error('LLM: 多次重试后仍然失败', ['lastErr' => $lastErr]);
@@ -237,14 +249,5 @@ class LLMService
             self::$tokensFile = $candidate !== false ? $candidate : null;
         }
         return self::$tokensFile;
-    }
-
-    /**
-     * 获取 CA Bundle 路径（Windows 下 SSL 证书验证需要）
-     */
-    private static function getCaBundlePath(): string
-    {
-        $candidate = realpath(__DIR__ . '/../../../Storage/cacert.pem');
-        return $candidate !== false ? $candidate : '';
     }
 }

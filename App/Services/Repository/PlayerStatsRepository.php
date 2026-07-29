@@ -153,9 +153,12 @@ class PlayerStatsRepository
             fp VARCHAR(64) NOT NULL DEFAULT "",
             turing_test TEXT,
             WhoisAI TEXT,
+            sticker_favorites TEXT,
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+        try { $pdo->exec('ALTER TABLE player_data ADD COLUMN sticker_favorites TEXT'); } catch (\Throwable $e) {}
 
         // 索引
         try { $pdo->exec('CREATE UNIQUE INDEX idx_player_data_code ON player_data(code)'); } catch (\Throwable $e) {}
@@ -272,12 +275,13 @@ class PlayerStatsRepository
 
             $pdo = Database::connect();
             $stmt = $pdo->prepare(
-                'INSERT INTO player_data (id, code, nickname, discriminator, ip, fp, turing_test, created_at, last_played_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO player_data (id, code, nickname, discriminator, ip, fp, turing_test, sticker_favorites, created_at, last_played_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $id, $code, $nickname, $discriminator, $ip, $fp,
                 serialize($serverStats),
+                json_encode($localStats['stickerFavorites'] ?? [], JSON_UNESCAPED_UNICODE),
                 $now, $now,
             ]);
 
@@ -293,8 +297,8 @@ class PlayerStatsRepository
             self::saveGameStats($code, 'turing_test', $merged);
 
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE code = ?');
-            $stmt->execute([time(), $code]);
+            $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ?, sticker_favorites = ? WHERE code = ?');
+            $stmt->execute([time(), json_encode($localStats['stickerFavorites'] ?? [], JSON_UNESCAPED_UNICODE), $code]);
 
             Logger::info('UserData synced (existing player)', ['code' => $code]);
         }

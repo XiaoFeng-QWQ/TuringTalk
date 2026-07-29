@@ -60,7 +60,7 @@ class ReportHandler
 
         ReportRepository::markReviewed($reportId);
 
-        $this->game->sendToPlayer($server, $fd, ['type' => 'admin_mark_reviewed', 'report_id' => $reportId]);
+        $this->game->sendToPlayer($server, $fd, ['type' => 'admin_mark_reviewed_result', 'report_id' => $reportId, 'message' => '已标记为已审核']);
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);

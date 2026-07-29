@@ -22,10 +22,14 @@ use App\Config\Config;
  */
 class MatchService
 {
+    private const RECENT_COOLDOWN = 120; // 近期对手冷却时间（秒）
+
     private GameService $gameService;
     private BotService $botService;
     private Channel $lockCh;
     private ?Server $server = null;
+    /** @var array<int, array<int, int>> fd => [opponent_fd => timestamp] */
+    private array $recentOpponentFds = [];
 
     public function __construct(GameService $gameService, BotService $botService)
     {
@@ -86,29 +90,45 @@ class MatchService
         }
 
         try {
-            $opponent = $this->dequeueFirst($redis);
-            $opponentFd = $opponent !== null ? (int)$opponent['fd'] : 0;
+            $opponent = null;
+            $opponentFd = 0;
+            $queueLen = (int)$redis->lLen(RedisService::KP_MATCH_Q);
+            $maxAttempts = min($queueLen, 20);
 
-            // 防止自我匹配
-            if ($opponentFd > 0 && $opponentFd === $fd) {
-                Logger::warning('Match: self-match detected, skipping', ['fd' => $fd]);
-                $this->pushQueue($redis, $opponentFd, $opponent['nickname'], $opponent['duration']);
-                $opponent = null;
-                $opponentFd = 0;
-            }
+            for ($i = 0; $i < $maxAttempts; $i++) {
+                $candidate = $this->dequeueRandom($redis);
+                if ($candidate === null) break;
 
-            // 校验对手 FD 是否存活（防止匹配到已断开的连接）
-            if ($opponentFd > 0 && $this->server !== null && !$this->server->isEstablished($opponentFd)) {
-                Logger::warning('Match: opponent fd is dead, skipping', [
-                    'fd' => $fd,
-                    'opponent_fd' => $opponentFd,
-                ]);
-                $this->removeFromQueue($redis, $opponentFd);
-                $opponent = null;
-                $opponentFd = 0;
+                $candidateFd = (int)$candidate['fd'];
+
+                // 防止自我匹配
+                if ($candidateFd === $fd) {
+                    $this->pushQueue($redis, $candidateFd, $candidate['nickname'], $candidate['duration']);
+                    continue;
+                }
+
+                // 校验对手 FD 是否存活
+                if ($this->server !== null && !$this->server->isEstablished($candidateFd)) {
+                    Logger::warning('Match: opponent fd is dead, skipping', ['fd' => $fd, 'opponent_fd' => $candidateFd]);
+                    $this->removeFromQueue($redis, $candidateFd);
+                    $this->cancelTimeout($candidateFd);
+                    continue;
+                }
+
+                // 跳过近期对手（防止反复匹配同一人）
+                if ($this->isRecentOpponent($fd, $candidateFd)) {
+                    Logger::info('Match: skipping recent opponent', ['fd' => $fd, 'opponent_fd' => $candidateFd]);
+                    $this->pushQueue($redis, $candidateFd, $candidate['nickname'], $candidate['duration']);
+                    continue;
+                }
+
+                $opponent = $candidate;
+                $opponentFd = $candidateFd;
+                break;
             }
 
             if ($opponent !== null) {
+                $this->recordMatch($fd, $opponentFd);
                 $session = $this->gameService->createSession(
                     $fd, $nickname,
                     $opponentFd, $opponent['nickname'],
@@ -189,9 +209,30 @@ class MatchService
     {
         $redis = RedisService::connect();
         $this->removeFromQueue($redis, $fd);
+        $this->cancelTimeout($fd);
+        unset($this->recentOpponentFds[$fd]);
     }
 
     // ==================== 私有方法 ====================
+
+    /**
+     * 检查 opponentFd 是否是 fd 的近期对手
+     */
+    private function isRecentOpponent(int $fd, int $opponentFd): bool
+    {
+        $record = $this->recentOpponentFds[$fd][$opponentFd] ?? 0;
+        return (time() - $record) < self::RECENT_COOLDOWN;
+    }
+
+    /**
+     * 记录双方互为近期对手
+     */
+    private function recordMatch(int $fd1, int $fd2): void
+    {
+        $now = time();
+        $this->recentOpponentFds[$fd1][$fd2] = $now;
+        $this->recentOpponentFds[$fd2][$fd1] = $now;
+    }
 
     private function pushQueue(\Redis $redis, int $fd, string $nickname, int $duration): void
     {
@@ -202,10 +243,18 @@ class MatchService
         ], JSON_UNESCAPED_UNICODE));
     }
 
-    private function dequeueFirst(\Redis $redis): ?array
+    private function dequeueRandom(\Redis $redis): ?array
     {
-        $raw = $redis->lPop(RedisService::KP_MATCH_Q);
+        $len = (int)$redis->lLen(RedisService::KP_MATCH_Q);
+        if ($len <= 0) return null;
+
+        $idx = mt_rand(0, $len - 1);
+        $raw = $redis->lIndex(RedisService::KP_MATCH_Q, $idx);
         if ($raw === false || $raw === null) return null;
+
+        // 按值移除（同 fd 不会重复出现在队列中）
+        $redis->lRem(RedisService::KP_MATCH_Q, $raw, 1);
+
         $data = json_decode($raw, true);
         return $data ?: null;
     }

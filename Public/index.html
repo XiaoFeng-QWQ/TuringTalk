@@ -6,11 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>更好的图灵测试</title>
-    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="theme-color" content="#2c3e50">
     <link href="https://fonts.googleapis.com/css2?family=Pangolin&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <link rel="stylesheet" href="style.css?v=">
+    <link rel="stylesheet" href="/style.css?v=">
 </head>
 
 <body>
@@ -118,7 +118,8 @@
                 </div>
                 <div id="online-count"
                     style="text-align:center;font-size:14px;color:var(--ink-blue);padding:6px 0;cursor:default;">
-                    <span id="online-num">🔥棍母名玩家激战中🔥</span>
+                    🔥<span id="online-num">棍母</span>名玩家<span class="online-text-wrap"><span
+                            id="online-text-carousel"></span></span>中🔥
                 </div>
                 <button class="doodle-btn start-btn" id="btn-start">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -132,14 +133,23 @@
             </div>
 
             <div class="rules-board">
-                <a href="/WhoisAI" class="rule-item doodle-border WhoisAI-rule-item">
+                <a href="/lobby" class="rule-item doodle-border  WhoisAI-rule-item">
+                    <h3>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                        <span class="WhoisAI-entry-badge">NEW</span>
+                        公共聊天室
+                    </h3>
+                    <p>实时聊天 · 全服公告 · 表情互动</p>
+                </a>
+                <a href="/WhoisAI" class="rule-item doodle-border">
                     <h3>
                         <svg class="icon" viewBox="0 0 24 24">
                             <path d="M12 2L2 7l10 5 10-5-10-5z" />
                             <path d="M2 17l10 5 10-5" />
                             <path d="M2 12l10 5 10-5" />
                         </svg>
-                        <span class="WhoisAI-entry-badge">NEW</span>
                         ?! 谁是AI !?
                     </h3>
                     <p>匹配对战 · 多人混战找出隐藏的AI · 投票淘汰</p>
@@ -533,6 +543,13 @@
                 <div class="changelog-list">
 
                     <div class="changelog-version">
+                        <div class="changelog-ver-header">v1.4.0 — 2026.07.28</div>
+                        <ul>
+                            <li>新增 “公共聊天室“功能，包含聊天、表情、举报 模式</li>
+                            <li>修复亿些已知bug</li>
+                        </ul>
+                    </div>
+                    <div class="changelog-version">
                         <div class="changelog-ver-header">v1.3.0 — 2026.07.27</div>
                         <ul>
                             <li>新增 “?! 谁是AI !?” 模式</li>
@@ -886,13 +903,18 @@
             <button class="doodle-btn" id="btn-close-sticker-picker"
                 style="padding:2px 8px;font-size:14px;">&times;</button>
         </div>
+        <div class="sticker-picker-tabs">
+            <span class="sticker-picker-tab active" data-tab="all">全部</span>
+            <span class="sticker-picker-tab" data-tab="favs">收藏</span>
+        </div>
         <div class="sticker-picker-body" id="sticker-picker-body">
             <div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情</div>
         </div>
     </div>
 
-    <script src="shared.js?v="></script>
-    <script src="script.js?v="></script>
+    <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+    <script src="/shared.js?v="></script>
+    <script src="/script.js?v="></script>
 </body>
 
 </html>

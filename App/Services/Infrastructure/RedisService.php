@@ -41,9 +41,20 @@ class RedisService
     public const KP_WHOIS_AI_VOTES     = self::WHOIS_AI_PREFIX . 'room:votes:';   // room:votes:{id}:{rnd} → hash
     public const KP_WHOIS_AI_PLAYER    = self::WHOIS_AI_PREFIX . 'player:';       // player:{fd}        → hash
     public const KP_WHOIS_AI_ROOMS     = self::WHOIS_AI_PREFIX . 'rooms';         // rooms              → set
+    public const KP_WHOIS_AI_REPORTED  = self::WHOIS_AI_PREFIX . 'reported';      // reported           → set 已举报的房间
 
     // 全服公告
     public const KP_BROADCAST   = self::PREFIX . 'broadcast';  // broadcast → string (带 TTL)
+
+    // 公共聊天室
+    public const LOBBY_PREFIX      = self::PREFIX . 'lobby:';
+    public const KP_LOBBY_MSGS     = self::LOBBY_PREFIX . 'msgs';       // msgs      → list  最新 100 条消息 JSON
+    public const KP_LOBBY_WRITE_Q  = self::LOBBY_PREFIX . 'write_q';    // write_q   → list  异步写 MySQL 队列
+    public const KP_LOBBY_MUTED    = self::LOBBY_PREFIX . 'muted';      // muted     → hash  fd => 解禁时间戳
+    public const KP_LOBBY_MSG_ID   = self::LOBBY_PREFIX . 'msg_id';     // msg_id    → int   自增消息 ID
+    public const KP_LOBBY_REPORTED = self::LOBBY_PREFIX . 'reported';    // reported  → set   已举报的消息 ID 集合
+    public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
+    public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send';  // last_send → hash  fd => 最后发言时间戳
 
     /**
      * 获取当前协程专属的 Redis 连接
@@ -145,6 +156,11 @@ class RedisService
         // 1. 直接删除无通配符的 key
         $redis->del(self::KP_MATCH_Q);                        // 匹配队列
         $redis->del(self::PREFIX . 'write:queue');             // 异步写入队列
+        $redis->del(self::KP_LOBBY_MSGS);                      // 聊天室消息缓存
+        $redis->del(self::KP_LOBBY_WRITE_Q);                   // 聊天室写入队列
+        $redis->del(self::KP_LOBBY_MUTED);                     // 聊天室禁言
+        $redis->del(self::KP_LOBBY_MSG_ID);                    // 聊天室消息 ID 计数器
+        $redis->del(self::KP_LOBBY_REPORTED);                 // 聊天室已举报集合
 
         // 2. SCAN 批量删除带通配符的模式
         // 注意：tg:sticker:sync 不受清理影响（不在 patterns 中）

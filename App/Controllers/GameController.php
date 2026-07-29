@@ -15,118 +15,86 @@ class GameController
     const PUBLIC_DIR = __DIR__ . '/../../Public/';
     private const CACHE_MAX_AGE = 31536000; // 1年
 
-    /** @var array<string, array{mtime: int, hash: string}> 内存缓存的版本哈希 */
-    private static array $hashCache = [];
+    /** @var array<string, array{0: string, 1: string}> URL路径 => [文件名, MIME] */
+    public const STATIC_RESOURCES = [
+        '/script.js'              => ['script.js',              'application/javascript'],
+        '/style.css'              => ['style.css',              'text/css'],
+        '/favicon.svg'            => ['favicon.svg',            'image/svg+xml'],
+        '/shared.js'              => ['shared.js',              'application/javascript'],
+        '/admin/admin.js'         => ['admin/admin.js',               'application/javascript'],
+        '/admin/admin.css'        => ['admin/admin.css',              'text/css'],
+        '/admin/favicon.svg'      => ['admin/favicon.svg',      'image/svg+xml'],
+        '/whoisai/whoisai.css'    => ['whoisai/whoisai.css',            'text/css'],
+        '/whoisai/whoisai.js'     => ['whoisai/whoisai.js',             'application/javascript'],
+        '/lobby/lobby.css'        => ['lobby/lobby.css',              'text/css'],
+        '/lobby/lobby.js'         => ['lobby/lobby.js',               'application/javascript'],
+    ];
 
     public function index(Request $request, Response $response): void
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
-
-        $this->injectVersionHashes($html);
-
+        $files = ['/style.css', '/shared.js', '/script.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
         $response->setContent($html);
         $response->send();
-    }
-
-    private function getFileVersionHash(string $filename): string
-    {
-        $filePath = self::PUBLIC_DIR . $filename;
-        clearstatcache(true, $filePath);
-        $mtime = filemtime($filePath);
-
-        // mtime 没变，直接用缓存的哈希
-        if (isset(self::$hashCache[$filename]) && self::$hashCache[$filename]['mtime'] === $mtime) {
-            return self::$hashCache[$filename]['hash'];
-        }
-
-        // mtime 变了，重新计算 MD5
-        $hash = substr(md5_file($filePath), 0, 8);
-        self::$hashCache[$filename] = ['mtime' => $mtime, 'hash' => $hash];
-
-        return $hash;
-    }
-
-    private function injectVersionHashes(string &$html): void
-    {
-        $files = ['style.css', 'script.js', 'shared.js'];
-        foreach ($files as $file) {
-            $hash = $this->getFileVersionHash($file);
-            $html = str_replace(
-                $file . '?v=',
-                $file . '?v=' . $hash,
-                $html
-            );
-        }
-    }
-
-    private function injectWhoisAIVersionHashes(string &$html): void
-    {
-        $files = ['style.css', 'whoisai_style.css', 'whoisai_script.js', 'shared.js'];
-        foreach ($files as $file) {
-            $hash = $this->getFileVersionHash($file);
-            $html = str_replace(
-                $file . '?v=',
-                $file . '?v=' . $hash,
-                $html
-            );
-        }
-    }
-
-    public function script(Request $request, Response $response): void
-    {
-        $this->serveStaticFile('script.js', 'application/javascript', $request, $response);
-    }
-
-    public function style(Request $request, Response $response): void
-    {
-        $this->serveStaticFile('style.css', 'text/css', $request, $response);
-    }
-
-    public function adminScript(Request $request, Response $response): void
-    {
-        $this->serveStaticFile('admin.js', 'application/javascript', $request, $response);
-    }
-
-    public function adminStyle(Request $request, Response $response): void
-    {
-        $this->serveStaticFile('admin.css', 'text/css', $request, $response);
     }
 
     public function WhoisAIIndex(Request $request, Response $response): void
     {
-        $html = file_get_contents(self::PUBLIC_DIR . 'whoisai.html');
-        $this->injectWhoisAIVersionHashes($html);
+        $html = file_get_contents(self::PUBLIC_DIR . 'whoisai/index.html');
+        $files = ['/style.css', '/whoisai/whoisai.css', '/shared.js', '/whoisai/whoisai.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
         $response->setContent($html);
         $response->send();
     }
 
-    public function WhoisAIStyle(Request $request, Response $response): void
+    public function lobbyIndex(Request $request, Response $response): void
     {
-        $this->serveStaticFile('whoisai_style.css', 'text/css', $request, $response);
+        $html = file_get_contents(self::PUBLIC_DIR . 'lobby/index.html');
+        $files = ['/style.css', '/lobby/lobby.css', '/shared.js', '/lobby/lobby.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
+        $response->setContent($html);
+        $response->send();
     }
 
-    public function WhoisAIScript(Request $request, Response $response): void
+    private function getFileVersionHash(string $urlPath): string
     {
-        $this->serveStaticFile('whoisai_script.js', 'application/javascript', $request, $response);
+        $filename = ltrim($urlPath, '/');
+        return (string) filemtime(self::PUBLIC_DIR . $filename);
     }
 
-    public function favicon(Request $request, Response $response): void
+    /**
+     * 服务静态资源
+     */
+    public function serveStatic(Request $request, Response $response): void
     {
-        $this->serveStaticFile('favicon.svg', 'image/svg+xml', $request, $response);
-    }
+        $path = $request->getPath();
+        if (!isset(self::STATIC_RESOURCES[$path])) {
+            $response->setStatusCode(404);
+            $response->setContent('Not Found');
+            $response->send();
+            return;
+        }
 
-    public function faviconAdmin(Request $request, Response $response): void
-    {
-        $this->serveStaticFile('favicon-admin.svg', 'image/svg+xml', $request, $response);
-    }
-
-    public function shared(Request $request, Response $response): void
-    {
-        $this->serveStaticFile('shared.js', 'application/javascript', $request, $response);
-    }
-
-    private function serveStaticFile(string $filename, string $contentType, Request $request, Response $response): void
-    {
+        [$filename, $contentType] = self::STATIC_RESOURCES[$path];
         $filePath = self::PUBLIC_DIR . $filename;
 
         if (!file_exists($filePath)) {
@@ -136,16 +104,12 @@ class GameController
             return;
         }
 
+        // 读一次，后面全部复用
         $content = file_get_contents($filePath);
         $mtime = filemtime($filePath);
-        $etag = '"' . md5($content) . '"';
+        $etag = '"' . filemtime($filePath) . '-' . filesize($filePath) . '"';
 
-        $response->setHeader('Content-Type', $contentType);
-        $response->setHeader('Cache-Control', 'public, max-age=' . self::CACHE_MAX_AGE . ', immutable');
-        $response->setHeader('ETag', $etag);
-        $response->setHeader('Last-Modified', gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
-
-        // 检查条件请求，返回304
+        // 缓存校验
         if ($this->isCacheValid($request, $etag, $mtime)) {
             $response->setStatusCode(304);
             $response->setContent('');
@@ -153,6 +117,10 @@ class GameController
             return;
         }
 
+        $response->setHeader('Content-Type', $contentType);
+        $response->setHeader('Cache-Control', 'public, max-age=' . self::CACHE_MAX_AGE . ', immutable');
+        $response->setHeader('ETag', $etag);
+        $response->setHeader('Last-Modified', gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
         $response->setContent($content);
         $response->send();
     }
@@ -371,9 +339,17 @@ class GameController
      */
     public function adminPage(Request $request, Response $response): void
     {
-        $html = file_get_contents(self::PUBLIC_DIR . 'admin.html');
+        $html = file_get_contents(self::PUBLIC_DIR . '/admin/index.html');
 
-        $this->injectAdminVersionHashes($html);
+        $files = ['/admin/admin.css', '/admin/admin.js', '/shared.js'];
+        foreach ($files as $file) {
+            $hash = $this->getFileVersionHash(ltrim($file, '/'));
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $hash,
+                $html
+            );
+        }
 
         // 注入管理员配置
         $adminPath = trim(Config::get('Admin.Path', 'admin'), '/');
@@ -381,26 +357,14 @@ class GameController
             'ws_url'    => '/' . $adminPath . '/ws',
             'api_login' => '/' . $adminPath . '/api/login',
         ], JSON_UNESCAPED_SLASHES);
-        $html = str_replace('</head>',
+        $html = str_replace(
+            '</head>',
             '<script>window.__ADMIN_CONFIG__=' . $adminConfig . ';</script></head>',
             $html
         );
 
         $response->setContent($html);
         $response->send();
-    }
-
-    private function injectAdminVersionHashes(string &$html): void
-    {
-        $files = ['admin.css', 'admin.js', 'shared.js'];
-        foreach ($files as $file) {
-            $hash = $this->getFileVersionHash($file);
-            $html = str_replace(
-                $file . '?v=',
-                $file . '?v=' . $hash,
-                $html
-            );
-        }
     }
 
     /**
@@ -420,22 +384,43 @@ class GameController
 
         $admin = AdminRepository::findByUsername($username);
         if (!$admin || !password_verify($password, $admin['password_hash'])) {
-            AdminRepository::writeLog(0, $username, 'login_failed', null, null,
-                '用户名或密码错误', $clientIp);
+            AdminRepository::writeLog(
+                0,
+                $username,
+                'login_failed',
+                null,
+                null,
+                '用户名或密码错误',
+                $clientIp
+            );
             $response->json(['ok' => false, 'error' => '用户名或密码错误']);
             return;
         }
 
         if (((int)($admin['status'] ?? 1)) !== 1) {
-            AdminRepository::writeLog((int)$admin['id'], $username, 'login_failed', null, null,
-                '账号已被禁用', $clientIp);
+            AdminRepository::writeLog(
+                (int)$admin['id'],
+                $username,
+                'login_failed',
+                null,
+                null,
+                '账号已被禁用',
+                $clientIp
+            );
             $response->json(['ok' => false, 'error' => '该账号已被禁用']);
             return;
         }
 
         AdminRepository::updateLastLogin((int)$admin['id']);
-        AdminRepository::writeLog((int)$admin['id'], $username, 'login', null, null,
-            "登录成功 IP:{$clientIp}", $clientIp);
+        AdminRepository::writeLog(
+            (int)$admin['id'],
+            $username,
+            'login',
+            null,
+            null,
+            "登录成功 IP:{$clientIp}",
+            $clientIp
+        );
 
         $token = self::generateAdminToken((int)$admin['id'], $username, $admin['role']);
         $response->json(['ok' => true, 'token' => $token, 'username' => $username, 'role' => $admin['role']]);

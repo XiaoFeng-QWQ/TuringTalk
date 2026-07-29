@@ -11,10 +11,12 @@ use App\Admin\Handlers\ReportHandler;
 use App\Admin\Handlers\SpectateHandler;
 use App\Admin\Handlers\ManageHandler;
 use App\Admin\Handlers\LogHandler;
+use App\Admin\Handlers\LobbyHandler;
 use App\Admin\Repository\AdminRepository;
 use App\Core\WebSocket\BaseGameHandler;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
+use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\Sanitizer;
 use App\Controllers\GameController;
 use App\Services\Infrastructure\Logger;
@@ -23,6 +25,7 @@ class AdminWebSocketHandler
 {
     private GameWebSocketHandler $gameHandler;
     private WhoisAIWebSocketHandler $WhoisAIHandler;
+    private LobbyChatWebSocketHandler $lobbyHandler;
     private Tracker $tracker;
 
     /** @var array<string, string> fd => ip，onOpen 暂存，handleConnect 消费后清除 */
@@ -35,6 +38,7 @@ class AdminWebSocketHandler
     private SpectateHandler  $spectateHandler;
     private ManageHandler    $manageHandler;
     private LogHandler       $logHandler;
+    private LobbyHandler     $lobbyHandlerInstance;
 
     /**
      * @param BaseGameHandler[] $gameHandlers 所有游戏模式 Handler
@@ -45,6 +49,7 @@ class AdminWebSocketHandler
         foreach ($gameHandlers as $h) {
             if ($h::routePrefix() === '') $this->gameHandler = $h;
             if ($h::routePrefix() === 'WhoisAI_') $this->WhoisAIHandler = $h;
+            if ($h::routePrefix() === 'lobby_') $this->lobbyHandler = $h;
         }
 
         $this->tracker = new Tracker();
@@ -59,6 +64,7 @@ class AdminWebSocketHandler
         $this->spectateHandler  = new SpectateHandler($this->gameHandler, $this->tracker);
         $this->manageHandler    = new ManageHandler($this->gameHandler, $this->tracker);
         $this->logHandler       = new LogHandler($this->gameHandler, $this->tracker);
+        $this->lobbyHandlerInstance = new LobbyHandler($this->lobbyHandler, $this->tracker);
     }
 
     public function getTracker(): Tracker
@@ -225,6 +231,34 @@ class AdminWebSocketHandler
                 $this->withOp($server, $fd, "正在发送房间公告", fn() =>
                     $this->handleWhoisAIRoomBroadcast($server, $fd, $data));
                 break;
+            case 'admin_lobby_players':
+                $this->lobbyHandlerInstance->handlePlayers($server, $fd);
+                break;
+            case 'admin_lobby_messages':
+                $this->lobbyHandlerInstance->handleHistory($server, $fd, $data);
+                break;
+            case 'admin_lobby_delete':
+                $this->withOp($server, $fd, "正在删除聊天室消息", fn() =>
+                    $this->lobbyHandlerInstance->handleDelete($server, $fd, $data));
+                break;
+            case 'admin_lobby_ban':
+                $this->withOp($server, $fd, "正在封禁聊天室玩家", fn() =>
+                    $this->lobbyHandlerInstance->handleBan($server, $fd, $data));
+                break;
+            case 'admin_lobby_announce':
+                $this->lobbyHandlerInstance->handleAnnounce($server, $fd, $data);
+                break;
+            case 'admin_lobby_rate_limit':
+                $this->lobbyHandlerInstance->handleRateLimit($server, $fd, $data);
+                break;
+            case 'admin_lobby_batch_delete':
+                $this->withOp($server, $fd, "正在批量删除聊天室消息", fn() =>
+                    $this->lobbyHandlerInstance->handleBatchDelete($server, $fd, $data));
+                break;
+            case 'admin_lobby_batch_ban':
+                $this->withOp($server, $fd, "正在批量封禁聊天室玩家", fn() =>
+                    $this->lobbyHandlerInstance->handleBatchBan($server, $fd, $data));
+                break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);
         }
@@ -348,10 +382,19 @@ class AdminWebSocketHandler
         $players = $this->WhoisAIHandler->getWhoisAIService()->getRoomPlayers($roomId);
         $playerList = [];
         foreach ($players as $seat => $p) {
+            $pFd = (int)($p['fd'] ?? 0);
+            // 优先使用实时 clientInfo 中的昵称（防止改名后仍显示旧名）
+            $nickname = $p['nickname'];
+            if ($pFd > 0 && $server->isEstablished($pFd)) {
+                $info = $this->WhoisAIHandler->getClientInfo($pFd);
+                if ($info && !empty($info['nickname'])) {
+                    $nickname = $info['nickname'];
+                }
+            }
             $playerList[] = [
                 'seat'     => (int)$seat,
-                'nickname' => $p['nickname'],
-                'fd'       => (int)($p['fd'] ?? 0),
+                'nickname' => $nickname,
+                'fd'       => $pFd,
                 'identity' => $p['identity'] ?? '',
                 'is_ai'    => ($p['identity'] ?? '') === 'ai',
                 'alive'    => !empty($p['alive']),

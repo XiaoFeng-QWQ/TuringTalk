@@ -6,8 +6,11 @@ use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
+use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Admin\AdminWebSocketHandler;
+use App\Core\Application;
 use App\Config\Config;
+use App\Services\Infrastructure\Logger;
 
 class WebSocketHandler
 {
@@ -35,6 +38,7 @@ class WebSocketHandler
         $this->gameHandlers = [
             new GameWebSocketHandler(),
             new WhoisAIWebSocketHandler(),
+            new LobbyChatWebSocketHandler(),
         ];
 
         // 自动构建路由表
@@ -61,10 +65,24 @@ class WebSocketHandler
     {
         $path = rtrim($request->server['request_uri'] ?? '/ws', '/');
 
-        // Admin 端点
+        // Admin 端点不拦截（管理员始终可连）
         if ($path === $this->adminWsPath) {
             $this->fdHandler[$request->fd] = $this->adminHandler;
             $this->adminHandler->onOpen($server, $request);
+            return;
+        }
+
+        // 连接过载时拒绝新游戏连接
+        if (Application::$connectionPaused) {
+            Logger::info('WS connection rejected — server overloaded', [
+                'fd' => $request->fd,
+                'ip' => BaseGameHandler::extractClientIp($request),
+            ]);
+            $server->push($request->fd, json_encode([
+                'type' => 'error',
+                'message' => '服务器繁忙，请稍后再试',
+            ]));
+            $server->close($request->fd);
             return;
         }
 
@@ -75,13 +93,17 @@ class WebSocketHandler
             $handler->onOpen($server, $request);
         }
 
-        // 计入在线并广播
+        // 计入在线并广播（聊天室跳过通用 online_count，有独立的 lobby_online_count）
         $this->onlineFds[$request->fd] = true;
-        $count = count($this->onlineFds);
-        $server->push($request->fd, json_encode([
-            'type' => 'online_count',
-            'count' => $count,
-        ]));
+        if (!($handler instanceof LobbyChatWebSocketHandler)) {
+            $count = count($this->onlineFds);
+            if ($server->isEstablished($request->fd)) {
+                $server->push($request->fd, json_encode([
+                    'type' => 'online_count',
+                    'count' => $count,
+                ]));
+            }
+        }
         $this->broadcastOnlineCount($server, $request->fd);
     }
 
@@ -144,19 +166,22 @@ class WebSocketHandler
 
     // ==================== 便捷访问（向后兼容） ====================
 
-    /** @deprecated 使用 gameHandlers 数组查找 */
     public function getGameHandler(): GameWebSocketHandler
     {
         return $this->routeByPath['/ws'] ?? $this->gameHandlers[0];
     }
 
-    /** @deprecated 使用 gameHandlers 数组查找 */
     public function getWhoisAIHandler(): WhoisAIWebSocketHandler
     {
         return $this->routeByPath['/ws/WhoisAI'] ?? null;
     }
 
     // ==================== 在线人数广播 ====================
+
+    public function getOnlineCount(): int
+    {
+        return count($this->onlineFds);
+    }
 
     /**
      * 向所有已连接的非游戏内客户端广播在线人数。
@@ -168,9 +193,11 @@ class WebSocketHandler
         foreach ($server->connections as $clientFd) {
             if ($clientFd === $excludeFd) continue;
             if (!$server->isEstablished($clientFd)) continue;
-            // 跳过 admin fd
             if ($this->adminHandler->getTracker()->isAdminFd($clientFd)) continue;
-            // 跳过正在对局中的 fd（自动覆盖所有已注册游戏模式）
+            // 跳过聊天室连接（聊天室有独立的 lobby_online_count）
+            $h = $this->fdHandler[$clientFd] ?? null;
+            if ($h instanceof LobbyChatWebSocketHandler) continue;
+            // 跳过正在对局中的 fd
             $inGame = false;
             foreach ($this->gameHandlers as $handler) {
                 if ($handler->isPlayerInGame($clientFd)) {

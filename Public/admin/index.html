@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>管理后台 - 图灵测试</title>
-    <link rel="icon" type="image/svg+xml" href="favicon-admin.svg">
+    <link rel="icon" type="image/svg+xml" href="/admin/favicon.svg">
     <meta name="theme-color" content="#000000">
-    <link rel="stylesheet" href="admin.css?v=">
+    <link rel="stylesheet" href="/admin/admin.css?v=">
 </head>
 
 <body>
@@ -28,16 +28,16 @@
     </header>
 
     <main>
-        <!-- 未登录提示 -->
+        
         <div id="admin-login-prompt" style="text-align:center;padding:80px 20px;">
             <h2>管理后台</h2>
             <p class="text-muted" style="margin-top:8px;">正在连接管理服务...</p>
         </div>
 
-        <!-- 已登录：管理面板 -->
+        
         <div id="admin-panel-content" style="display:none;">
 
-            <!-- 全服公告 -->
+            
             <div class="doodle-border">
                 <h4 style="display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;margin-bottom:8px;">
                     <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;">
@@ -55,14 +55,15 @@
                 <span id="broadcast-status" class="text-sm text-muted" style="display:none;"></span>
             </div>
 
-            <!-- 标签栏 -->
+            
             <div class="admin-tab-bar" style="margin-bottom:16px;">
                 <button class="admin-tab-btn active" id="tab-sessions">活跃对局</button>
                 <button class="admin-tab-btn" id="tab-reports">举报审核</button>
                 <button class="admin-tab-btn" id="tab-stickers">自定义表情包</button>
+                <button class="admin-tab-btn" id="tab-lobby">聊天室管理</button>
             </div>
 
-            <!-- 面板：活跃对局 -->
+            
             <div class="setting-row" id="panel-sessions">
                 <h4>
                     <svg class="icon" viewBox="0 0 24 24">
@@ -83,7 +84,7 @@
                 </div>
             </div>
 
-            <!-- 面板：举报审核 -->
+            
             <div class="setting-row" id="panel-reports" style="display:none;">
                 <h4>
                     <svg class="icon" viewBox="0 0 24 24">
@@ -103,7 +104,7 @@
                 <div id="reports-pagination"></div>
             </div>
 
-            <!-- 面板：自定义表情 -->
+            
             <div class="setting-row" id="panel-stickers" style="display:none;">
                 <h4>
                     <svg class="icon" viewBox="0 0 24 24">
@@ -148,9 +149,66 @@
                         暂无自定义表情</div>
                 </div>
             </div>
+
+            
+            <div class="setting-row" id="panel-lobby" style="display:none;">
+                <h4>
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    聊天室管理
+                </h4>
+                <div style="display:flex;gap:6px;margin-bottom:8px;">
+                    <button class="doodle-btn" id="btn-lobby-refresh"
+                        style="flex:1;justify-content:center;">刷新在线玩家</button>
+                    <input type="text" id="lobby-search-input" placeholder="按玩家昵称搜索..."
+                        style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
+                    <button class="doodle-btn" id="btn-lobby-history"
+                        style="flex-shrink:0;justify-content:center;">加载聊天记录</button>
+                </div>
+                <div style="display:flex;gap:6px;margin-bottom:8px;">
+                    <input type="text" id="lobby-announce-input" placeholder="输入聊天室警告内容..." maxlength="100"
+                        style="flex:1;padding:4px 8px;border:1px solid var(--danger);border-radius:6px;font-size:12px;outline:none;">
+                    <button class="doodle-btn" id="btn-lobby-announce"
+                        style="flex-shrink:0;justify-content:center;background:#d32f2f;border-color:#d32f2f;color:#fff;">发送警告</button>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:12px;">
+                    <label style="white-space:nowrap;color:var(--text-muted);">发言间隔：</label>
+                    <input type="number" id="lobby-rate-input" placeholder="秒" min="0" max="60" value="0"
+                        style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;text-align:center;">
+                    <span style="color:var(--text-muted);">秒（0=不限）</span>
+                    <button class="doodle-btn" id="btn-lobby-rate-set"
+                        style="flex-shrink:0;justify-content:center;font-size:12px;padding:2px 10px;">设置</button>
+                    <button class="doodle-btn" id="btn-lobby-rate-query"
+                        style="flex-shrink:0;justify-content:center;font-size:12px;padding:2px 10px;">查询</button>
+                    <span id="lobby-rate-status" style="color:var(--text-muted);font-size:11px;"></span>
+                </div>
+                <div id="lobby-players-list" style="margin-bottom:8px;">
+                    <div style="text-align:center;color:var(--text-muted);padding:10px;">点击刷新查看在线玩家</div>
+                </div>
+                <div id="lobby-players-actions" style="display:none;gap:6px;margin-bottom:8px;">
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                        <input type="checkbox" id="lobby-players-select-all"> 全选
+                    </label>
+                    <button class="doodle-btn" id="btn-lobby-batch-ban" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量封禁</button>
+                </div>
+                <div id="lobby-messages-list"
+                    style="max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;padding:8px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border);">
+                    <div style="text-align:center;color:var(--text-muted);padding:10px;">点击加载聊天记录查看</div>
+                </div>
+                <div id="lobby-messages-actions" style="display:none;gap:6px;margin-top:6px;">
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                        <input type="checkbox" id="lobby-messages-select-all"> 全选
+                    </label>
+                    <button class="doodle-btn" id="btn-lobby-batch-delete" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量删除</button>
+                </div>
+                <div id="lobby-messages-pagination"
+                    style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:8px;font-size:12px;color:var(--text-muted);">
+                </div>
+            </div>
         </div>
 
-        <!-- 旁观聊天视图 -->
+        
         <section id="chat-page">
             <div class="notebook-container">
                 <div class="chat-header">
@@ -176,7 +234,7 @@
         </section>
     </main>
 
-    <!-- 举报详情弹窗 -->
+    
     <div id="report-detail-overlay" style="display:none;">
         <div
             style="position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:1001;display:flex;align-items:center;justify-content:center;">
@@ -194,7 +252,7 @@
         </div>
     </div>
 
-    <!-- 表情大图预览 -->
+    
     <div id="sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>
         <img id="sticker-lightbox-img" src="" alt="">
@@ -202,8 +260,8 @@
             style="position:absolute;top:12px;right:12px;z-index:1;">&times;</button>
     </div>
 
-    <script src="shared.js?v="></script>
-    <script src="admin.js?v="></script>
+    <script src="/shared.js?v="></script>
+    <script src="/admin/admin.js?v="></script>
 </body>
 
 </html>

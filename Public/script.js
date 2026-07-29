@@ -1,7 +1,7 @@
 // ================================================================
 // 传输层基类
 // ================================================================
-const DebugLogger = { log: function() {}, count: async function() { return 0; }, download: async function() { return { count: 0 }; } };
+const DebugLogger = { log: function () { }, count: async function () { return 0; }, download: async function () { return { count: 0 }; } };
 class ChatTransport {
     constructor() {
         this._handlers = {};
@@ -376,7 +376,7 @@ class GameClient {
 
         // 断开旧连接（服务端 onClose 会完整清理 playersTable/sessionsTable/queue）
         if (this._transport._ws) {
-            try { this._transport._ws.close(); } catch (e) {}
+            try { this._transport._ws.close(); } catch (e) { }
             this._transport._ws = null;
         }
 
@@ -577,7 +577,7 @@ class GameClient {
         this._opponentTruth = data.truth;
         this._sessionId = data.session_id || '';
         DebugLogger.log('game', '对局结束-对方已判定', { myGuess: this._userGuess, oppTruth: this._opponentTruth, session_id: this._sessionId });
-        renderResult(false, this._userGuess, this._opponentTruth, data.opponent_guess, data.opponent_tag);
+        renderResult(false, this._userGuess, this._opponentTruth, data.opponent_guess, data.opponent_tag, data.opponent_name || this._opponentName);
     }
 
     _onOpponentTimeout(data) {
@@ -608,17 +608,17 @@ class GameClient {
         if (data && data.reason === 'you_timeout') {
             // 自己超时，使用服务端返回的对方身份
             if (data.opponent_truth) this._opponentTruth = data.opponent_truth;
-            renderResult('you', this._userGuess, this._opponentTruth, null);
+            renderResult('you', this._userGuess, this._opponentTruth, null, '', data.opponent_name || this._opponentName);
         } else if (data && data.reason === 'both_timeout') {
             if (data.opponent_truth) this._opponentTruth = data.opponent_truth;
-            renderResult('both', this._userGuess, this._opponentTruth, null);
+            renderResult('both', this._userGuess, this._opponentTruth, null, '', data.opponent_name || this._opponentName);
         } else if (data && data.reason === 'no_mutual_chat') {
             if (data.opponent_truth) this._opponentTruth = data.opponent_truth;
-            renderResult('no_mutual_chat', this._userGuess, this._opponentTruth, null);
+            renderResult('no_mutual_chat', this._userGuess, this._opponentTruth, null, '', data.opponent_name || this._opponentName);
         } else if (data && data.reason) {
             // opponent_timeout / opponent_disconnected / opponent_left
             if (data.opponent_truth) this._opponentTruth = data.opponent_truth;
-            renderResult(data.reason, this._userGuess, this._opponentTruth, null);
+            renderResult(data.reason, this._userGuess, this._opponentTruth, null, '', data.opponent_name || this._opponentName);
         }
     }
 
@@ -738,33 +738,23 @@ const stickerPickerBody = document.getElementById('sticker-picker-body');
 const btnCloseStickerPicker = document.getElementById('btn-close-sticker-picker');
 // 表情列表（WS 连接后从服务端获取，id → {name, url}）
 let stickerMap = {};
+bindStickerPickerTabs('sticker-picker', renderStickerPicker);
 
 const origLogoHTML = logoText.innerHTML;
 
 // ================================================================
 // 浏览器指纹
 // ================================================================
-function generateFingerprint() {
-    const data = [
-        navigator.userAgent || '',
-        navigator.language || '',
-        screen.colorDepth || '',
-        screen.width || '',
-        screen.height || '',
-        new Date().getTimezoneOffset(),
-        navigator.hardwareConcurrency || 0,
-        navigator.deviceMemory || 0,
-    ].join('|');
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-        const chr = data.charCodeAt(i);
-        hash = ((hash << 5) - hash) + chr;
-        hash |= 0;
-    }
-    return Math.abs(hash).toString(36);
-}
+var browserFingerprint = getFingerprint();
 
-const browserFingerprint = generateFingerprint();
+// FingerprintJS 完成初始化后更新全局指纹变量及 UI
+window.onFingerprintReady = function (fp) {
+    browserFingerprint = fp;
+    var sysId = document.getElementById('system-id');
+    if (sysId) sysId.textContent = fp;
+    var idFp = document.getElementById('id-card-fingerprint');
+    if (idFp) idFp.textContent = fp;
+};
 
 const nicknameInput = document.getElementById('nickname-input');
 // 迁移旧存储到统一的 userdata 结构（临时，下个版本移除）
@@ -1020,7 +1010,7 @@ function appendMessage(text, side, sender) {
         const soundToggle = document.getElementById('cb-sound-effect');
         if (soundToggle && soundToggle.classList.contains('active')) {
             thinkAudio.currentTime = 0;
-            thinkAudio.play().catch(() => {});
+            thinkAudio.play().catch(() => { });
         }
     }
 }
@@ -1115,7 +1105,7 @@ function makeJudgement(guess) {
     game.makeJudgement(guess);
 }
 
-function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, opponentTag) {
+function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, opponentTag, opponentName) {
     const isTimeout = !!timeoutReason;
     const isWin = (timeoutReason === 'opponent' || timeoutReason === 'opponent_timeout')
         || (timeoutReason === 'opponent_disconnected' || timeoutReason === 'opponent_left')
@@ -1127,6 +1117,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
         ? (opponentGuess === 'human' ? '人类' : 'AI')
         : '未判定';
     opponentTag = opponentTag || '';
+    opponentName = opponentName || '';
 
     const iconSVG = isWin
         ? `<svg viewBox="0 0 24 24" style="width:48px;height:48px;fill:none;stroke:#4caf50;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>`
@@ -1134,20 +1125,20 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
 
     const verdict = timeoutReason === 'opponent' || timeoutReason === 'opponent_timeout' ? '对方超时未判定，你赢了！'
         : timeoutReason === 'opponent_disconnected' ? '对方断开了连接，你赢了！'
-        : timeoutReason === 'opponent_left' ? '对方主动退出，你赢了！'
-        : timeoutReason === 'you' ? '你超时未判定，对方赢了...'
-            : timeoutReason === 'both' ? '双方超时，平局'
-                : timeoutReason === 'no_mutual_chat' ? '未互发消息，平局不记战绩'
-                    : timeoutReason === 'opponent_banned' ? '对方已被封禁，对局结束'
-                    : (isWin ? '猜对啦！' : '猜错了...');
+            : timeoutReason === 'opponent_left' ? '对方主动退出，你赢了！'
+                : timeoutReason === 'you' ? '你超时未判定，对方赢了...'
+                    : timeoutReason === 'both' ? '双方超时，平局'
+                        : timeoutReason === 'no_mutual_chat' ? '未互发消息，平局不记战绩'
+                            : timeoutReason === 'opponent_banned' ? '对方已被封禁，对局结束'
+                                : (isWin ? '猜对啦！' : '猜错了...');
     const reveal = isTimeout
         ? (timeoutReason === 'opponent' || timeoutReason === 'opponent_timeout' ? '对方未能在 60 秒内完成判定'
             : timeoutReason === 'opponent_disconnected' ? '对方断开了连接'
-            : timeoutReason === 'opponent_left' ? '对方主动退出了对局'
-            : timeoutReason === 'you' ? '你未能在 60 秒内完成判定'
-                : timeoutReason === 'both' ? '双方均未在 60 秒内完成判定'
-                    : timeoutReason === 'no_mutual_chat' ? '双方未互发消息，不计入战绩'
-                        : ('对方是：' + truthLabel))
+                : timeoutReason === 'opponent_left' ? '对方主动退出了对局'
+                    : timeoutReason === 'you' ? '你未能在 60 秒内完成判定'
+                        : timeoutReason === 'both' ? '双方均未在 60 秒内完成判定'
+                            : timeoutReason === 'no_mutual_chat' ? '双方未互发消息，不计入战绩'
+                                : ('对方是：' + truthLabel))
         : ('对方是：' + truthLabel);
     const cardClass = isWin ? 'correct' : 'wrong';
     const totalMsgs = userMsgCount + botMsgCount;
@@ -1176,6 +1167,11 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                         <span class="label">对方身份</span>
                         <span class="value">${truthLabel}</span>
                     </div>
+                    ${opponentName ? `
+                    <div class="result-row">
+                        <span class="label">对方昵称</span>
+                        <span class="value">${escapeHtml(opponentName)}</span>
+                    </div>` : ''}
                     ${opponentTag ? `
                     <div class="result-row">
                         <span class="label">对方标签</span>
@@ -1322,13 +1318,13 @@ function getUserdata() {
 function saveUserdata(d) {
     try {
         localStorage.setItem(USERDATA_KEY, JSON.stringify(d));
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function clearUserdata() {
     try {
         localStorage.removeItem(USERDATA_KEY);
-    } catch (_) {}
+    } catch (_) { }
 }
 
 /**
@@ -1350,7 +1346,7 @@ function migrateLegacyData() {
             Object.assign(ud, parsed);
             localStorage.removeItem('turing_userdata');
             migrated = true;
-        } catch (_) {}
+        } catch (_) { }
     }
 
     // 迁移旧 key: turing_nickname / turing_player_code / turing_stats
@@ -1374,7 +1370,7 @@ function migrateLegacyData() {
             ud.stats = JSON.parse(oldStatsRaw);
             migrated = true;
         }
-    } catch (_) {}
+    } catch (_) { }
 
     if (migrated) {
         saveUserdata(ud);
@@ -1398,8 +1394,6 @@ function setUserNicknameUpdatedAt(ym) { const d = getUserdata(); d.nickname_upda
 // ================================================================
 //  战局统计
 // ================================================================
-
-const STATS_KEY = 'turing_stats'; // @deprecated 使用 getUserStats/setUserStats
 
 function getStats() { return getUserStats(); }
 function saveStats(s) { setUserStats(s); }
@@ -1511,7 +1505,7 @@ async function exportChatImage(btn, verdict, reveal, isCorrect, guessLabel, trut
                             const blobUrl = URL.createObjectURL(blob);
                             blobUrls.push(blobUrl);
                             img.src = blobUrl;
-                        } catch (e) {}
+                        } catch (e) { }
                     }
                 }
                 bubbleContent = clone.innerHTML;
@@ -1631,12 +1625,27 @@ btnBack.addEventListener('click', function (e) {
 window.addEventListener('beforeunload', function (e) {
     // 只在聊天页面激活时触发
     if (chatPage.style.display === 'flex') {
-        // 标准方式：设置 event.returnValue
         e.preventDefault();
         e.returnValue = '你正在进行一局图灵测试，确定要离开吗？';
         return e.returnValue;
     }
-    // 不在聊天页面时，不拦截
+    // 离开页面时主动关闭 WebSocket，避免服务端 ipToFd 残留导致返回时被拦截
+    if (transport && transport._ws) {
+        try {
+            transport._ws.close();
+            transport._ws = null;
+        } catch (ignore) {}
+    }
+});
+
+// pagehide 比 beforeunload 更可靠（bfcache 场景也会触发）
+window.addEventListener('pagehide', function () {
+    if (transport && transport._ws) {
+        try {
+            transport._ws.close();
+            transport._ws = null;
+        } catch (ignore) {}
+    }
 });
 
 // ================================================================
@@ -1674,12 +1683,16 @@ window.addEventListener('pageshow', function (e) {
         DebugLogger.log('lifecycle', '页面从bfcache恢复，触发WS重连');
         const ws = transport._ws;
         if (ws) {
-            try { ws.onclose = null; } catch (_) {}
+            try { ws.onclose = null; } catch (_) { }
             ws.close();
+            transport._ws = null;
         }
         transport._intentionalClose = false;
         transport._lastPongTime = 0;
-        transport.connect(transport._lastNickname || '', transport._lastDuration || 600);
+        // 延迟 300ms 重连，确保服务端已处理旧连接的 onClose
+        setTimeout(function () {
+            transport.connect(transport._lastNickname || '', transport._lastDuration || 600);
+        }, 300);
     }
 });
 
@@ -1705,7 +1718,7 @@ btnUploadUserData.addEventListener('click', async () => {
         nickname: ud.nickname || '',
         recovery_code: code,
         fp: browserFingerprint,
-        stats: ud.stats || {},
+        stats: Object.assign({ stickerFavorites: ud.stickerFavorites || [] }, ud.stats || {}),
     };
 
     btn.disabled = true;
@@ -1810,22 +1823,8 @@ function toggleStickerPicker() {
 
 /** 根据 stickerMap 渲染表情选择器内容 */
 function renderStickerPicker() {
-    stickerPickerBody.innerHTML = '';
-    const ids = Object.keys(stickerMap);
-    if (ids.length === 0) {
-        stickerPickerBody.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情</div>';
-        return;
-    }
-    ids.forEach(function(id) {
-        const s = stickerMap[id];
-        const item = document.createElement('div');
-        item.className = 'sticker-picker-item';
-        item.title = s.name;
-        item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
-        item.addEventListener('click', function() {
-            sendSticker(id);
-        });
-        stickerPickerBody.appendChild(item);
+    renderSharedStickerPicker(stickerPickerBody, stickerMap, function (id) {
+        sendSticker(id);
     });
 }
 
@@ -2010,8 +2009,8 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
 
     // 关闭旧连接（如果有），避免旧onopen引用被新ws覆盖
     if (this._ws) {
-        try { this._ws.onopen = null; this._ws.onclose = null; this._ws.onerror = null; this._ws.onmessage = null; } catch (e) {}
-        try { this._ws.close(); } catch (e) {}
+        try { this._ws.onopen = null; this._ws.onclose = null; this._ws.onerror = null; this._ws.onmessage = null; } catch (e) { }
+        try { this._ws.close(); } catch (e) { }
         this._ws = null;
     }
 
@@ -2025,32 +2024,32 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
     });
 
     ws.onopen = () => {
-            // 重连成功，重置计数
-            this._reconnectAttempts = 0;
-            this._intentionalClose = false;
-            this._lastPongTime = Date.now();
+        // 重连成功，重置计数
+        this._reconnectAttempts = 0;
+        this._intentionalClose = false;
+        this._lastPongTime = Date.now();
 
-            // 移除重连提示
-            const reconnectBanner = document.getElementById('reconnect-banner');
-            if (reconnectBanner) reconnectBanner.remove();
+        // 移除重连提示
+        const reconnectBanner = document.getElementById('reconnect-banner');
+        if (reconnectBanner) reconnectBanner.remove();
 
-            // 启动心跳：每 25 秒发送一次 ping
-            let _hbCount = 0;
-            this._heartbeatTimer = setInterval(() => {
-                if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-                    this._ws.send(JSON.stringify({ type: 'ping' }));
-                    _hbCount++;
-                    // 每 5 次心跳记录一条日志
-                    if (_hbCount % 5 === 0) {
-                        DebugLogger.log('ws', '心跳ping #' + _hbCount, { readyState: this._ws.readyState });
-                    }
-                    // 超过 60 秒没收到 pong，主动断开触发重连
-                    if (this._lastPongTime && (Date.now() - this._lastPongTime) > 60000) {
-                        DebugLogger.log('ws', 'pong超时60s，主动断开重连');
-                        this._ws.close();
-                    }
+        // 启动心跳：每 25 秒发送一次 ping
+        let _hbCount = 0;
+        this._heartbeatTimer = setInterval(() => {
+            if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+                this._ws.send(JSON.stringify({ type: 'ping' }));
+                _hbCount++;
+                // 每 5 次心跳记录一条日志
+                if (_hbCount % 5 === 0) {
+                    DebugLogger.log('ws', '心跳ping #' + _hbCount, { readyState: this._ws.readyState });
                 }
-            }, 25000);
+                // 超过 60 秒没收到 pong，主动断开触发重连
+                if (this._lastPongTime && (Date.now() - this._lastPongTime) > 60000) {
+                    DebugLogger.log('ws', 'pong超时60s，主动断开重连');
+                    this._ws.close();
+                }
+            }
+        }, 25000);
 
         DebugLogger.log('ws', 'WebSocket onopen', { nickname: nickname || '(preconnect)' });
 
@@ -2124,6 +2123,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     opponent_guess: data.opponent_guess,
                     opponent_tag: data.opponent_tag || '',
                     session_id: data.session_id,
+                    opponent_name: data.opponent_name,
                 });
                 break;
             case 'judge_notify':
@@ -2137,6 +2137,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     reason: data.reason,
                     session_id: data.session_id,
                     opponent_truth: data.opponent_truth,
+                    opponent_name: data.opponent_name,
                 });
                 break;
             case 'error':
@@ -2166,7 +2167,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 }
                 break;
             case 'online_count':
-                document.getElementById('online-num').textContent = '🔥' + data.count + '名玩家激战中🔥';
+                updateOnlineCarousel(data.count);
                 break;
             case 'broadcast':
                 showDanmaku(data.text, '全服公告', data.duration || 0);
@@ -2192,7 +2193,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 // 收到表情列表，建立本地 id→{name, url} 映射
                 stickerMap = {};
                 if (data.stickers && data.stickers.length) {
-                    data.stickers.forEach(function(s) {
+                    data.stickers.forEach(function (s) {
                         stickerMap[s.id] = { name: s.name, url: s.url };
                     });
                 }
@@ -2504,7 +2505,7 @@ function autoInitRecoveryCode() {
             updateLbUI();
             if (data.stats) { updateLbMyStats(data.stats); mergeServerStats(data.stats); }
         })
-        .catch(() => {});
+        .catch(() => { });
 }
 
 document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
@@ -2687,13 +2688,64 @@ function showChatHistoryDetail(id) {
         });
 }
 
-// 关闭详情弹窗事件
-document.getElementById('btn-chat-detail-close').addEventListener('click', () => {
-    document.getElementById('chat-history-detail-overlay').style.display = 'none';
-});
-
-document.getElementById('chat-history-detail-overlay').addEventListener('click', (e) => {
-    if (e.target === e.currentTarget || e.target.classList.contains('admin-overlay-bg')) {
+// 关闭详情弹窗事件（仅管理后台存在这些元素）
+var btnChatDetailClose = document.getElementById('btn-chat-detail-close');
+if (btnChatDetailClose) {
+    btnChatDetailClose.addEventListener('click', function () {
         document.getElementById('chat-history-detail-overlay').style.display = 'none';
+    });
+}
+
+var chatDetailOverlay = document.getElementById('chat-history-detail-overlay');
+if (chatDetailOverlay) {
+    chatDetailOverlay.addEventListener('click', function (e) {
+        if (e.target === e.currentTarget || e.target.classList.contains('admin-overlay-bg')) {
+            chatDetailOverlay.style.display = 'none';
+        }
+    });
+}
+
+// ================================================================
+//  在线人数轮播：数字只在变化时更新，文字每秒轮播
+// ================================================================
+(function initOnlineCarousel() {
+    var phrases = ['🤔🤔', '发癫', '😈😈', '智斗', '😋😋', '激战', '😎😎', '对决', '😱😱', '交锋', '🤯🤯', '切磋', '🤡🤡', '博弈', '😡😡', '比拼', '😋😋', '斗智'];
+    var displayPhrases = phrases.concat(phrases[0]);
+    var currentIndex = 0;
+    var carousel = document.getElementById('online-text-carousel');
+    if (!carousel) return;
+
+    // 构建文字轮播结构
+    carousel.innerHTML = displayPhrases.map(function (p) {
+        return '<span>' + p + '</span>';
+    }).join('');
+
+    function scrollTo(index) {
+        carousel.style.transform = 'translateY(-' + (index * 20) + 'px)';
     }
-});
+
+    function nextPhrase() {
+        currentIndex++;
+        carousel.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
+        scrollTo(currentIndex);
+
+        if (currentIndex === phrases.length) {
+            setTimeout(function () {
+                carousel.style.transition = 'none';
+                currentIndex = 0;
+                scrollTo(0);
+            }, 400);
+        }
+    }
+
+    // 文字轮播间隔
+    setInterval(nextPhrase, 1500);
+
+    // 数字更新：仅在数值变化时更新
+    window.updateOnlineCarousel = function (count) {
+        var numEl = document.getElementById('online-num');
+        if (numEl && numEl.textContent !== String(count)) {
+            numEl.textContent = count;
+        }
+    };
+})();

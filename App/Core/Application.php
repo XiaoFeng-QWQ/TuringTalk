@@ -19,6 +19,9 @@ use App\Admin\Repository\AdminRepository;
 
 class Application
 {
+    /** 连接过载时设为 true，WebSocketHandler 据此拒绝新连接 */
+    public static bool $connectionPaused = false;
+
     private Server $server;
     private HttpHandler $httpHandler;
     private WebSocketHandler $webSocketHandler;
@@ -107,14 +110,12 @@ class Application
             // 启动表情包异步同步服务（Redis → SQLite）
             StickerService::start();
 
-            // 初始化在线人数 SQLite 存储，启动时立即记录一次
+            // 初始化在线人数 SQLite 存储
             OnlineCountRepository::initialize();
-            OnlineCountRepository::record($webSocketHandler->getGameHandler()->getGameService()->getOnlineCount());
-
-            // 每 30 分钟记录一次在线人数到 SQLite
-            \Swoole\Timer::tick(1800000, function () use ($webSocketHandler) {
+            // 每 15 分钟记录一次在线人数到 SQLite
+            \Swoole\Timer::tick(900000, function () use ($webSocketHandler) {
                 try {
-                    $count = $webSocketHandler->getGameHandler()->getGameService()->getOnlineCount();
+                    $count = $webSocketHandler->getOnlineCount();
                     OnlineCountRepository::record($count);
                     Logger::debug('Online count recorded to SQLite', ['count' => $count]);
                 } catch (\Throwable $e) {
@@ -146,24 +147,47 @@ class Application
                     'accept_count' => $stats['accept_count'] ?? 0,
                     'close_count' => $stats['close_count'] ?? 0,
                     'active_sessions' => $gameService->getActiveSessionCount(),
-                    'online' => $gameService->getOnlineCount(),
+                    'online' => $webSocketHandler->getOnlineCount(),
                     'coroutines' => $coroutineCount,
                     'memory_mb' => $memoryMB,
                     'peak_memory_mb' => $peakMemoryMB,
+                    'paused' => self::$connectionPaused,
                 ]);
 
                 $connNum = $stats['connection_num'] ?? 0;
                 $maxConn = Config::get('Server.Options.max_connection', 1024);
-                if ($connNum > $maxConn * 0.8) {
-                    Logger::warning('[HEALTH] Connection pool nearly exhausted', [
+
+                // ── 连接过载：90% 断流，70% 恢复 ──
+                if ($connNum > $maxConn * 0.9 && !self::$connectionPaused) {
+                    self::$connectionPaused = true;
+                    Logger::warning('[HEALTH] Connection PAUSED — overload', [
+                        'current' => $connNum, 'max' => $maxConn,
+                    ]);
+                } elseif (self::$connectionPaused && $connNum < $maxConn * 0.7) {
+                    self::$connectionPaused = false;
+                    Logger::info('[HEALTH] Connection RESUMED — normalized', [
                         'current' => $connNum, 'max' => $maxConn,
                     ]);
                 }
-                if ($coroutineCount > 500) {
-                    Logger::warning('[HEALTH] High coroutine count', ['coroutines' => $coroutineCount]);
-                }
+
+                // ── 内存告警：触发 GC ──
                 if ($memoryMB > 256) {
-                    Logger::warning('[HEALTH] High memory usage', ['memory_mb' => $memoryMB]);
+                    $before = $memoryMB;
+                    gc_collect_cycles();
+                    $after = round(memory_get_usage(true) / 1048576, 2);
+                    Logger::warning('[HEALTH] GC triggered by memory threshold', [
+                        'before_mb' => $before, 'after_mb' => $after,
+                        'freed_mb' => round($before - $after, 2),
+                        'coroutines' => $coroutineCount,
+                    ]);
+                }
+
+                // ── 协程数告警 ──
+                if ($coroutineCount > 500) {
+                    Logger::warning('[HEALTH] High coroutine count — possible leak', [
+                        'coroutines' => $coroutineCount,
+                        'connections' => $connNum,
+                    ]);
                 }
             });
         });

@@ -42,9 +42,7 @@
     --judge-bg: #2b2b2b;
 }
 
-/* ================================================================
-   暗色模式
-   ================================================================ */
+
 [data-theme="dark"] {
     --ink-black: #e0e0e0;
     --ink-blue: #7aa2f7;
@@ -111,6 +109,43 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+}
+
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-input);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    border: 1.5px solid var(--border-light);
+    margin: 2px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 1px 2px 0 var(--shadow-sm);
+    min-height: 30px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--note-blue);
+    border-color: var(--ink-blue);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--note-pink);
+    transform: scale(0.95);
+}
+
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--note-yellow) var(--bg-input);
 }
 
 .doodle-border {
@@ -387,7 +422,7 @@ main {
     color: var(--text-muted);
 }
 
-/* 人类 vs AI 入口卡片（与规则卡片同行） */
+
 .WhoisAI-rule-item {
     background: var(--note-green);
     border-color: var(--success);
@@ -537,7 +572,7 @@ main {
     background: var(--bg-input);
 }
 
-/* 互聊规则提示 */
+
 .chat-rule {
     display: flex;
     align-items: center;
@@ -604,7 +639,7 @@ main {
     text-align: center;
 }
 
-/* 标签选择器 */
+
 .tag-picker {
     margin-top: 8px;
     text-align: center;
@@ -1001,9 +1036,7 @@ main {
     animation: wiggle 0.6s ease-in-out 1;
 }
 
-/* ================================================================
-   全服公告横幅
-   ================================================================ */
+
 #announcement-area {
     position: fixed;
     top: 0;
@@ -1120,7 +1153,7 @@ main {
     }
 }
 
-/* 房间公告（管理警告）变体 */
+
 .announcement-banner.room-warn {
     background: var(--room-warn-bg);
     border-color: var(--room-warn-border);
@@ -1423,7 +1456,7 @@ main {
     }
 }
 
-/* 更新日志内容 */
+
 .changelog-list {
     padding-top: 5px;
 }
@@ -1453,7 +1486,7 @@ main {
     color: var(--ink-blue);
 }
 
-/* 表情大图预览 */
+
 #sticker-lightbox {
     position: fixed;
     top: 0;
@@ -1483,7 +1516,6 @@ main {
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
-/* 对局内表情发送按钮（嵌入输入框内） */
 .sticker-btn {
     position: absolute;
     left: 8px;
@@ -1509,7 +1541,7 @@ main {
     background: rgba(0, 0, 0, 0.1) !important;
 }
 
-/* 对局内表情选择器 */
+
 .sticker-picker {
     position: fixed;
     width: 260px;
@@ -1524,6 +1556,7 @@ main {
 }
 
 .sticker-picker-header {
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1535,6 +1568,8 @@ main {
 }
 
 .sticker-picker-body {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -1544,6 +1579,7 @@ main {
 }
 
 .sticker-picker-item {
+    position: relative;
     width: 46px;
     height: 46px;
     padding: 3px;
@@ -1568,10 +1604,71 @@ main {
     object-fit: contain;
 }
 
-/* 聊天区表情消息图片 */
+.sticker-picker-tabs {
+    display: flex;
+    border-bottom: 1px dashed var(--border-light);
+    flex-shrink: 0;
+}
+
+.sticker-picker-tab {
+    flex: 1;
+    text-align: center;
+    padding: 4px 0;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.sticker-picker-tab:hover {
+    color: var(--ink-blue);
+}
+
+.sticker-picker-tab.active {
+    color: var(--ink-blue);
+    border-bottom-color: var(--ink-blue);
+}
+
+.sticker-picker-item.favorited::after {
+    content: '\2605';
+    position: absolute;
+    top: -1px;
+    right: 2px;
+    font-size: 10px;
+    color: #f59e0b;
+    line-height: 1;
+    pointer-events: none;
+}
+
+
 .sticker-msg-img {
     max-width: 120px;
     max-height: 120px;
     border-radius: 8px;
     display: block;
+}
+
+
+.online-text-wrap {
+    display: inline-block;
+    overflow: hidden;
+    height: 20px;
+    line-height: 20px;
+    vertical-align: text-bottom;
+    text-align: center;
+    position: relative;
+    top: 3px;
+}
+
+#online-text-carousel {
+    display: block;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#online-text-carousel span {
+    display: block;
+    height: 20px;
+    line-height: 20px;
 }

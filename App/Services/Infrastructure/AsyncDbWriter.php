@@ -39,6 +39,15 @@ class AsyncDbWriter
             }
         });
 
+        // 独立消费聊天室消息队列（1s 一次，降低频率避免高频抢占）
+        Timer::tick(1000, function () {
+            try {
+                self::drainLobby();
+            } catch (\Throwable $e) {
+                Logger::error('AsyncDbWriter lobby drain error: ' . $e->getMessage());
+            }
+        });
+
         Logger::info('AsyncDbWriter started', [
             'batch_size' => self::BATCH_SIZE,
             'interval_ms' => self::DRAIN_INTERVAL_MS,
@@ -69,6 +78,20 @@ class AsyncDbWriter
                 'player1' => $players[0] ?? '',
                 'player2' => $players[1] ?? '',
                 'duration' => $duration,
+            ],
+        ]);
+    }
+
+    /**
+     * 推送 WhoisAI 战绩写入任务
+     */
+    public static function pushWhoisAIStats(string $code, bool $win): void
+    {
+        self::push([
+            'type' => 'whoisai_stats',
+            'data' => [
+                'code' => $code,
+                'win'  => $win,
             ],
         ]);
     }
@@ -130,6 +153,10 @@ class AsyncDbWriter
             case 'report_chat':
                 self::processReportChat($task['data']);
                 break;
+
+            case 'whoisai_stats':
+                self::processWhoisAIStats($task['data']);
+                break;
         }
     }
 
@@ -147,5 +174,88 @@ class AsyncDbWriter
             $data['player2'],
             $data['duration']
         );
+    }
+
+    private static function processWhoisAIStats(array $data): void
+    {
+        PlayerStatsRepository::recordWhoisAIGame($data['code'], (bool)$data['win']);
+    }
+
+    // ==================== 聊天室消息队列 ====================
+
+    /**
+     * 消费聊天室写入队列
+     */
+    private static function drainLobby(): void
+    {
+        $redis = RedisService::connect();
+        $processed = 0;
+
+        for ($i = 0; $i < self::BATCH_SIZE; $i++) {
+            $raw = $redis->lPop(RedisService::KP_LOBBY_WRITE_Q);
+            if ($raw === false || $raw === null) break;
+
+            $msg = json_decode($raw, true);
+            if (!$msg || empty($msg['id'])) continue;
+
+            try {
+                self::processLobbyMsg($msg);
+                $processed++;
+            } catch (\Throwable $e) {
+                Logger::error('AsyncDbWriter lobby msg insert failed', [
+                    'msg_id' => $msg['id'] ?? 0,
+                    'error'  => $e->getMessage(),
+                ]);
+            }
+        }
+
+        if ($processed > 0) {
+            Logger::debug('AsyncDbWriter lobby drained', ['processed' => $processed]);
+        }
+    }
+
+    private static function processLobbyMsg(array $msg): void
+    {
+        $tableName = self::ensureLobbyTable();
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            "INSERT IGNORE INTO {$tableName} (id, sender_name, sender_ip, sender_fp, content, reply_to_id, reply_to_name, reply_to_text, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        );
+        $stmt->execute([
+            $msg['id'],
+            $msg['sender_name'] ?? '',
+            $msg['sender_ip'] ?? '',
+            $msg['sender_fp'] ?? '',
+            $msg['content'] ?? '',
+            $msg['reply_to']['id'] ?? null,
+            $msg['reply_to']['name'] ?? null,
+            $msg['reply_to']['text'] ?? null,
+            $msg['created_at'] ?? date('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private static function ensureLobbyTable(): string
+    {
+        $tableName = 'lobby_messages_' . date('Ym');
+
+        $pdo = Database::connect();
+        $pdo->exec("CREATE TABLE IF NOT EXISTS {$tableName} (
+            id            BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+            sender_name   VARCHAR(32)  NOT NULL DEFAULT '',
+            sender_ip     VARCHAR(45)  NOT NULL DEFAULT '',
+            sender_fp     VARCHAR(64)  NOT NULL DEFAULT '',
+            content       TEXT         NOT NULL,
+            reply_to_id   BIGINT UNSIGNED NULL DEFAULT NULL,
+            reply_to_name VARCHAR(32)  NULL DEFAULT NULL,
+            reply_to_text VARCHAR(300) NULL DEFAULT NULL,
+            is_deleted    TINYINT(1)   NOT NULL DEFAULT 0,
+            created_at    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+            INDEX idx_created (created_at),
+            INDEX idx_ip     (sender_ip)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        return $tableName;
     }
 }

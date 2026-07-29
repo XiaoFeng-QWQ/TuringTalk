@@ -58,21 +58,12 @@ class BanRepository
     }
 
     /**
-     * 检查 IP 或指纹是否被封禁（内存 Table 优先，SQLite 兜底）
+     * 检查 IP 或指纹是否被封禁
      */
     public static function isBanned(string $ip, string $fingerprint): bool
     {
         if ((empty($ip) || $ip === 'unknown') && empty($fingerprint)) return false;
 
-        // 第一层：内存 Table（快，O(1)）
-        if (!empty($ip) && $ip !== 'unknown' && self::$ipTable->exists($ip)) {
-            return true;
-        }
-        if (!empty($fingerprint) && self::$fpTable->exists($fingerprint)) {
-            return true;
-        }
-
-        // 第二层：SQLite 兜底（Worker 重启后 Table 为空但 SQLite 有数据）
         try {
             $pdo = self::sqliteConnect();
             $conditions = [];
@@ -95,15 +86,6 @@ class BanRepository
             $stmt->execute($params);
             $found = (bool)$stmt->fetchColumn();
             $pdo = null;
-
-            // 如果 SQLite 中有但 Table 中没有，补写回 Table（自愈）
-            if ($found && !empty($ip) && $ip !== 'unknown' && !self::$ipTable->exists($ip)) {
-                self::$ipTable->set($ip, ['present' => 1]);
-                Logger::debug('BanRepository: repopulated IP ban from SQLite', ['ip' => $ip]);
-            }
-            if ($found && !empty($fingerprint) && !self::$fpTable->exists($fingerprint)) {
-                self::$fpTable->set($fingerprint, ['present' => 1]);
-            }
 
             return $found;
         } catch (\Throwable $e) {

@@ -1,7 +1,4 @@
-# TuringTalk
-用DeepSeek-v4-pro维护的项目非常的💩代码就别细看了
-
-在线匿名图灵测试聊天游戏。你和一个对手聊天，猜对面是真人还是 AI。
+![TuringTalk 项目社交卡片](https://socialify.git.ci/XiaoFeng-QWQ/TuringTalk/image?description=1&font=KoHo&forks=1&issues=1&language=1&name=1&owner=1&pattern=Floating+Cogs&pulls=1&stargazers=1&theme=Auto)
 
 ## 怎么玩
 
