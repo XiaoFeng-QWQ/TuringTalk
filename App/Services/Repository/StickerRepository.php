@@ -48,6 +48,11 @@ class StickerRepository
             created_at TEXT DEFAULT (datetime(\'now\', \'localtime\'))
         )');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_stickers_created ON stickers(created_at)');
+        $pdo->exec('CREATE TABLE IF NOT EXISTS sticker_meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )');
+        $pdo->exec('INSERT OR IGNORE INTO sticker_meta (key, value) VALUES (\'version\', \'1\')');
     }
 
     /**
@@ -80,6 +85,46 @@ class StickerRepository
         $pdo = self::connect();
         $stmt = $pdo->query('SELECT id, name, url FROM stickers ORDER BY created_at DESC');
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * 获取当前全局版本号
+     */
+    public static function getVersion(): int
+    {
+        $pdo = self::connect();
+        $stmt = $pdo->prepare('SELECT value FROM sticker_meta WHERE key = ?');
+        $stmt->execute(['version']);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? (int)$row['value'] : 0;
+    }
+
+    /**
+     * 递增全局版本号（表情增删时调用）
+     */
+    public static function incrementVersion(): void
+    {
+        $pdo = self::connect();
+        $pdo->exec('UPDATE sticker_meta SET value = CAST(value AS INTEGER) + 1 WHERE key = \'version\'');
+    }
+
+    /**
+     * 根据客户端版本号返回差异数据
+     * 版本一致 → ['unchanged' => true, 'version' => $v]
+     * 版本落后 → ['version' => $v, 'stickers' => [...全量列表]]
+     */
+    public static function getDiff(int $sinceVersion): array
+    {
+        $currentVersion = self::getVersion();
+
+        if ($sinceVersion >= $currentVersion) {
+            return ['unchanged' => true, 'version' => $currentVersion];
+        }
+
+        return [
+            'version'  => $currentVersion,
+            'stickers' => self::all(),
+        ];
     }
 
     /**

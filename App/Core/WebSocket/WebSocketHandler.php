@@ -176,6 +176,11 @@ class WebSocketHandler
         return $this->routeByPath['/ws/WhoisAI'] ?? null;
     }
 
+    public function getLobbyHandler(): LobbyChatWebSocketHandler
+    {
+        return $this->routeByPath['/ws/lobby'] ?? null;
+    }
+
     // ==================== 在线人数广播 ====================
 
     public function getOnlineCount(): int

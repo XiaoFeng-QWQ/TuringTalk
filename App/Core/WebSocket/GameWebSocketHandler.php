@@ -19,13 +19,21 @@ use App\Services\Repository\BanRepository;
 use App\Services\Repository\ReportRepository;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
-use App\Services\Infrastructure\StickerService;
 
 class GameWebSocketHandler extends BaseGameHandler
 {
-    public static function routePath(): string { return '/ws'; }
-    public static function routePrefix(): string { return ''; }
-    public function getService(): object { return $this->gameService; }
+    public static function routePath(): string
+    {
+        return '/ws';
+    }
+    public static function routePrefix(): string
+    {
+        return '';
+    }
+    public function getService(): object
+    {
+        return $this->gameService;
+    }
 
     private GameService $gameService;
     private MatchService $matchService;
@@ -134,7 +142,7 @@ class GameWebSocketHandler extends BaseGameHandler
                     $this->handleAdminVerify($server, $fd, $data);
                     break;
                 case 'get_stickers':
-                    $this->handleGetStickers($server, $fd);
+                    $this->handleGetStickers($server, $fd, $data);
                     break;
                 case 'sticker':
                     $this->handleSticker($server, $fd, $data);
@@ -225,7 +233,6 @@ class GameWebSocketHandler extends BaseGameHandler
                     'session_id' => $sessionId,
                     'opponent_name' => $this->getOpponentName($session, $opponentFd),
                 ]);
-
             }
 
             // 转换为 finished 状态，启动标准清理流程
@@ -766,7 +773,9 @@ class GameWebSocketHandler extends BaseGameHandler
                         $this->botService->addToHistory($sessionId, 'assistant', $fallbackReply);
                         if ($server->isEstablished($fd)) {
                             $this->sendToPlayer($server, $fd, [
-                                'type' => 'message', 'text' => $fallbackReply, 'sender' => '对方',
+                                'type' => 'message',
+                                'text' => $fallbackReply,
+                                'sender' => '对方',
                             ]);
                             GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, 'left');
                         }
@@ -783,7 +792,9 @@ class GameWebSocketHandler extends BaseGameHandler
                         $this->botService->addToHistory($sessionId, 'assistant', $fallbackReply);
                         if ($server->isEstablished($fd)) {
                             $this->sendToPlayer($server, $fd, [
-                                'type' => 'message', 'text' => $fallbackReply, 'sender' => '对方',
+                                'type' => 'message',
+                                'text' => $fallbackReply,
+                                'sender' => '对方',
                             ]);
                             GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, 'left');
                         }
@@ -910,230 +921,230 @@ class GameWebSocketHandler extends BaseGameHandler
                 return;
             }
 
-        $index = $this->gameService->getPlayerIndex($fd);
-        $guessKey = $index === 1 ? 'player1_guess' : 'player2_guess';
-        if (!empty($session[$guessKey])) {
-            $this->sendError($server, $fd, '您已经提交过判定了');
-            return;
-        }
-
-        try {
-            $result = $this->gameService->recordGuess($fd, $guess, $tag);
-            $updated = $result['session'];
-            $sessionId = $updated['id'];
-            $opponentFd = $this->gameService->getOpponentFd($fd);
-
-            Logger::info('Judge recorded', [
-                'session_id' => $sessionId,
-                'fd' => $fd,
-                'guess' => $guess,
-                'both_judged' => $result['completed'],
-            ]);
-
-            // 通知旁观者有人判定（bot 对局跳过，botJudge 会立即补发；去重防重复）
-            if ($opponentFd > 0) {
-                $roleLabel = $index === 1 ? '玩家1' : '玩家2';
-                if (empty($this->spectateJudged[$sessionId][$index])) {
-                    $this->spectateJudged[$sessionId][$index] = true;
-                    $this->sendToSpectators($server, $sessionId, [
-                        'type' => 'spectate_system',
-                        'text' => $roleLabel . ' 已做出判定',
-                    ]);
-                }
+            $index = $this->gameService->getPlayerIndex($fd);
+            $guessKey = $index === 1 ? 'player1_guess' : 'player2_guess';
+            if (!empty($session[$guessKey])) {
+                $this->sendError($server, $fd, '您已经提交过判定了');
+                return;
             }
 
-            if ($result['completed']) {
-                Logger::info('Both players judged, session complete', ['session_id' => $sessionId]);
-                $this->clearSessionTimers($sessionId);
+            try {
+                $result = $this->gameService->recordGuess($fd, $guess, $tag);
+                $updated = $result['session'];
+                $sessionId = $updated['id'];
+                $opponentFd = $this->gameService->getOpponentFd($fd);
 
-                // 检查互聊规则：双方必须至少发一条消息，否则平局且不记录数据
-                [$p1Msg, $p2Msg] = GameService::getPlayerMessageCounts($sessionId);
-                $mutualChat = ($p1Msg >= 1 && $p2Msg >= 1);
-                if ($opponentFd === 0) {
-                    $mutualChat = ($p1Msg >= 1); // Bot 对局只看人类玩家
+                Logger::info('Judge recorded', [
+                    'session_id' => $sessionId,
+                    'fd' => $fd,
+                    'guess' => $guess,
+                    'both_judged' => $result['completed'],
+                ]);
+
+                // 通知旁观者有人判定（bot 对局跳过，botJudge 会立即补发；去重防重复）
+                if ($opponentFd > 0) {
+                    $roleLabel = $index === 1 ? '玩家1' : '玩家2';
+                    if (empty($this->spectateJudged[$sessionId][$index])) {
+                        $this->spectateJudged[$sessionId][$index] = true;
+                        $this->sendToSpectators($server, $sessionId, [
+                            'type' => 'spectate_system',
+                            'text' => $roleLabel . ' 已做出判定',
+                        ]);
+                    }
                 }
 
-                if (!$mutualChat) {
-                    Logger::warning('Mutual chat rule failed, game is no-data draw', ['session_id' => $sessionId]);
-                    $myIndex = $this->gameService->getPlayerIndex($fd);
-                    $opponentIndex = $myIndex === 1 ? 2 : 1;
-                    $myName = $session['player' . $myIndex . '_nickname'] ?? '';
-                    $opponentName = $session['player' . $opponentIndex . '_nickname'] ?? '';
-                    $this->sendToPlayer($server, $fd, [
-                        'type' => 'timeout',
-                        'reason' => 'no_mutual_chat',
-                        'session_id' => $sessionId,
-                        'opponent_name' => $myName ?? '',
-                    ]);
-                    if ($opponentFd > 0) {
-                        $this->sendToPlayer($server, $opponentFd, [
+                if ($result['completed']) {
+                    Logger::info('Both players judged, session complete', ['session_id' => $sessionId]);
+                    $this->clearSessionTimers($sessionId);
+
+                    // 检查互聊规则：双方必须至少发一条消息，否则平局且不记录数据
+                    [$p1Msg, $p2Msg] = GameService::getPlayerMessageCounts($sessionId);
+                    $mutualChat = ($p1Msg >= 1 && $p2Msg >= 1);
+                    if ($opponentFd === 0) {
+                        $mutualChat = ($p1Msg >= 1); // Bot 对局只看人类玩家
+                    }
+
+                    if (!$mutualChat) {
+                        Logger::warning('Mutual chat rule failed, game is no-data draw', ['session_id' => $sessionId]);
+                        $myIndex = $this->gameService->getPlayerIndex($fd);
+                        $opponentIndex = $myIndex === 1 ? 2 : 1;
+                        $myName = $session['player' . $myIndex . '_nickname'] ?? '';
+                        $opponentName = $session['player' . $opponentIndex . '_nickname'] ?? '';
+                        $this->sendToPlayer($server, $fd, [
                             'type' => 'timeout',
                             'reason' => 'no_mutual_chat',
                             'session_id' => $sessionId,
-                            'opponent_name' => $opponentName ?? '',
+                            'opponent_name' => $myName ?? '',
                         ]);
-                    }
-                    $this->sendToSpectators($server, $sessionId, [
-                        'type' => 'spectate_ended',
-                        'session_id' => $sessionId,
-                        'reason' => 'no_mutual_chat',
-                    ]);
-                    $this->gameService->transitionState($sessionId, 'finished');
-                    $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
-                        unset($this->cleanupTimers[$sessionId]);
-                        $this->cleanupSessionWithReportCheck($sessionId);
-                    });
-                    return;
-                }
-
-                $myIndex = $this->gameService->getPlayerIndex($fd);
-                $opponentIndex = $myIndex === 1 ? 2 : 1;
-                $opponentGuessKey = 'player' . $opponentIndex . '_guess';
-                $myGuessKey = 'player' . $myIndex . '_guess';
-
-                $opponentTagKey = 'player' . $opponentIndex . '_tag';
-                $myTagKey = 'player' . $myIndex . '_tag';
-
-                $myTruth = $this->gameService->getPlayerTruth($fd);
-                $myName = $session['player' . $myIndex . '_nickname'] ?? '';
-                if ($opponentFd > 0) {
-                    $opponentName = $session['player' . $opponentIndex . '_nickname'] ?? '';
-                    $this->sendToPlayer($server, $opponentFd, [
-                        'type' => 'judged',
-                        'truth' => $myTruth,
-                        'opponent_guess' => $updated[$myGuessKey],
-                        'opponent_tag' => $updated[$myTagKey] ?? '',
-                        'session_id' => $sessionId,
-                        'opponent_name' => $myName,
-                        'recovery_code' => $opponentName ? $this->getOrCreatePlayerCode($opponentFd, $opponentName) : null,
-                    ]);
-                }
-
-                $opponentTruth = $this->gameService->getPlayerTruth($opponentFd);
-                $opponentName = $session['player' . $opponentIndex . '_nickname'] ?? '';
-                $this->sendToPlayer($server, $fd, [
-                    'type' => 'judged',
-                    'truth' => $opponentTruth,
-                    'opponent_guess' => $updated[$opponentGuessKey],
-                    'opponent_tag' => $updated[$opponentTagKey],
-                    'session_id' => $sessionId,
-                    'opponent_name' => $opponentName,
-                    'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
-                ]);
-
-                // 通知旁观者结果
-                $p1Truth = $session['player1_truth'] === 'human' ? '人类' : 'AI';
-                $p2Truth = $session['player2_truth'] === 'human' ? '人类' : 'AI';
-                $this->sendToSpectators($server, $sessionId, [
-                    'type' => 'spectate_ended',
-                    'session_id' => $sessionId,
-                    'reason' => '双方判定完成',
-                    'result' => [
-                        'player1_truth' => $p1Truth,
-                        'player2_truth' => $p2Truth,
-                    ],
-                ]);
-
-                $this->gameService->transitionState($sessionId, 'finished');
-
-                // 异步写入双方战绩
-                $this->pushGameResult($updated, $sessionId, $fd, $updated[$myGuessKey], $opponentTruth, null);
-                if ($opponentFd > 0) {
-                    $this->pushGameResult($updated, $sessionId, $opponentFd, $updated[$opponentGuessKey], $myTruth, null);
-                }
-
-                $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
-                    unset($this->cleanupTimers[$sessionId]);
-                    $this->cleanupSessionWithReportCheck($sessionId);
-                });
-            } else {
-                // 一方已判定，切换为判定阶段并启动服务端倒计时
-                if ($session['state'] === 'chatting') {
-                    if (isset($this->chatTimers[$sessionId])) {
-                        Timer::clear($this->chatTimers[$sessionId]);
-                        unset($this->chatTimers[$sessionId]);
-                    }
-                    if ($opponentFd === 0) {
-                        $this->stopBotChat($sessionId);
-                    }
-                    $this->gameService->transitionState($sessionId, 'judging');
-                    $this->startJudgementTimer($server, $sessionId);
-                }
-
-                if ($opponentFd > 0) {
-                    // 对方可能并发提交了，检查是否已有判定记录
-                    $opponentGuessKey = 'player' . ($index === 1 ? 2 : 1) . '_guess';
-                    if (!empty($updated[$opponentGuessKey])) {
-                        // 对方已提交判定，走完成流程
-                        Logger::warning('Opponent already judged, skip notify and force complete', [
-                            'session_id' => $sessionId,
-                            'fd' => $fd,
-                        ]);
-                        $this->handleConcurrentComplete($server, $fd, $updated, $sessionId, $opponentFd);
-                        return;
-                    }
-
-                    $judgementTimeout = Config::get('Game.JudgementTimeout', 60);
-                    $this->sendToPlayer($server, $opponentFd, [
-                        'type' => 'judge_notify',
-                        'message' => '对方已做出判断，你需要在 ' . $judgementTimeout . ' 秒内完成判定，否则判负',
-                        'seconds_remaining' => $judgementTimeout,
-                    ]);
-                }
-
-                if ($opponentFd === 0) {
-                    // AI 对手：直接返回判定结果，无需等待 Bot 决策过程
-                    $botGuess = 'human';
-                    $botResult = $this->gameService->recordBotGuess($sessionId, $botGuess);
-
-                    $opponentTruth = 'ai';
-                    $myName = $session['player' . $index . '_nickname'] ?? '';
-                    $this->sendToPlayer($server, $fd, [
-                        'type' => 'judged',
-                        'truth' => $opponentTruth,
-                        'opponent_guess' => $botGuess,
-                        'session_id' => $sessionId,
-                        'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
-                    ]);
-
-                    // 通知旁观者
-                    $this->sendToSpectators($server, $sessionId, [
-                        'type' => 'spectate_system',
-                        'text' => 'Bot(AI) 已做出判定',
-                    ]);
-
-                    if ($botResult['completed']) {
-                        Logger::info('Both judged (immediate bot), session complete', ['session_id' => $sessionId]);
+                        if ($opponentFd > 0) {
+                            $this->sendToPlayer($server, $opponentFd, [
+                                'type' => 'timeout',
+                                'reason' => 'no_mutual_chat',
+                                'session_id' => $sessionId,
+                                'opponent_name' => $opponentName ?? '',
+                            ]);
+                        }
                         $this->sendToSpectators($server, $sessionId, [
                             'type' => 'spectate_ended',
                             'session_id' => $sessionId,
-                            'reason' => '双方判定完成',
-                            'result' => [
-                                'player1_truth' => $session['player1_truth'] === 'human' ? '人类' : 'AI',
-                                'player2_truth' => 'AI',
-                            ],
+                            'reason' => 'no_mutual_chat',
                         ]);
                         $this->gameService->transitionState($sessionId, 'finished');
-
-                        // 检查互聊规则（Bot 对局，只要求人类玩家发过消息）
-                        [$p1Msg] = GameService::getPlayerMessageCounts($sessionId);
-                        if ($p1Msg >= 1) {
-                        } else {
-                            Logger::warning('Mutual chat rule failed (bot), game is no-data draw', ['session_id' => $sessionId]);
-                            $this->sendToPlayer($server, $fd, ['type' => 'timeout', 'reason' => 'no_mutual_chat', 'opponent_truth' => 'ai', 'session_id' => $sessionId, 'opponent_name' => 'AI Bot']);
-                        }
-
                         $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                             unset($this->cleanupTimers[$sessionId]);
                             $this->cleanupSessionWithReportCheck($sessionId);
                         });
+                        return;
                     }
-                    return;
+
+                    $myIndex = $this->gameService->getPlayerIndex($fd);
+                    $opponentIndex = $myIndex === 1 ? 2 : 1;
+                    $opponentGuessKey = 'player' . $opponentIndex . '_guess';
+                    $myGuessKey = 'player' . $myIndex . '_guess';
+
+                    $opponentTagKey = 'player' . $opponentIndex . '_tag';
+                    $myTagKey = 'player' . $myIndex . '_tag';
+
+                    $myTruth = $this->gameService->getPlayerTruth($fd);
+                    $myName = $session['player' . $myIndex . '_nickname'] ?? '';
+                    if ($opponentFd > 0) {
+                        $opponentName = $session['player' . $opponentIndex . '_nickname'] ?? '';
+                        $this->sendToPlayer($server, $opponentFd, [
+                            'type' => 'judged',
+                            'truth' => $myTruth,
+                            'opponent_guess' => $updated[$myGuessKey],
+                            'opponent_tag' => $updated[$myTagKey] ?? '',
+                            'session_id' => $sessionId,
+                            'opponent_name' => $myName,
+                            'recovery_code' => $opponentName ? $this->getOrCreatePlayerCode($opponentFd, $opponentName) : null,
+                        ]);
+                    }
+
+                    $opponentTruth = $this->gameService->getPlayerTruth($opponentFd);
+                    $opponentName = $session['player' . $opponentIndex . '_nickname'] ?? '';
+                    $this->sendToPlayer($server, $fd, [
+                        'type' => 'judged',
+                        'truth' => $opponentTruth,
+                        'opponent_guess' => $updated[$opponentGuessKey],
+                        'opponent_tag' => $updated[$opponentTagKey],
+                        'session_id' => $sessionId,
+                        'opponent_name' => $opponentName,
+                        'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
+                    ]);
+
+                    // 通知旁观者结果
+                    $p1Truth = $session['player1_truth'] === 'human' ? '人类' : 'AI';
+                    $p2Truth = $session['player2_truth'] === 'human' ? '人类' : 'AI';
+                    $this->sendToSpectators($server, $sessionId, [
+                        'type' => 'spectate_ended',
+                        'session_id' => $sessionId,
+                        'reason' => '双方判定完成',
+                        'result' => [
+                            'player1_truth' => $p1Truth,
+                            'player2_truth' => $p2Truth,
+                        ],
+                    ]);
+
+                    $this->gameService->transitionState($sessionId, 'finished');
+
+                    // 异步写入双方战绩
+                    $this->pushGameResult($updated, $sessionId, $fd, $updated[$myGuessKey], $opponentTruth, null);
+                    if ($opponentFd > 0) {
+                        $this->pushGameResult($updated, $sessionId, $opponentFd, $updated[$opponentGuessKey], $myTruth, null);
+                    }
+
+                    $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
+                        unset($this->cleanupTimers[$sessionId]);
+                        $this->cleanupSessionWithReportCheck($sessionId);
+                    });
+                } else {
+                    // 一方已判定，切换为判定阶段并启动服务端倒计时
+                    if ($session['state'] === 'chatting') {
+                        if (isset($this->chatTimers[$sessionId])) {
+                            Timer::clear($this->chatTimers[$sessionId]);
+                            unset($this->chatTimers[$sessionId]);
+                        }
+                        if ($opponentFd === 0) {
+                            $this->stopBotChat($sessionId);
+                        }
+                        $this->gameService->transitionState($sessionId, 'judging');
+                        $this->startJudgementTimer($server, $sessionId);
+                    }
+
+                    if ($opponentFd > 0) {
+                        // 对方可能并发提交了，检查是否已有判定记录
+                        $opponentGuessKey = 'player' . ($index === 1 ? 2 : 1) . '_guess';
+                        if (!empty($updated[$opponentGuessKey])) {
+                            // 对方已提交判定，走完成流程
+                            Logger::warning('Opponent already judged, skip notify and force complete', [
+                                'session_id' => $sessionId,
+                                'fd' => $fd,
+                            ]);
+                            $this->handleConcurrentComplete($server, $fd, $updated, $sessionId, $opponentFd);
+                            return;
+                        }
+
+                        $judgementTimeout = Config::get('Game.JudgementTimeout', 60);
+                        $this->sendToPlayer($server, $opponentFd, [
+                            'type' => 'judge_notify',
+                            'message' => '对方已做出判断，你需要在 ' . $judgementTimeout . ' 秒内完成判定，否则判负',
+                            'seconds_remaining' => $judgementTimeout,
+                        ]);
+                    }
+
+                    if ($opponentFd === 0) {
+                        // AI 对手：直接返回判定结果，无需等待 Bot 决策过程
+                        $botGuess = 'human';
+                        $botResult = $this->gameService->recordBotGuess($sessionId, $botGuess);
+
+                        $opponentTruth = 'ai';
+                        $myName = $session['player' . $index . '_nickname'] ?? '';
+                        $this->sendToPlayer($server, $fd, [
+                            'type' => 'judged',
+                            'truth' => $opponentTruth,
+                            'opponent_guess' => $botGuess,
+                            'session_id' => $sessionId,
+                            'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
+                        ]);
+
+                        // 通知旁观者
+                        $this->sendToSpectators($server, $sessionId, [
+                            'type' => 'spectate_system',
+                            'text' => 'Bot(AI) 已做出判定',
+                        ]);
+
+                        if ($botResult['completed']) {
+                            Logger::info('Both judged (immediate bot), session complete', ['session_id' => $sessionId]);
+                            $this->sendToSpectators($server, $sessionId, [
+                                'type' => 'spectate_ended',
+                                'session_id' => $sessionId,
+                                'reason' => '双方判定完成',
+                                'result' => [
+                                    'player1_truth' => $session['player1_truth'] === 'human' ? '人类' : 'AI',
+                                    'player2_truth' => 'AI',
+                                ],
+                            ]);
+                            $this->gameService->transitionState($sessionId, 'finished');
+
+                            // 检查互聊规则（Bot 对局，只要求人类玩家发过消息）
+                            [$p1Msg] = GameService::getPlayerMessageCounts($sessionId);
+                            if ($p1Msg >= 1) {
+                            } else {
+                                Logger::warning('Mutual chat rule failed (bot), game is no-data draw', ['session_id' => $sessionId]);
+                                $this->sendToPlayer($server, $fd, ['type' => 'timeout', 'reason' => 'no_mutual_chat', 'opponent_truth' => 'ai', 'session_id' => $sessionId, 'opponent_name' => 'AI Bot']);
+                            }
+
+                            $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
+                                unset($this->cleanupTimers[$sessionId]);
+                                $this->cleanupSessionWithReportCheck($sessionId);
+                            });
+                        }
+                        return;
+                    }
                 }
+            } catch (\RuntimeException $e) {
+                $this->sendError($server, $fd, $e->getMessage());
             }
-        } catch (\RuntimeException $e) {
-            $this->sendError($server, $fd, $e->getMessage());
-        }
         } finally {
             $lockHoldMs = round((microtime(true) - $lockHoldStart) * 1000, 2);
             GameService::releaseSessionLock($session['id']);
@@ -1402,27 +1413,6 @@ class GameWebSocketHandler extends BaseGameHandler
         ]);
     }
 
-
-    /**
-     * 玩家获取表情列表（无需管理员权限，仅返回 id+name，不含 URL 防止伪造）
-     */
-    private function handleGetStickers(Server $server, int $fd): void
-    {
-        $stickers = StickerService::list();
-        $result = [];
-        foreach ($stickers as $s) {
-            $result[] = [
-                'id'   => $s['id'],
-                'name' => $s['name'] ?? '',
-                'url'  => $s['url'] ?? '',
-            ];
-        }
-        $this->sendToPlayer($server, $fd, [
-            'type' => 'stickers_list',
-            'stickers' => $result,
-        ]);
-    }
-
     /**
      * 玩家在对局内发送表情
      *
@@ -1463,7 +1453,8 @@ class GameWebSocketHandler extends BaseGameHandler
         // 自匹配防御
         if ($opponentFd === $fd) {
             Logger::error('SELF-MATCH detected in handleSticker', [
-                'fd' => $fd, 'session_id' => $sessionId,
+                'fd' => $fd,
+                'session_id' => $sessionId,
             ]);
             return;
         }
@@ -2067,8 +2058,10 @@ class GameWebSocketHandler extends BaseGameHandler
         if (!$isPlayer1 && $player2Fd > 0 && $server->isEstablished($player2Fd)) {
             // 两个旧 fd 都还活着？（不太可能，但兜底）
             Logger::warning('restoreReconnectedSession: both fds still established', [
-                'new_fd' => $newFd, 'session_id' => $sessionId,
-                'player1_fd' => $player1Fd, 'player2_fd' => $player2Fd,
+                'new_fd' => $newFd,
+                'session_id' => $sessionId,
+                'player1_fd' => $player1Fd,
+                'player2_fd' => $player2Fd,
             ]);
             $this->matchService->enqueue($newFd, $session['player' . ($isPlayer1 ? '1' : '2') . '_nickname'] ?? '玩家', (int)$session['duration']);
             return;

@@ -23,6 +23,7 @@
     const $stickerPicker = document.getElementById('lobby-sticker-picker');
     const $stickerPickerBody = document.getElementById('lobby-sticker-picker-body');
     const $btnCloseStickerPicker = document.getElementById('lobby-btn-close-sticker-picker');
+    const $btnManageSticker = document.getElementById('lobby-btn-manage-sticker');
     const $stickerLightbox = document.getElementById('lobby-sticker-lightbox');
     const $stickerLightboxImg = document.getElementById('lobby-sticker-lightbox-img');
     const $stickerLightboxClose = document.getElementById('lobby-sticker-lightbox-close');
@@ -34,6 +35,7 @@
     const $replyPreviewText = document.getElementById('lobby-reply-preview-text');
     const $replyPreviewCancel = document.getElementById('lobby-reply-preview-cancel');
     const $connStatus = document.getElementById('lobby-connection-status');
+    const $btnNotify = document.getElementById('lobby-btn-notify');
     // 身份状态 DOM
     const $recoverNickname = document.getElementById('lobby-recover-nickname');
     const $recoverInput  = document.getElementById('lobby-recover-input');
@@ -57,6 +59,80 @@
     let stickyScroll = false;
     let onlinePlayers = [];      // [{ fd, nickname }] — 在线玩家列表
     let onlinePlayerCount = 0;   // 缓存在线人数，用于右上角状态栏显示
+
+    // ==================== 浏览器通知 ====================
+    let notifyEnabled = getUserdata().lobby_notify ?? false;
+
+    function updateNotifyUI() {
+        if (!$btnNotify) return;
+        if (notifyEnabled) {
+            $btnNotify.classList.add('enabled');
+            $btnNotify.title = '通知已开启';
+        } else {
+            $btnNotify.classList.remove('enabled');
+            $btnNotify.title = '通知已关闭';
+        }
+    }
+
+    function requestNotifyPermission() {
+        if (!('Notification' in window)) return;
+        if (Notification.permission === 'granted') return;
+        if (Notification.permission === 'denied') {
+            showTopToast('通知权限已被浏览器拒绝，请在浏览器设置中开启', true);
+            return;
+        }
+        Notification.requestPermission().then(function (perm) {
+            if (perm === 'granted') {
+                notifyEnabled = true;
+                (ud => { ud.lobby_notify = true; saveUserdata(ud); })(getUserdata());
+                updateNotifyUI();
+                showTopToast('通知已开启 — 有人@你或切后台时会提醒', false);
+            } else {
+                notifyEnabled = false;
+                (ud => { ud.lobby_notify = false; saveUserdata(ud); })(getUserdata());
+                updateNotifyUI();
+                showTopToast('通知权限未授权', true);
+            }
+        });
+    }
+
+    function sendNotification(title, body) {
+        if (!notifyEnabled) return;
+        if (!('Notification' in window)) return;
+        if (Notification.permission !== 'granted') return;
+        try {
+            new Notification(title, {
+                body: body,
+                icon: '/favicon.svg'
+            });
+        } catch (e) {
+            // 忽略通知失败
+        }
+    }
+
+    $btnNotify.addEventListener('click', function () {
+        if (!notifyEnabled) {
+            if (!('Notification' in window)) {
+                showTopToast('当前浏览器不支持通知功能', true);
+                return;
+            }
+            if (Notification.permission === 'granted') {
+                notifyEnabled = true;
+                (ud => { ud.lobby_notify = true; saveUserdata(ud); })(getUserdata());
+                updateNotifyUI();
+                showTopToast('通知已开启', false);
+            } else if (Notification.permission === 'denied') {
+                showTopToast('通知权限已被拒绝，请在浏览器设置中开启', true);
+            } else {
+                requestNotifyPermission();
+            }
+        } else {
+            notifyEnabled = false;
+            (ud => { ud.lobby_notify = false; saveUserdata(ud); })(getUserdata());
+            updateNotifyUI();
+            showTopToast('通知已关闭', true);
+        }
+    });
 
     // ==================== WebSocket ====================
     function connect() {
@@ -271,6 +347,11 @@
 
             case 'lobby_chat':
                 appendMessage(data);
+                if (data.sender_name !== myNickname && document.hidden) {
+                    var preview = data.content || '';
+                    if (preview.length > 60) preview = preview.substring(0, 60) + '...';
+                    sendNotification(data.sender_name, preview);
+                }
                 break;
 
             case 'lobby_joined':
@@ -300,6 +381,16 @@
             case 'lobby_mentioned':
                 showTopToast(data.sender_name + ' 在聊天中@了你', false);
                 highlightMentionedMessage(data.message_id);
+                sendNotification('有人@了你', data.sender_name + ' 在公共聊天室提到了你');
+                break;
+
+            case 'system':
+                if (data.text && data.text.includes('已有活跃连接')) {
+                    showTopToast(data.text, true);
+                    intentionalClose = true;
+                    stopHeartbeat();
+                    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+                }
                 break;
 
             case 'error':
@@ -311,12 +402,11 @@
                 break;
 
             case 'stickers_list':
-                if (data.stickers) {
-                    const map = {};
-                    data.stickers.forEach(function (s) { map[s.id] = { name: s.name, url: s.url }; });
-                    stickerMap = map;
-                    saveStickerCache(map);
-                }
+                stickerMap = handleStickersList(data);
+                break;
+
+            case 'stickers_unchanged':
+                stickerMap = loadStickerCache();
                 break;
 
             case 'broadcast':
@@ -389,6 +479,21 @@
         return colors[Math.abs(hash) % colors.length];
     }
 
+    function insertMention(name) {
+        if (!name || !$chatInput) return;
+        var at = '@' + name + ' ';
+        if (document.activeElement === $chatInput) {
+            var start = $chatInput.selectionStart;
+            var end = $chatInput.selectionEnd;
+            var val = $chatInput.value;
+            $chatInput.value = val.substring(0, start) + at + val.substring(end);
+            $chatInput.selectionStart = $chatInput.selectionEnd = start + at.length;
+        } else {
+            $chatInput.value += at;
+        }
+        $chatInput.focus();
+    }
+
     function makeBubble(data, isMine) {
         var senderName = data.sender_name || '';
         var isSticker = data.content && /^\[sticker:/.test(data.content);
@@ -406,6 +511,38 @@
         avatar.className = 'lobby-avatar';
         avatar.textContent = getAvatarChar(senderName);
         avatar.style.background = isMine ? 'var(--note-blue)' : getAvatarColor(senderName);
+
+        // 长按头像 → @昵称
+        (function (av, name) {
+            var timer = null;
+            var started = false;
+
+            function onStart(e) {
+                started = false;
+                timer = setTimeout(function () {
+                    started = true;
+                    av.classList.add('longpress');
+                    insertMention(name);
+                }, 500);
+            }
+
+            function onEnd() {
+                clearTimeout(timer);
+                timer = null;
+                av.classList.remove('longpress');
+            }
+
+            av.addEventListener('mousedown', onStart);
+            av.addEventListener('touchstart', onStart, { passive: true });
+            av.addEventListener('mouseup', onEnd);
+            av.addEventListener('mouseleave', onEnd);
+            av.addEventListener('touchend', onEnd);
+            av.addEventListener('touchcancel', onEnd);
+            // 阻止长按选中文本
+            av.addEventListener('selectstart', function (e) { if (timer) e.preventDefault(); });
+            // 阻止长按弹出菜单
+            av.addEventListener('contextmenu', function (e) { if (started) e.preventDefault(); });
+        })(avatar, senderName);
 
         // 右侧内容区：名字时间 + 气泡
         var content = document.createElement('div');
@@ -446,8 +583,14 @@
         }
 
         if (isSticker) {
-            var stickerId = parseStickerId(data.content);
-            var stickerUrl = stickerMap[stickerId] ? stickerMap[stickerId].url : '';
+            var stickerUrl = '';
+            // 跨站表情贴纸：[sticker_url:直链URL]
+            if (/^\[sticker_url:/.test(data.content)) {
+                stickerUrl = data.content.replace(/^\[sticker_url:/, '').replace(/\]$/, '');
+            } else {
+                var stickerId = parseStickerId(data.content);
+                stickerUrl = stickerMap[stickerId] ? stickerMap[stickerId].url : '';
+            }
             bubble.innerHTML = (stickerUrl ? '<img class="sticker-img" src="' + escapeHtmlAttr(stickerUrl) + '" alt="表情">' : '');
             if (stickerUrl) {
                 var img = bubble.querySelector('.sticker-img');
@@ -503,8 +646,21 @@
     }
 
     function appendMessage(data) {
-        $messages.appendChild(makeBubble(data, data.sender_name === myNickname));
+        var bubble = makeBubble(data, data.sender_name === myNickname);
+        $messages.appendChild(bubble);
         scrollToBottom();
+
+        var stickerImg = bubble.querySelector('.sticker-img');
+        if (stickerImg && !stickerImg.complete) {
+            stickerImg.addEventListener('load', function () { scrollToBottom(); }, { once: true });
+        }
+
+        if (new Date().getDay() === 4 && data.content && /疯狂星期四|V我50|KFC|鸡腿|全家桶|原味鸡/.test(data.content)) {
+            var rect = bubble.getBoundingClientRect();
+            var cx = rect.left + rect.width / 2;
+            var cy = rect.top + rect.height / 2;
+            spawnKfcBurst(cx, cy, 5);
+        }
     }
 
     function highlightMentionedMessage(messageId) {
@@ -533,11 +689,12 @@
 
     function removeMessage(messageId) {
         const el = $messages.querySelector('[data-msg-id="' + messageId + '"]');
-        if (el) {
-            el.style.transition = 'opacity 0.3s';
-            el.style.opacity = '0';
-            setTimeout(function () { el.remove(); }, 300);
-        }
+        if (!el) return;
+        const row = el.closest('.lobby-msg-row');
+        if (!row) return;
+        row.style.transition = 'opacity 0.3s';
+        row.style.opacity = '0';
+        setTimeout(function () { row.remove(); }, 300);
     }
 
     function revokeMessageUI(messageId, senderName) {
@@ -691,7 +848,7 @@
         if (!bubble || !bubble.dataset.msgId) return;
         e.preventDefault();
         var msgData = {
-            id: parseInt(bubble.dataset.msgId),
+            id: /^\d+$/.test(bubble.dataset.msgId) ? parseInt(bubble.dataset.msgId, 10) : bubble.dataset.msgId,
             sender_name: bubble.dataset.senderName || '',
             content: bubble.dataset.msgContent || '',
             created_at: bubble.dataset.createdAt || '',
@@ -942,6 +1099,7 @@
 
     // ==================== 表情 ====================
     let stickerMap = loadStickerCache();
+    let stickerManageMode = false;
 
     function renderStickerPicker() {
         const fresh = loadStickerCache();
@@ -950,18 +1108,38 @@
         renderSharedStickerPicker($stickerPickerBody, stickerMap, function (id) {
             send({ type: 'lobby_chat', nickname: myNickname, content: '[sticker:' + id + ']' });
             $stickerPicker.style.display = 'none';
-        });
+        }, stickerManageMode);
     }
 
     bindStickerPickerTabs('lobby-sticker-picker', renderStickerPicker);
+
+    function requestStickers() {
+        send({ type: 'get_stickers', version: getStickerCacheVersion() });
+    }
 
     function showStickerLightbox(url) {
         $stickerLightboxImg.src = url;
         $stickerLightbox.style.display = 'flex';
     }
 
+    $btnManageSticker.addEventListener('click', function () {
+        stickerManageMode = !stickerManageMode;
+        if (stickerManageMode) {
+            $btnManageSticker.textContent = '完成';
+            $btnManageSticker.classList.add('active');
+        } else {
+            $btnManageSticker.textContent = '管理';
+            $btnManageSticker.classList.remove('active');
+        }
+        renderStickerPicker();
+    });
+
     $btnSticker.addEventListener('click', function () {
         if ($stickerPicker.style.display === 'none' || !$stickerPicker.style.display) {
+            stickerManageMode = false;
+            $btnManageSticker.textContent = '管理';
+            $btnManageSticker.classList.remove('active');
+            requestStickers();
             renderStickerPicker();
             $stickerPicker.style.visibility = 'hidden';
             $stickerPicker.style.display = 'flex';
@@ -980,6 +1158,9 @@
     });
 
     $btnCloseStickerPicker.addEventListener('click', function () {
+        stickerManageMode = false;
+        $btnManageSticker.textContent = '管理';
+        $btnManageSticker.classList.remove('active');
         $stickerPicker.style.display = 'none';
     });
 
@@ -1034,6 +1215,52 @@
 
     // ==================== 初始化 ====================
     showIdentityState();
+    updateNotifyUI();
+    if (notifyEnabled && 'Notification' in window && Notification.permission !== 'granted') {
+        requestNotifyPermission();
+    }
+
+    if (new Date().getDay() === 4) {
+        showTopToast('疯狂星期四 V我50', false);
+
+        $chatInput.addEventListener('input', function () {
+            var v = $chatInput.value;
+            if (v.indexOf('疯狂星期四') !== -1 && v.indexOf('V我50') === -1) {
+                $chatInput.value = v.replace('疯狂星期四', '疯狂星期四 V我50');
+            }
+        });
+
+        document.addEventListener('click', function (e) {
+            spawnKfcBurst(e.clientX, e.clientY, 3);
+        });
+        document.addEventListener('touchend', function (e) {
+            var t = e.changedTouches[0];
+            if (!t) return;
+            spawnKfcBurst(t.clientX, t.clientY, 3);
+        });
+    }
+
+    function spawnKfcParticle(x, y, delay) {
+        var el = document.createElement('div');
+        el.className = 'kfc-particle';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.fontSize = (16 + Math.random() * 18) + 'px';
+        el.style.setProperty('--dx', (Math.random() * 120 - 60) + 'px');
+        el.style.setProperty('--dy', (Math.random() * -140 - 40) + 'px');
+        el.style.setProperty('--rot', (Math.random() * 360 - 180) + 'deg');
+        el.style.animationDelay = (delay || 0) + 'ms';
+        var pool = ['\uD83C\uDF57', '\uD83C\uDF5F', '\uD83E\uDD64', '\uD83C\uDF54', '\uD83C\uDF89'];
+        el.textContent = pool[Math.floor(Math.random() * pool.length)];
+        document.body.appendChild(el);
+        el.addEventListener('animationend', function () { el.remove(); });
+    }
+
+    function spawnKfcBurst(x, y, count) {
+        for (var i = 0; i < count; i++) {
+            spawnKfcParticle(x + (Math.random() * 10 - 5), y + (Math.random() * 10 - 5), Math.random() * 200);
+        }
+    }
 
     // 如果处于iframe环境
     if (window.self !== window.top) {

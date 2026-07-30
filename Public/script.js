@@ -737,7 +737,7 @@ const stickerPicker = document.getElementById('sticker-picker');
 const stickerPickerBody = document.getElementById('sticker-picker-body');
 const btnCloseStickerPicker = document.getElementById('btn-close-sticker-picker');
 // 表情列表（WS 连接后从服务端获取，id → {name, url}）
-let stickerMap = {};
+let stickerMap = loadStickerCache();
 bindStickerPickerTabs('sticker-picker', renderStickerPicker);
 
 const origLogoHTML = logoText.innerHTML;
@@ -2094,7 +2094,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 DebugLogger.log('match', '收到matched事件', { opponent: data.opponent_name, session_id: data.session_id, duration: data.duration, elapsed_ms: window._matchStartTs ? Date.now() - window._matchStartTs : -1 });
                 this._lastSessionId = data.session_id || '';
                 // 每次进入对局（首次匹配 / 重连恢复）拉取最新表情列表
-                ws.send(JSON.stringify({ type: 'get_stickers' }));
+                ws.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion() }));
                 this._emit('connected', {
                     opponent_name: data.opponent_name,
                     duration: data.duration,
@@ -2190,14 +2190,10 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 this._emit('save_history_status', data);
                 break;
             case 'stickers_list':
-                // 收到表情列表，建立本地 id→{name, url} 映射
-                stickerMap = {};
-                if (data.stickers && data.stickers.length) {
-                    data.stickers.forEach(function (s) {
-                        stickerMap[s.id] = { name: s.name, url: s.url };
-                    });
-                }
-                saveStickerCache(stickerMap);
+                stickerMap = handleStickersList(data);
+                break;
+            case 'stickers_unchanged':
+                stickerMap = loadStickerCache();
                 break;
             case 'sticker':
                 // 收到对手发来的表情（仅 id+name，不含 URL）

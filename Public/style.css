@@ -1109,13 +1109,23 @@ main {
 
 @keyframes announceIn {
     from {
-        transform: translateY(-120%) scale(0.95);
+        transform: translateX(-50%) translateY(-120%) scale(0.95);
         opacity: 0;
     }
-
     to {
-        transform: translateY(0) scale(1);
+        transform: translateX(-50%) translateY(0) scale(1);
         opacity: 1;
+    }
+}
+
+@keyframes announceOut {
+    from {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(-50%) translateY(-120%);
+        opacity: 0;
     }
 }
 
@@ -1128,18 +1138,6 @@ main {
     100% {
         opacity: 1;
         transform: translateY(0);
-    }
-}
-
-@keyframes announceOut {
-    from {
-        transform: translateY(0);
-        opacity: 1;
-    }
-
-    to {
-        transform: translateY(-120%);
-        opacity: 0;
     }
 }
 
@@ -1565,6 +1563,11 @@ main {
     font-size: 12px;
     font-weight: bold;
     color: var(--ink-blue);
+    gap: 6px;
+}
+
+.sticker-picker-header span {
+    flex: 1;
 }
 
 .sticker-picker-body {
@@ -1576,6 +1579,10 @@ main {
     padding: 8px;
     overflow-y: auto;
     justify-content: flex-start;
+}
+
+.sticker-picker-body.manage-mode {
+    background: rgba(245, 158, 11, 0.06);
 }
 
 .sticker-picker-item {
@@ -1591,6 +1598,9 @@ main {
     justify-content: center;
     background: var(--bg-input);
     transition: border-color 0.15s, transform 0.1s;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+    user-select: none;
 }
 
 .sticker-picker-item:hover {

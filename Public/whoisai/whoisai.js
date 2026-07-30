@@ -48,6 +48,7 @@
     const $stickerPicker = document.getElementById('whoisai-sticker-picker');
     const $stickerPickerBody = document.getElementById('whoisai-sticker-picker-body');
     const $btnCloseStickerPicker = document.getElementById('whoisai-btn-close-sticker-picker');
+    const $btnManageSticker = document.getElementById('whoisai-btn-manage-sticker');
     bindStickerPickerTabs('whoisai-sticker-picker', renderWhoisAIStickerPicker);
     const $stickerLightbox = document.getElementById('whoisai-sticker-lightbox');
     const $stickerLightboxImg = document.getElementById('whoisai-sticker-lightbox-img');
@@ -308,6 +309,7 @@
 
     // ==================== 表情 ====================
     var whoisaiStickerMap = loadStickerCache();
+    var whoisaiStickerManageMode = false;
 
     /** 通过游戏 WS 端点拉取表情列表（不需要加入对局，handleGetStickers 无状态） */
     function prefetchStickersFromGameWS(force) {
@@ -323,19 +325,19 @@
             var tmpWs = new WebSocket(WS_URL);
             var done = false;
             tmpWs.onopen = function () {
-                tmpWs.send(JSON.stringify({ type: 'get_stickers' }));
+                tmpWs.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion() }));
             };
             tmpWs.onmessage = function (e) {
                 if (done) return;
                 try {
                     var d = JSON.parse(e.data);
                     if (d.type === 'stickers_list' && d.stickers) {
-                        var map = {};
-                        d.stickers.forEach(function (s) {
-                            map[s.id] = { name: s.name, url: s.url };
-                        });
-                        whoisaiStickerMap = map;
-                        saveStickerCache(map);
+                        whoisaiStickerMap = handleStickersList(d);
+                        done = true;
+                        tmpWs.close();
+                    }
+                    if (d.type === 'stickers_unchanged') {
+                        whoisaiStickerMap = loadStickerCache();
                         done = true;
                         tmpWs.close();
                     }
@@ -362,7 +364,7 @@
         refreshStickerCache();
         renderSharedStickerPicker($stickerPickerBody, whoisaiStickerMap, function (id) {
             sendWhoisAISticker(id);
-        });
+        }, whoisaiStickerManageMode);
     }
 
     function sendWhoisAISticker(stickerId) {
@@ -404,9 +406,24 @@
     }
 
     // 表情按钮事件
+    $btnManageSticker.addEventListener('click', function () {
+        whoisaiStickerManageMode = !whoisaiStickerManageMode;
+        if (whoisaiStickerManageMode) {
+            $btnManageSticker.textContent = '完成';
+            $btnManageSticker.classList.add('active');
+        } else {
+            $btnManageSticker.textContent = '管理';
+            $btnManageSticker.classList.remove('active');
+        }
+        renderWhoisAIStickerPicker();
+    });
+
     $btnSticker.addEventListener('click', function () {
         refreshStickerCache();
         if ($stickerPicker.style.display === 'none' || !$stickerPicker.style.display) {
+            whoisaiStickerManageMode = false;
+            $btnManageSticker.textContent = '管理';
+            $btnManageSticker.classList.remove('active');
             renderWhoisAIStickerPicker();
             // 先显示再测量尺寸（visibility hidden 避免闪烁）
             $stickerPicker.style.visibility = 'hidden';
@@ -429,6 +446,9 @@
     });
 
     $btnCloseStickerPicker.addEventListener('click', function () {
+        whoisaiStickerManageMode = false;
+        $btnManageSticker.textContent = '管理';
+        $btnManageSticker.classList.remove('active');
         $stickerPicker.style.display = 'none';
     });
 

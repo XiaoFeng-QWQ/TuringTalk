@@ -6,7 +6,6 @@ use App\Core\Sanitizer;
 use App\Services\Game\WhoisAIService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
-use App\Services\Infrastructure\StickerService;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Repository\BanRepository;
 use App\Services\Repository\ReportRepository;
@@ -119,7 +118,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                     return;
 
                 case 'get_stickers':
-                    $this->handleGetStickers($server, $fd);
+                    $this->handleGetStickers($server, $fd, $data);
                     break;
 
                 case 'WhoisAI_match':
@@ -825,23 +824,6 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'reporter' => $reporterName,
             'target'   => $targetName,
             'reason'   => $reason,
-        ]);
-    }
-
-    private function handleGetStickers(Server $server, int $fd): void
-    {
-        $stickers = StickerService::list();
-        $result = [];
-        foreach ($stickers as $s) {
-            $result[] = [
-                'id'   => $s['id'],
-                'name' => $s['name'] ?? '',
-                'url'  => $s['url'] ?? '',
-            ];
-        }
-        $this->sendToPlayer($server, $fd, [
-            'type' => 'stickers_list',
-            'stickers' => $result,
         ]);
     }
 

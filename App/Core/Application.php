@@ -4,6 +4,7 @@ namespace App\Core;
 
 use Swoole\Http\Server;
 use Swoole\WebSocket\Server as WebSocketServer;
+use App\Core\ErrorHandler;
 use App\Core\Http\HttpHandler;
 use App\Core\WebSocket\WebSocketHandler;
 use App\Config\Config;
@@ -14,6 +15,7 @@ use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Infrastructure\StickerService;
+use App\Services\Infrastructure\BridgeService;
 use App\Services\Repository\OnlineCountRepository;
 use App\Admin\Repository\AdminRepository;
 
@@ -36,6 +38,7 @@ class Application
         \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
 
         Config::load(__DIR__ . '/../../Config/App.php');
+        ErrorHandler::register();
         Logger::initialize();
         BanRepository::initialize();
         PlayerStatsRepository::initialize();
@@ -109,6 +112,9 @@ class Application
 
             // 启动表情包异步同步服务（Redis → SQLite）
             StickerService::start();
+
+            // 启动跨站桥接服务（Python 站聊天大厅互通）
+            BridgeService::start($server, $webSocketHandler);
 
             // 初始化在线人数 SQLite 存储
             OnlineCountRepository::initialize();

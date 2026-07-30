@@ -18,6 +18,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     private LobbyChatService $lobbyService;
     private string $lastOnlineHash = '';
 
+    /** 桥接转发回调，由 BridgeService 在 start() 时注册 */
+    public static ?\Closure $bridgeForward = null;
+
     public function __construct()
     {
         $this->lobbyService = new LobbyChatService();
@@ -61,12 +64,6 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $this->sendToPlayer($server, $fd, [
             'type'    => 'lobby_online_count',
             'players' => $players,
-        ]);
-
-        $stickers = \App\Services\Repository\StickerRepository::all();
-        $this->sendToPlayer($server, $fd, [
-            'type'    => 'stickers_list',
-            'stickers' => $stickers,
         ]);
 
         Logger::info('Lobby WS connected', ['fd' => $fd]);
@@ -143,6 +140,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
                 case 'ping':
                     $this->sendToPlayer($server, $fd, ['type' => 'pong']);
+                    break;
+
+                case 'get_stickers':
+                    $this->handleGetStickers($server, $fd, $data);
                     break;
 
                 default:
@@ -314,6 +315,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     'sender_name' => $nickname,
                     'content'     => $msg['content'],
                 ]);
+            } else {
+                // 玩家离线，无需额外处理
             }
         }
     }
@@ -629,35 +632,84 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
     /**
      * 向所有在线聊天室用户广播（除指定 fd）
+     * 每条推送用 go() 异步发送，防止慢客户端阻塞整条广播链。
+     * 桥接转发也在独立协程中完成，不拖慢本地广播。
      */
     private function broadcastLobby(Server $server, int $excludeFd, array $data): void
     {
-        foreach ($server->connections as $clientFd) {
-            if ($clientFd === $excludeFd) continue;
-            if (!$server->isEstablished($clientFd)) continue;
-            if ($this->tracker && $this->tracker->isAdminFd($clientFd)) continue;
+        $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
+        if ($payload === false) return;
 
-            // 只推送给当前 Handler 管理的连接
-            if (!isset($this->clientInfo[(string)$clientFd])) continue;
+        foreach ($this->clientInfo as $fdKey => $info) {
+            $fd = (int)$fdKey;
+            if ($fd === $excludeFd) continue;
+            if (!$server->isEstablished($fd)) continue;
+            if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
 
-            $this->sendToPlayer($server, $clientFd, $data);
+            go(function () use ($server, $fd, $payload) {
+                if (!$server->isEstablished($fd)) return;
+                $server->push($fd, $payload);
+            });
+        }
+
+        // 跨站桥接转发（独立协程，不影响本地广播）
+        if (self::$bridgeForward) {
+            $bridge = self::$bridgeForward;
+            $type = $data['type'] ?? '';
+            if ($type === 'lobby_chat') {
+                $senderName = $data['sender_name'] ?? '未知';
+                $content    = $data['content']     ?? '';
+                $msgId      = (string)($data['id'] ?? '');
+                go(function () use ($bridge, $senderName, $content, $msgId) {
+                    $bridge($senderName, $content, $msgId);
+                });
+            } elseif ($type === 'lobby_revoke') {
+                $senderName = $data['sender_name'] ?? '未知';
+                $msgId      = (string)($data['message_id'] ?? '');
+                go(function () use ($bridge, $senderName, $msgId) {
+                    $bridge($senderName, '', $msgId, 'recall');
+                });
+            }
+        }
+    }
+
+    /**
+     * 桥接反向广播：从 Python 站收到的消息广播给 PHP lobby 所有连接
+     * 直接用 clientInfo 迭代（避免全量连接扫描），每条消息异步推送防止慢客户端阻塞广播链。
+     */
+    public function bridgeBroadcastToLobby(Server $server, array $data): void
+    {
+        $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
+        if ($payload === false) return;
+
+        foreach ($this->clientInfo as $fdKey => $info) {
+            $fd = (int)$fdKey;
+            if (!$server->isEstablished($fd)) continue;
+            if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
+
+            go(function () use ($server, $fd, $payload) {
+                if (!$server->isEstablished($fd)) return;
+                $server->push($fd, $payload);
+            });
         }
     }
 
     /**
      * 获取在线玩家列表（仅返回已设置昵称的玩家）
+     * 直接遍历 $this->clientInfo 而非 $server->connections，
+     * 避免依赖 Swoole 连接迭代器在 onClose 期间的边界行为导致僵尸条目。
      */
     private function getOnlinePlayers(Server $server): array
     {
         $players = [];
-        foreach ($server->connections as $clientFd) {
-            if (!$server->isEstablished($clientFd)) continue;
-            if ($this->tracker && $this->tracker->isAdminFd($clientFd)) continue;
-            if (!isset($this->clientInfo[(string)$clientFd])) continue;
-            $nickname = $this->clientInfo[(string)$clientFd]['nickname'] ?? '';
+        foreach ($this->clientInfo as $fdKey => $info) {
+            $fd = (int)$fdKey;
+            if (!$server->isEstablished($fd)) continue;
+            if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
+            $nickname = $info['nickname'] ?? '';
             if ($nickname === '') continue;
             $players[] = [
-                'fd'       => $clientFd,
+                'fd'       => $fd,
                 'nickname' => $nickname,
             ];
         }

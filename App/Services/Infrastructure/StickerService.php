@@ -80,6 +80,9 @@ class StickerService
         // 2. 异步写入 SQLite（不阻塞返回）
         self::asyncSync($id, 'upsert', $name, $url);
 
+        // 3. 递增版本号
+        StickerRepository::incrementVersion();
+
         return $sticker;
     }
 
@@ -97,6 +100,9 @@ class StickerService
 
         // 2. 异步从 SQLite 删除
         self::asyncSync($id, 'delete', '', '');
+
+        // 3. 递增版本号
+        StickerRepository::incrementVersion();
 
         return true;
     }

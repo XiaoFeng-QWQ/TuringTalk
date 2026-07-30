@@ -122,6 +122,13 @@ return [
         'Password' => '',
         'Charset' => 'utf8mb4',
     ],
+    // Web Push 配置（浏览器后台推送通知）
+    // 首次部署前执行 npm run vapid 生成密钥对，粘贴到下面
+    'WebPush' => [
+        'PublicKey' => 'PASTE_HERE',
+        'PrivateKey' => 'PASTE_HERE',
+        'Subject' => 'mailto:admin@example.com',
+    ],
     // Redis 配置（状态存储：会话、队列、在线状态）
     'Redis' => [
         'Host' => '127.0.0.1',

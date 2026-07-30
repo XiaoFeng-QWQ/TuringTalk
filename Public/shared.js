@@ -10,18 +10,31 @@ function showTopToast(message, isError = true) {
     const color = isError ? '#c0392b' : '#155724';
     const border = isError ? '#e74c3c' : '#28a745';
     const offset = document.querySelectorAll('.top-toast').length * 48;
+    
     el.className = 'top-toast';
     el.style.cssText = `
-        position: fixed; top: ${12 + offset}px; left: 50%; transform: translateX(-50%); z-index: 1002;
+        position: fixed; 
+        top: ${12 + offset}px; 
+        left: 50%;
+        transform: translateX(-50%) translateY(-120%) scale(0.95);
+        z-index: 1002;
         max-width: min(90vw, 400px);
-        background: ${bg}; color: ${color}; border: 2px solid ${border};
-        padding: 8px 16px; border-radius: 8px 4px 8px 4px;
+        background: ${bg};
+        color: ${color};
+        border: 2px solid ${border};
+        padding: 8px 16px;
+        border-radius: 8px 4px 8px 4px;
         font-size: 14px;
-        animation: announceIn 0.35s ease forwards;
+        opacity: 0;
         pointer-events: none;
+        transition: top 0.25s ease;
     `;
     el.textContent = (isError ? '\u26A0 ' : '\u2714 ') + message;
     document.body.appendChild(el);
+
+    requestAnimationFrame(() => {
+        el.style.animation = 'announceIn 0.35s ease forwards';
+    });
 
     setTimeout(() => {
         el.style.animation = 'announceOut 0.3s ease forwards';
@@ -199,10 +212,14 @@ function toggleStickerFavorite(id) {
 
 // ---- Sticker 跨页面缓存（供 whoisai 等子页面复用 stickerMap） ----
 var STICKER_CACHE_KEY = 'sticker_cache';
+var STICKER_VERSION_KEY = 'sticker_cache_version';
 
-function saveStickerCache(map) {
+function saveStickerCache(map, version) {
     try {
         localStorage.setItem(STICKER_CACHE_KEY, JSON.stringify(map));
+        if (version !== undefined) {
+            localStorage.setItem(STICKER_VERSION_KEY, String(version));
+        }
     } catch (_) { }
 }
 
@@ -213,7 +230,25 @@ function loadStickerCache() {
     } catch (_) { return {}; }
 }
 
-function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
+function getStickerCacheVersion() {
+    try {
+        var v = localStorage.getItem(STICKER_VERSION_KEY);
+        return v ? parseInt(v, 10) : 0;
+    } catch (_) { return 0; }
+}
+
+function handleStickersList(data) {
+    var map = {};
+    if (data.stickers) {
+        data.stickers.forEach(function (s) {
+            map[s.id] = { name: s.name, url: s.url };
+        });
+    }
+    saveStickerCache(map, data.version || 0);
+    return map;
+}
+
+function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker, manageMode) {
     var favs = getStickerFavorites();
     var activeTab = bodyEl.dataset.tab || 'all';
     var ids = Object.keys(stickerMap);
@@ -223,6 +258,12 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
     }
 
     bodyEl.innerHTML = '';
+    if (manageMode) {
+        bodyEl.classList.add('manage-mode');
+    } else {
+        bodyEl.classList.remove('manage-mode');
+    }
+
     if (ids.length === 0) {
         bodyEl.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:13px;">' +
             (activeTab === 'favs' ? '暂无收藏表情' : '暂无可用表情') + '</div>';
@@ -237,41 +278,36 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
         item.title = s.name;
         item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
 
-        item.addEventListener('click', function () {
-            onClickSticker(id);
-        });
-
+        // 阻止浏览器右键菜单和选中
         item.addEventListener('contextmenu', function (e) {
             e.preventDefault();
-            var added = toggleStickerFavorite(id);
-            if (added) {
-                item.classList.add('favorited');
-            } else {
-                item.classList.remove('favorited');
-                if (activeTab === 'favs') item.style.display = 'none';
-            }
+        });
+        item.addEventListener('selectstart', function (e) {
+            e.preventDefault();
         });
 
-        var pressTimer = null;
-        item.addEventListener('touchstart', function (e) {
-            pressTimer = setTimeout(function () {
-                pressTimer = null;
-                e.preventDefault();
-                var added = toggleStickerFavorite(id);
-                if (added) {
-                    item.classList.add('favorited');
+        if (manageMode) {
+            // 管理模式：点击收藏/取消收藏
+            item.addEventListener('click', function () {
+                if (activeTab === 'all') {
+                    if (favs.indexOf(id) === -1) {
+                        toggleStickerFavorite(id);
+                        item.classList.add('favorited');
+                        favs = getStickerFavorites();
+                    }
                 } else {
+                    toggleStickerFavorite(id);
                     item.classList.remove('favorited');
-                    if (activeTab === 'favs') item.style.display = 'none';
+                    item.style.display = 'none';
+                    favs = getStickerFavorites();
                 }
-            }, 600);
-        }, { passive: true });
-        item.addEventListener('touchend', function () {
-            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-        });
-        item.addEventListener('touchmove', function () {
-            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-        });
+            });
+        } else {
+            // 正常模式：点击发送表情
+            item.addEventListener('click', function () {
+                onClickSticker(id);
+            });
+        }
 
         bodyEl.appendChild(item);
     });

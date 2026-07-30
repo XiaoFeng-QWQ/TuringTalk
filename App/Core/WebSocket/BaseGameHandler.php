@@ -439,8 +439,37 @@ abstract class BaseGameHandler
         return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => null];
     }
 
-    // ==================== 恢复码 ====================
+    // ==================== 表情 ====================
 
+    /**
+     * 表情差异化更新：客户端带着本地版本号请求，服务端对比后返回
+     */
+    protected function handleGetStickers(Server $server, int $fd, array $data): void
+    {
+        $sinceVersion = (int)($data['version'] ?? 0);
+        $diff = \App\Services\Repository\StickerRepository::getDiff($sinceVersion);
+
+        if (!empty($diff['unchanged'])) {
+            $this->sendToPlayer($server, $fd, ['type' => 'stickers_unchanged']);
+            return;
+        }
+
+        $result = [];
+        foreach ($diff['stickers'] as $s) {
+            $result[] = [
+                'id'   => $s['id'],
+                'name' => $s['name'] ?? '',
+                'url'  => $s['url'] ?? '',
+            ];
+        }
+        $this->sendToPlayer($server, $fd, [
+            'type'     => 'stickers_list',
+            'stickers' => $result,
+            'version'  => $diff['version'],
+        ]);
+    }
+
+    // ==================== 恢复码 ====================
     /**
      * 获取或创建玩家的恢复码（与昵称绑定）。
      * 首次对局结束后自动生成，后续对局直接复用。
