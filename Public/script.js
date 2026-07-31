@@ -3412,18 +3412,6 @@ async function loadProfile(nickname) {
             return;
         }
 
-        // TODO: 测试假数据，上线前删除
-        data.messages = [
-            { from: '夜归人', text: '你藏得也太好了，完全没看出来', created_at: Math.floor(Date.now() / 1000) - 3600 },
-            { from: '摸鱼达人', text: '哈哈那局笑死我了', created_at: Math.floor(Date.now() / 1000) - 86400 },
-            { from: '匿名玩家', text: '下次别这么明显好不好', created_at: Math.floor(Date.now() / 1000) - 172800 },
-        ];
-        data.tags = [
-            { tag: '话痨', count: 5 },
-            { tag: '演技派', count: 3 },
-            { tag: 'AI本I', count: 2 },
-        ];
-
         renderProfile(data);
     } catch (e) {
         keyStats.innerHTML = '<div class="profile-placeholder">加载失败，请稍后重试</div>';
