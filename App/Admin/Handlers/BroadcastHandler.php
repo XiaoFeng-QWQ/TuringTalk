@@ -10,6 +10,9 @@ use App\Core\Sanitizer;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 
+/**
+ * 管理员旁观时发送公告
+ */
 class BroadcastHandler
 {
     public function __construct(
@@ -50,8 +53,15 @@ class BroadcastHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'broadcast', null, null,
-            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'broadcast',
+            null,
+            null,
+            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::debug('Admin broadcast', ['fd' => $fd, 'text' => $text]);
     }
@@ -98,8 +108,15 @@ class BroadcastHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'room_broadcast', 'session', $spectateSessionId,
-            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'room_broadcast',
+            'session',
+            $spectateSessionId,
+            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::debug('Admin room broadcast', ['fd' => $fd, 'session_id' => $spectateSessionId, 'text' => $text]);
     }

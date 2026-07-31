@@ -10,6 +10,9 @@ use App\Core\Response as HttpResponse;
 use App\Services\Infrastructure\Logger;
 use Throwable;
 
+/**
+ * HTTP 请求理器
+ */
 class HttpHandler
 {
     private Router $router;

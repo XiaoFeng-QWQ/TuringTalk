@@ -21,6 +21,9 @@ use App\Core\Sanitizer;
 use App\Controllers\GameController;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * 管理员 WebSocket 处理器
+ */
 class AdminWebSocketHandler
 {
     private GameWebSocketHandler $gameHandler;
@@ -111,7 +114,10 @@ class AdminWebSocketHandler
             $this->dispatch($server, $fd, $data);
         } catch (\Throwable $e) {
             Logger::error('Admin WS message error', [
-                'fd' => $fd, 'type' => $data['type'], 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString(),
+                'fd' => $fd,
+                'type' => $data['type'],
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             $this->sendErr($server, $fd, '服务端处理出错');
         }
@@ -149,20 +155,20 @@ class AdminWebSocketHandler
                 break;
             case 'admin_ban_player':
                 $this->withOp($server, $fd, "正在封禁玩家", fn() =>
-                    $this->banHandler->handleBanPlayer($server, $fd, $data));
+                $this->banHandler->handleBanPlayer($server, $fd, $data));
                 break;
             case 'admin_ban_by_info':
                 $ip = $data['ip'] ?? '';
                 $this->withOp($server, $fd, "正在封禁 {$ip}", fn() =>
-                    $this->banHandler->handleBanByInfo($server, $fd, $data));
+                $this->banHandler->handleBanByInfo($server, $fd, $data));
                 break;
             case 'admin_broadcast':
                 $this->withOp($server, $fd, "正在发送全服公告", fn() =>
-                    $this->broadcastHandler->handleBroadcast($server, $fd, $data));
+                $this->broadcastHandler->handleBroadcast($server, $fd, $data));
                 break;
             case 'admin_room_broadcast':
                 $this->withOp($server, $fd, "正在发送房间公告", fn() =>
-                    $this->broadcastHandler->handleRoomBroadcast($server, $fd, $data));
+                $this->broadcastHandler->handleRoomBroadcast($server, $fd, $data));
                 break;
             case 'admin_spectate':
                 $this->spectateHandler->handleSpectate($server, $fd, $data);
@@ -178,15 +184,15 @@ class AdminWebSocketHandler
                 break;
             case 'admin_mark_reviewed':
                 $this->withOp($server, $fd, "正在审核举报", fn() =>
-                    $this->reportHandler->handleMarkReviewed($server, $fd, $data));
+                $this->reportHandler->handleMarkReviewed($server, $fd, $data));
                 break;
             case 'admin_sticker_add':
                 $this->withOp($server, $fd, "正在添加表情", fn() =>
-                    $this->stickerHandler->handleAdd($server, $fd, $data));
+                $this->stickerHandler->handleAdd($server, $fd, $data));
                 break;
             case 'admin_sticker_delete':
                 $this->withOp($server, $fd, "正在删除表情", fn() =>
-                    $this->stickerHandler->handleDelete($server, $fd, $data));
+                $this->stickerHandler->handleDelete($server, $fd, $data));
                 break;
             case 'admin_sticker_list':
                 $this->stickerHandler->handleList($server, $fd);
@@ -199,15 +205,15 @@ class AdminWebSocketHandler
                 break;
             case 'admin_add':
                 $this->withOp($server, $fd, "正在添加管理员", fn() =>
-                    $this->manageHandler->handleAdd($server, $fd, $data));
+                $this->manageHandler->handleAdd($server, $fd, $data));
                 break;
             case 'admin_delete':
                 $this->withOp($server, $fd, "正在删除管理员", fn() =>
-                    $this->manageHandler->handleDelete($server, $fd, $data));
+                $this->manageHandler->handleDelete($server, $fd, $data));
                 break;
             case 'admin_change_password':
                 $this->withOp($server, $fd, "正在修改管理员密码", fn() =>
-                    $this->manageHandler->handleChangePassword($server, $fd, $data));
+                $this->manageHandler->handleChangePassword($server, $fd, $data));
                 break;
             case 'admin_own_password':
                 $this->manageHandler->handleOwnPassword($server, $fd, $data);
@@ -229,7 +235,7 @@ class AdminWebSocketHandler
                 break;
             case 'admin_WhoisAI_room_broadcast':
                 $this->withOp($server, $fd, "正在发送房间公告", fn() =>
-                    $this->handleWhoisAIRoomBroadcast($server, $fd, $data));
+                $this->handleWhoisAIRoomBroadcast($server, $fd, $data));
                 break;
             case 'admin_lobby_players':
                 $this->lobbyHandlerInstance->handlePlayers($server, $fd);
@@ -239,11 +245,11 @@ class AdminWebSocketHandler
                 break;
             case 'admin_lobby_delete':
                 $this->withOp($server, $fd, "正在删除聊天室消息", fn() =>
-                    $this->lobbyHandlerInstance->handleDelete($server, $fd, $data));
+                $this->lobbyHandlerInstance->handleDelete($server, $fd, $data));
                 break;
             case 'admin_lobby_ban':
                 $this->withOp($server, $fd, "正在封禁聊天室玩家", fn() =>
-                    $this->lobbyHandlerInstance->handleBan($server, $fd, $data));
+                $this->lobbyHandlerInstance->handleBan($server, $fd, $data));
                 break;
             case 'admin_lobby_announce':
                 $this->lobbyHandlerInstance->handleAnnounce($server, $fd, $data);
@@ -253,11 +259,11 @@ class AdminWebSocketHandler
                 break;
             case 'admin_lobby_batch_delete':
                 $this->withOp($server, $fd, "正在批量删除聊天室消息", fn() =>
-                    $this->lobbyHandlerInstance->handleBatchDelete($server, $fd, $data));
+                $this->lobbyHandlerInstance->handleBatchDelete($server, $fd, $data));
                 break;
             case 'admin_lobby_batch_ban':
                 $this->withOp($server, $fd, "正在批量封禁聊天室玩家", fn() =>
-                    $this->lobbyHandlerInstance->handleBatchBan($server, $fd, $data));
+                $this->lobbyHandlerInstance->handleBatchBan($server, $fd, $data));
                 break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);
@@ -486,8 +492,15 @@ class AdminWebSocketHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'room_broadcast', 'WhoisAI_room', $roomId,
-            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'room_broadcast',
+            'WhoisAI_room',
+            $roomId,
+            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::debug('Admin WhoisAI room broadcast', ['fd' => $fd, 'room_id' => $roomId, 'text' => $text]);
     }

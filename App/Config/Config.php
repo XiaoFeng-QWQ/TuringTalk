@@ -2,6 +2,9 @@
 
 namespace App\Config;
 
+/**
+ * 配置管理类
+ */
 class Config
 {
     private static array $config = [];
@@ -21,6 +24,7 @@ class Config
         if (file_exists($configFile)) {
             self::$config   = require $configFile;
             self::$lastMtime = filemtime($configFile) ?: 0;
+            self::loadPromptMd();
         }
     }
 
@@ -90,6 +94,21 @@ class Config
             if (is_array($newConfig)) {
                 self::$config    = $newConfig;
                 self::$lastMtime = $maxMtime;
+                self::loadPromptMd();
+            }
+        }
+    }
+
+    /**
+     * 读取 Prompt.md 内容覆盖 LLM.Prompt
+     */
+    private static function loadPromptMd(): void
+    {
+        $promptFile = dirname(self::$configFile) . '/Prompt.md';
+        if (file_exists($promptFile)) {
+            $content = file_get_contents($promptFile);
+            if ($content !== false && trim($content) !== '') {
+                self::$config['LLM']['Prompt'] = $content;
             }
         }
     }

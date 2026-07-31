@@ -12,6 +12,9 @@ use App\Core\Application;
 use App\Config\Config;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * WebSocket 处理器
+ */
 class WebSocketHandler
 {
     private AdminWebSocketHandler $adminHandler;

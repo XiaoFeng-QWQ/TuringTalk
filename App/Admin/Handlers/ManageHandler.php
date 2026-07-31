@@ -10,6 +10,9 @@ use App\Core\Sanitizer;
 use App\Services\Infrastructure\Logger;
 use App\Config\Config;
 
+/**
+ * 管理员旁观时管理其他管理员
+ */
 class ManageHandler
 {
     public function __construct(
@@ -87,8 +90,15 @@ class ManageHandler
         AdminRepository::disableAdmin($adminId);
 
         $operatorName = $this->tracker->getUsername($fd);
-        AdminRepository::writeLog((int)$this->tracker->getAdminId($fd), $operatorName, 'delete_admin', 'admin',
-            $target['username'], null, $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            (int)$this->tracker->getAdminId($fd),
+            $operatorName,
+            'delete_admin',
+            'admin',
+            $target['username'],
+            null,
+            $this->tracker->getAdminIp($fd)
+        );
 
         $this->game->sendToPlayer($server, $fd, ['type' => 'admin_deleted', 'admin_id' => $adminId]);
 
@@ -123,8 +133,15 @@ class ManageHandler
         AdminRepository::changePassword($adminId, $newPassword);
 
         $operatorName = $this->tracker->getUsername($fd);
-        AdminRepository::writeLog((int)$this->tracker->getAdminId($fd), $operatorName, 'change_password', 'admin',
-            $target['username'], null, $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            (int)$this->tracker->getAdminId($fd),
+            $operatorName,
+            'change_password',
+            'admin',
+            $target['username'],
+            null,
+            $this->tracker->getAdminIp($fd)
+        );
 
         $this->game->sendToPlayer($server, $fd, ['type' => 'admin_password_changed', 'admin_id' => $adminId]);
 
@@ -177,7 +194,7 @@ class ManageHandler
                 'success_value' => Config::get('ImageHosting.SuccessValue', 1),
                 'url_field'     => Config::get('ImageHosting.UrlField', 'url'),
                 'error_field'   => Config::get('ImageHosting.ErrorField', 'msg'),
-                'request_script'=> Config::get('ImageHosting.RequestScript', ''),
+                'request_script' => Config::get('ImageHosting.RequestScript', ''),
             ],
         ]);
     }

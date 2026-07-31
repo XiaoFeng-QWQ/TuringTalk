@@ -144,6 +144,7 @@ class GameClient {
         transport.on('error', (data) => this._onError(data));
         transport.on('banned', (data) => this._onBanned(data));
         transport.on('save_history_status', (data) => this._onSaveHistoryStatus(data));
+        transport.on('leave_message_status', (data) => this._onLeaveMessageStatus(data));
     }
 
     // ---- 公开方法 ----
@@ -264,6 +265,9 @@ class GameClient {
         DebugLogger.log('game', 'GameClient.reset调用', { session_id: this._sessionId, disconnecting: this._disconnecting });
         this._disconnecting = true;
 
+        // 隐藏断连覆盖层
+        this._hideReconnectOverlay();
+
         // 标记为主动关闭，禁止自动重连（避免幽灵重连导致首页+聊天页叠加）
         if (this._transport) {
             this._transport._intentionalClose = true;
@@ -294,6 +298,7 @@ class GameClient {
         this._judgementAllowed = false;
         this._timedOut = false;
         this._sessionId = '';
+        this._savedHistoryId = 0;
 
         const waitIndicator = document.getElementById('waiting-indicator');
         if (waitIndicator) waitIndicator.remove();
@@ -311,6 +316,9 @@ class GameClient {
         landingPage.style.display = 'flex';
         btnBack.style.display = 'none';
         logoText.innerHTML = origLogoHTML;
+
+        // 隐藏连接状态指示器
+        updateConnIndicator('online');
 
         document.getElementById('system-id').textContent = browserFingerprint;
 
@@ -411,6 +419,9 @@ class GameClient {
         landingPage.style.display = 'none';
         resultArea.style.display = 'none';
         chatPage.style.display = 'flex';
+
+        // 显示连接状态指示器
+        updateConnIndicator('online');
 
         // 清除上局残留的标签
         const tagInput = document.getElementById('tag-input');
@@ -629,24 +640,16 @@ class GameClient {
         // 自动重连中，显示提示而不 reset
         if (data && data.reconnecting) {
             if (chatPage.style.display === 'flex') {
+                // 移除旧 banner（如果 overlay 还未显示则由 onclose 负责显示）
                 const existing = document.getElementById('reconnect-banner');
-                if (!existing) {
-                    const banner = document.createElement('div');
-                    banner.id = 'reconnect-banner';
-                    banner.style.cssText =
-                        'position:fixed;top:0;left:0;right:0;z-index:999;' +
-                        'padding:10px;background:var(--note-yellow);color:var(--ink-black);' +
-                        'text-align:center;font-size:14px;font-weight:bold;' +
-                        'animation:slideDown 0.35s ease;';
-                    banner.textContent = '连接已断开，正在自动重连...';
-                    document.body.appendChild(banner);
-                }
+                if (existing) existing.remove();
             }
             return;
         }
 
-        if (chatPage.style.display === 'flex') {
-            this.reset();
+        // 对局中非主动断连 → 显示覆盖层让用户决定
+        if (chatPage.style.display === 'flex' && !this._transport._preventReconnect) {
+            this._showReconnectOverlay('disconnected');
         }
     }
 
@@ -656,6 +659,9 @@ class GameClient {
         // 匹配阶段：显示在匹配页
         if (matchingPage.style.display === 'flex') {
             showMatchError(data.text || '连接出错');
+        } else if (chatPage.style.display === 'flex') {
+            // 对局中：用 toast 提示，不弹 alert 打断游戏
+            showTopToast(data.text || '连接出错，正在重试...', true);
         } else {
             alert('连接出错，请刷新页面重试');
         }
@@ -697,6 +703,54 @@ class GameClient {
         }
     }
 
+    // ---- 断连兜底覆盖层管理 ----
+
+    _showReconnectOverlay(mode) {
+        const overlay = document.getElementById('reconnect-overlay');
+        const title = document.getElementById('reconnect-title');
+        const desc = document.getElementById('reconnect-desc');
+        const retryBtn = document.getElementById('btn-reconnect-retry');
+
+        if (!overlay) return;
+
+        if (mode === 'reconnecting') {
+            title.textContent = '连接已断开';
+            desc.textContent = '正在自动重连，请稍候...';
+        } else {
+            title.textContent = '连接已断开';
+            desc.textContent = '自动重连失败，请手动重试';
+            // 所有进度点标红
+            const dots = document.getElementById('reconnect-dots');
+            if (dots) {
+                dots.querySelectorAll('.reconnect-dot').forEach(d => { d.className = 'reconnect-dot fail'; });
+            }
+        }
+
+        overlay.style.display = 'flex';
+    }
+
+    _hideReconnectOverlay() {
+        const overlay = document.getElementById('reconnect-overlay');
+        if (overlay) overlay.style.display = 'none';
+
+        // 同时清理旧的 reconnect-banner
+        const banner = document.getElementById('reconnect-banner');
+        if (banner) banner.remove();
+    }
+
+    _updateReconnectProgress(attempt, maxDots) {
+        const dots = document.getElementById('reconnect-dots');
+        if (!dots) return;
+        const dotEls = dots.querySelectorAll('.reconnect-dot');
+        maxDots = maxDots || dotEls.length;
+
+        for (let i = 0; i < dotEls.length; i++) {
+            if (i < attempt - 1) dotEls[i].className = 'reconnect-dot done';
+            else if (i === attempt - 1) dotEls[i].className = 'reconnect-dot active';
+            else dotEls[i].className = 'reconnect-dot';
+        }
+    }
+
     _onSaveHistoryStatus(data) {
         const btnSave = document.getElementById('btn-save-history');
         const statusEl = document.getElementById('save-history-status');
@@ -705,6 +759,11 @@ class GameClient {
             statusEl.style.color = 'var(--success)';
             statusEl.textContent = data.message || '聊天记录已保存';
             if (btnSave) btnSave.style.display = 'none';
+            if (data.id) {
+                game._savedHistoryId = data.id;
+                const collectionArea = document.getElementById('collection-area');
+                if (collectionArea) collectionArea.style.display = 'block';
+            }
         } else {
             statusEl.style.color = 'var(--danger)';
             statusEl.textContent = data.message || '保存失败';
@@ -714,11 +773,29 @@ class GameClient {
             }
         }
     }
+
+    _onLeaveMessageStatus(data) {
+        const area = document.getElementById('leave-message-area');
+        const statusEl = document.getElementById('leave-message-status');
+        if (data.success) {
+            if (area) area.innerHTML = '<div style="text-align:center;font-size:12px;color:var(--success);">留言已发送</div>';
+        } else {
+            statusEl.style.display = 'block';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = data.message || '发送失败';
+            const btn = document.getElementById('btn-leave-message');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = '发送留言';
+            }
+        }
+    }
 }
 
 const landingPage = document.getElementById('landing-page');
 const matchingPage = document.getElementById('matching-page');
 const chatPage = document.getElementById('chat-page');
+const profilePage = document.getElementById('profile-page');
 const btnStart = document.getElementById('btn-start');
 const btnBack = document.getElementById('btn-back');
 const logoText = document.querySelector('.logo-text');
@@ -954,6 +1031,17 @@ function formatTime(s) {
     const m = Math.floor(s / 60);
     const sec = s % 60;
     return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+}
+
+function timeAgoText(date) {
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 60) return '刚刚';
+    if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+    if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+    if (diff < 604800) return Math.floor(diff / 86400) + '天前';
+    const m = date.getMonth() + 1;
+    const d = date.getDate();
+    return m + '/' + d;
 }
 
 function escapeHtml(str) {
@@ -1211,6 +1299,31 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                         </svg>
                         查看对话
                     </button>
+                    <div id="leave-message-area" style="margin-bottom:8px;">
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <input type="text" id="leave-message-input" placeholder="给对手留句话（可选,20字内）" maxlength="20"
+                                style="flex:1;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text);">
+                            <button class="doodle-btn" id="btn-leave-message" style="padding:6px 14px;font-size:13px;white-space:nowrap;">
+                                发送留言
+                            </button>
+                        </div>
+                        <div id="leave-message-status" style="display:none;text-align:center;font-size:12px;margin-top:4px;"></div>
+                    </div>
+                    <div id="collection-area" style="display:none;margin-bottom:8px;">
+                        <div style="font-size:12px;font-weight:bold;margin-bottom:4px;color:var(--text);">收藏此局</div>
+                        <input type="text" id="collection-title-input" placeholder="给这次对局起个标题（选填）" maxlength="100"
+                            style="width:100%;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:13px;margin-bottom:6px;background:var(--bg);color:var(--text);box-sizing:border-box;">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;cursor:pointer;">
+                            <input type="checkbox" id="collection-public-check" checked>
+                            公开到个人资料页
+                        </label>
+                        <div style="display:flex;gap:6px;">
+                            <button class="doodle-btn" id="btn-collection-save" style="flex:1;justify-content:center;font-size:13px;padding:6px;">
+                                保存收藏设置
+                            </button>
+                        </div>
+                        <div id="collection-status" style="display:none;text-align:center;font-size:12px;margin-top:4px;"></div>
+                    </div>
                     <button class="doodle-btn start-btn" id="btn-replay-inner" style="width:100%; justify-content:center;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <polyline points="23 4 23 10 17 10" />
@@ -1256,6 +1369,77 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
     });
 
     document.getElementById('btn-replay-inner').addEventListener('click', resetGame);
+
+    document.getElementById('btn-leave-message').addEventListener('click', () => {
+        const input = document.getElementById('leave-message-input');
+        const text = input.value.trim();
+        if (!text) return;
+
+        const btn = document.getElementById('btn-leave-message');
+        btn.disabled = true;
+        btn.textContent = '发送中...';
+
+        try {
+            transport.send('leave_message', { text });
+        } catch (e) {
+            const statusEl = document.getElementById('leave-message-status');
+            statusEl.style.display = 'block';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = '发送失败';
+            btn.disabled = false;
+            btn.textContent = '发送留言';
+        }
+    });
+
+    document.getElementById('btn-collection-save').addEventListener('click', () => {
+        const savedId = game._savedHistoryId;
+        if (!savedId) return;
+
+        const title = document.getElementById('collection-title-input').value.trim();
+        const isPublic = document.getElementById('collection-public-check').checked;
+        const code = getUserRecoveryCode();
+
+        if (!code) {
+            const statusEl = document.getElementById('collection-status');
+            statusEl.style.display = 'block';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = '请先获取恢复码';
+            return;
+        }
+
+        const btn = document.getElementById('btn-collection-save');
+        btn.disabled = true;
+        btn.textContent = '保存中...';
+
+        fetch('/api/chat-history/collect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: savedId, code, title: title || null, is_public: isPublic }),
+        })
+        .then(r => r.json())
+        .then(result => {
+            const statusEl = document.getElementById('collection-status');
+            statusEl.style.display = 'block';
+            if (result.success) {
+                statusEl.style.color = 'var(--success)';
+                statusEl.textContent = '收藏设置已保存';
+                btn.textContent = '已保存';
+            } else {
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = result.message || '保存失败';
+                btn.disabled = false;
+                btn.textContent = '保存收藏设置';
+            }
+        })
+        .catch(() => {
+            const statusEl = document.getElementById('collection-status');
+            statusEl.style.display = 'block';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = '网络错误';
+            btn.disabled = false;
+            btn.textContent = '保存收藏设置';
+        });
+    });
 
     // 记录战绩
     recordGameStats({
@@ -1623,8 +1807,8 @@ btnBack.addEventListener('click', function (e) {
 });
 
 window.addEventListener('beforeunload', function (e) {
-    // 只在聊天页面激活时触发
-    if (chatPage.style.display === 'flex') {
+    // 只在真正的游戏对局（非公开回顾页）激活时触发
+    if (chatPage.style.display === 'flex' && !window._isPublicCollection) {
         e.preventDefault();
         e.returnValue = '你正在进行一局图灵测试，确定要离开吗？';
         return e.returnValue;
@@ -2029,9 +2213,11 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
         this._intentionalClose = false;
         this._lastPongTime = Date.now();
 
-        // 移除重连提示
-        const reconnectBanner = document.getElementById('reconnect-banner');
-        if (reconnectBanner) reconnectBanner.remove();
+        // 隐藏断连覆盖层
+        if (game) game._hideReconnectOverlay();
+
+        // 更新连接状态指示器
+        updateConnIndicator('online');
 
         // 启动心跳：每 25 秒发送一次 ping
         let _hbCount = 0;
@@ -2189,6 +2375,9 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
             case 'save_history_status':
                 this._emit('save_history_status', data);
                 break;
+            case 'leave_message_status':
+                this._emit('leave_message_status', data);
+                break;
             case 'stickers_list':
                 stickerMap = handleStickersList(data);
                 break;
@@ -2225,10 +2414,15 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
             this._heartbeatTimer = null;
         }
 
+        // 更新连接状态指示器
+        updateConnIndicator('offline');
+
         // 主动关闭（用户离开或 reset）→ 不重连
         // 或者后端返回"已有活跃连接"错误 → 不重连
         if (this._intentionalClose || this._preventReconnect) {
             this._intentionalClose = false;
+            // 隐藏覆盖层
+            if (game) game._hideReconnectOverlay();
             this._emit('disconnected', {});
             return;
         }
@@ -2237,6 +2431,9 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
         const maxDelay = 30000;
         const delay = Math.min(1000 * Math.pow(2, this._reconnectAttempts), maxDelay);
         this._reconnectAttempts++;
+
+        // 更新覆盖层进度点
+        if (game) game._updateReconnectProgress(this._reconnectAttempts, 5);
 
         DebugLogger.log('ws', '自动重连', { attempt: this._reconnectAttempts, delay_ms: delay });
 
@@ -2252,6 +2449,10 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
 
         // 仅首次断开通知 UI
         if (this._reconnectAttempts === 1) {
+            // 对局中且覆盖层未显示时，显示覆盖层
+            if (chatPage.style.display === 'flex' && game) {
+                game._showReconnectOverlay('reconnecting');
+            }
             this._emit('disconnected', { reconnecting: true });
         }
     };
@@ -2282,6 +2483,69 @@ WebSocketTransport.prototype.preconnect = function () {
     }
     this.connect('');  // nickname 为空，onopen 只启心跳不发 join
 };
+
+// ================================================================
+//  连接状态指示器
+// ================================================================
+
+/** 更新聊天页顶部连接状态指示点 */
+function updateConnIndicator(state) {
+    const indicator = document.getElementById('conn-indicator');
+    const label = document.getElementById('conn-label');
+    if (!indicator) return;
+
+    if (state === 'online') {
+        indicator.className = 'connection-indicator online';
+        if (label) label.textContent = '在线';
+    } else {
+        indicator.className = 'connection-indicator offline';
+        if (label) label.textContent = '掉线';
+    }
+
+    // 只在聊天页显示
+    indicator.style.display = (chatPage.style.display === 'flex') ? 'flex' : 'none';
+}
+
+// ================================================================
+//  断连兜底按钮事件绑定
+// ================================================================
+
+/** 覆盖层「重试连接」按钮 */
+document.getElementById('btn-reconnect-retry').addEventListener('click', function () {
+    if (!transport || !game) return;
+
+    // 更新覆盖层 UI
+    const desc = document.getElementById('reconnect-desc');
+    if (desc) desc.textContent = '正在手动重连，请稍候...';
+    this.disabled = true;
+
+    // 重置重连计数，立即触发连接
+    transport._intentionalClose = false;
+    transport._preventReconnect = false;
+    transport._reconnectAttempts = 0;
+    transport._lastPongTime = 0;
+
+    // 取消 pending timer
+    if (transport._reconnectTimer) {
+        clearTimeout(transport._reconnectTimer);
+        transport._reconnectTimer = null;
+    }
+
+    transport.connect(transport._lastNickname || '', transport._lastDuration || 600);
+});
+
+/** 覆盖层「返回首页」按钮 */
+document.getElementById('btn-reconnect-home').addEventListener('click', function () {
+    if (!game) return;
+    game._hideReconnectOverlay();
+    game.reset();
+});
+
+// 点击覆盖层空白区域不关闭（防止误操作）
+document.getElementById('reconnect-overlay').addEventListener('click', function (e) {
+    // 只在点击半透明背景（非卡片区域）时不做任何操作
+    // 防止玩家误点空白导致关闭覆盖层
+});
 
 // ================================================================
 // 初始化传输层和游戏客户端
@@ -2369,6 +2633,17 @@ function updateLbUI() {
             loadChatHistoryList(1);
         } else {
             historySection.style.display = 'none';
+        }
+    }
+
+    // 对手留言管理区域
+    var msgManageSection = document.getElementById('message-manage-section');
+    if (msgManageSection) {
+        if (code) {
+            msgManageSection.style.display = '';
+            loadMessageManageList(code);
+        } else {
+            msgManageSection.style.display = 'none';
         }
     }
 }
@@ -2506,6 +2781,21 @@ function autoInitRecoveryCode() {
 
 document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
 
+// 查看公开资料
+document.getElementById('btn-open-profile').addEventListener('click', function () {
+    const nickname = getUserNickname();
+    if (!nickname) {
+        alert('请先在首页填写昵称');
+        return;
+    }
+    history.pushState(null, '', '/player/' + encodeURIComponent(nickname));
+    hideAllPagesForProfile();
+    showProfilePage();
+    loadProfile(nickname);
+    // 关闭设置面板
+    settingsOverlay.style.display = 'none';
+});
+
 // ---- 恢复码输入事件 ----
 
 document.getElementById('btn-recover-lb').addEventListener('click', () => {
@@ -2586,14 +2876,18 @@ function renderChatHistoryList(data) {
         const time = item.created_at ? item.created_at.substring(0, 16).replace('T', ' ') : '';
         const resultBadge = resultLabels[item.result] || '';
         const resultColor = item.result === 'win' ? '#4caf50' : (item.result === 'lose' ? '#f44336' : '#999');
+        const displayTitle = item.title ? escapeHtml(item.title) : (escapeHtml(item.player_name) + ' vs ' + escapeHtml(item.opponent_name));
+        const titleIcon = item.title ? '&#128278; ' : '';
+        const publicBadge = item.is_public ? '<span style="font-size:10px;color:var(--ink-blue);margin-left:4px;">公开</span>' : '';
         html += `
-            <div class="chat-history-row" data-id="${item.id}" style="padding:8px 10px;margin-bottom:6px;background:var(--note-green);border:2px solid var(--ink-black);border-radius:8px 3px 8px 3px;cursor:pointer;font-size:13px;">
+            <div class="chat-history-row doodle-border" data-id="${item.id}" style="padding:8px 10px;margin-bottom:6px;background:var(--note-green);cursor:pointer;font-size:13px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <span><b>${escapeHtml(item.player_name)}</b> vs ${escapeHtml(item.opponent_name)}</span>
+                    <span>${titleIcon}<b>${displayTitle}</b>${publicBadge}</span>
                     <span style="color:${resultColor};font-weight:bold;font-size:12px;">${resultBadge}</span>
                 </div>
                 <div style="font-size:11px;color:#888;margin-top:2px;">
                     ${guessLabels[item.player_guess] || '未判定'} · ${truthLabels[item.opponent_truth] || ''} · ${item.message_count}条消息 · ${time}
+                    ${item.likes ? '<span style="margin-left:6px;">&#10084; ' + item.likes + '</span>' : ''}
                 </div>
             </div>
         `;
@@ -2628,6 +2922,93 @@ function renderChatHistoryList(data) {
     });
 }
 
+/** 对手留言管理：加载留言列表 */
+function loadMessageManageList(code) {
+    const listEl = document.getElementById('message-manage-list');
+    const allowLabel = document.getElementById('message-allow-label');
+    const allowToggle = document.getElementById('message-allow-toggle');
+    if (!listEl) return;
+
+    listEl.innerHTML = '<div style="text-align:center;color:#999;padding:10px;font-size:12px;">加载中...</div>';
+
+    fetch('/api/player-messages?code=' + encodeURIComponent(code))
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                listEl.innerHTML = '<div style="text-align:center;color:#f44336;padding:10px;font-size:12px;">' + escapeHtml(data.error) + '</div>';
+                return;
+            }
+
+            const msgs = data.messages || [];
+            const allow = data.allow_messages !== false;
+
+            // 允许留言开关
+            if (allowLabel) {
+                allowLabel.style.display = 'flex';
+                allowToggle.checked = allow;
+                allowToggle.onchange = function () {
+                    fetch('/api/player-message/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code, allow_messages: allowToggle.checked }),
+                    });
+                };
+            }
+
+            if (msgs.length === 0) {
+                listEl.innerHTML = '<div style="text-align:center;color:#999;padding:10px;font-size:12px;">暂无留言</div>';
+                return;
+            }
+
+            let html = '';
+            msgs.forEach(msg => {
+                const time = msg.created_at ? new Date(msg.created_at * 1000).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                const hidden = msg.hidden ? true : false;
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #ddd;font-size:12px;">' +
+                    '<div style="flex:1;min-width:0;">' +
+                        '<span style="font-weight:bold;">' + escapeHtml(msg.from) + '</span>' +
+                        '<span style="' + (hidden ? 'text-decoration:line-through;color:#999;' : '') + '"> ' + escapeHtml(msg.text) + '</span>' +
+                        '<span style="color:#999;margin-left:4px;">' + time + '</span>' +
+                    '</div>' +
+                    '<button class="doodle-btn msg-hide-btn" data-id="' + escapeHtml(msg.id) + '" style="font-size:11px;padding:2px 8px;white-space:nowrap;">' + (hidden ? '显示' : '隐藏') + '</button>' +
+                '</div>';
+            });
+            listEl.innerHTML = html;
+
+            // 绑定隐藏/显示事件
+            listEl.querySelectorAll('.msg-hide-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const msgId = this.dataset.id;
+                    const isHidden = this.textContent === '隐藏';
+                    this.disabled = true;
+                    this.textContent = '...';
+
+                    fetch('/api/player-message/hide', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ code, message_id: msgId, hidden: isHidden }),
+                    })
+                    .then(r => r.json())
+                    .then(result => {
+                        if (result.success) {
+                            loadMessageManageList(code);
+                        } else {
+                            this.disabled = false;
+                            this.textContent = isHidden ? '隐藏' : '显示';
+                        }
+                    })
+                    .catch(function () {
+                        this.disabled = false;
+                        this.textContent = isHidden ? '隐藏' : '显示';
+                    });
+                });
+            });
+        })
+        .catch(() => {
+            listEl.innerHTML = '<div style="text-align:center;color:#f44336;padding:10px;font-size:12px;">网络错误</div>';
+        });
+}
+
 /** 显示聊天记录详情 */
 function showChatHistoryDetail(id) {
     const code = getUserRecoveryCode();
@@ -2641,7 +3022,9 @@ function showChatHistoryDetail(id) {
     titleEl.textContent = '加载中...';
     infoEl.innerHTML = '';
     msgEl.innerHTML = '<div style="text-align:center;color:#999;padding:20px;">加载中...</div>';
-    overlay.style.display = 'block';
+    settingsOverlay.style.display = 'none';
+    changelogOverlay.style.display = 'none';
+    overlay.style.display = 'flex';
 
     fetch('/api/chat-history/detail?id=' + id + '&code=' + encodeURIComponent(code))
         .then(r => r.json())
@@ -2653,50 +3036,625 @@ function showChatHistoryDetail(id) {
 
             const resultLabels = { 'win': '胜利', 'lose': '失败', 'draw': '平局' };
             const time = data.created_at ? data.created_at.substring(0, 16).replace('T', ' ') : '';
+            const displayTitle = data.title ? escapeHtml(data.title) : (escapeHtml(data.player_name) + ' vs ' + escapeHtml(data.opponent_name));
 
-            titleEl.textContent = escapeHtml(data.player_name) + ' vs ' + escapeHtml(data.opponent_name);
-            infoEl.innerHTML = '结果：<b>' + (resultLabels[data.result] || '') + '</b> · ' + data.message_count + '条消息 · ' + time;
+            titleEl.innerHTML = displayTitle;
+
+            // 基本信息行
+            infoEl.innerHTML = `
+                <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+                    <div style="display:flex;align-items:center;gap:4px;background:var(--ink-black);color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:bold;">
+                        ${resultLabels[data.result] || '??'}
+                    </div>
+                    <span style="font-size:12px;color:var(--text-subtle);">${time}</span>
+                    <span style="font-size:12px;color:var(--text-subtle);">${data.message_count}条消息</span>
+                </div>
+            `;
+
+            // 收藏编辑区
+            const hasPublicToken = data.public_token ? true : false;
+            const publicUrl = hasPublicToken ? (window.location.origin + '/collection/' + escapeHtml(data.public_token || '')) : '';
+            infoEl.innerHTML += `
+                <div style="background:var(--bg);border:1.5px dashed var(--ink-black);border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:var(--text-subtle);margin-bottom:8px;font-weight:bold;">收藏管理</div>
+                    <input type="text" id="detail-title-input" placeholder="为此记录起个名字" maxlength="100"
+                        style="width:100%;padding:6px 10px;border:1.5px solid var(--ink-black);border-radius:6px;font-size:13px;margin-bottom:8px;background:var(--bg);color:var(--text);box-sizing:border-box;"
+                        value="${escapeHtml(data.title || '')}">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px;cursor:pointer;">
+                        <input type="checkbox" id="detail-public-check" ${data.is_public ? 'checked' : ''}>
+                        公开聊天记录
+                    </label>
+                    <div id="detail-public-link" style="display:${hasPublicToken ? 'block' : 'none'};margin-bottom:8px;">
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <input type="text" id="detail-public-url" readonly
+                                style="flex:1;padding:5px 8px;border:1.5px solid var(--ink-black);border-radius:6px;font-size:11px;background:var(--bg);color:var(--text);"
+                                value="${publicUrl}">
+                            <button class="doodle-btn" id="btn-copy-public-link" style="font-size:11px;padding:5px 12px;">复制</button>
+                        </div>
+                    </div>
+                    <button class="doodle-btn" id="btn-detail-collection-save" style="width:100%;justify-content:center;font-size:12px;padding:6px;">保存</button>
+                    <div id="detail-collection-status" style="display:none;text-align:center;font-size:11px;margin-top:6px;"></div>
+                </div>
+            `;
 
             if (!data.messages || data.messages.length === 0) {
                 msgEl.innerHTML = '<div style="text-align:center;color:#999;padding:20px;">无聊天消息</div>';
-                return;
+            } else {
+                let msgHtml = '';
+                data.messages.forEach(msg => {
+                    const isRight = msg.side === 'right';
+                    const bg = isRight ? '#d3e2ed' : '#fdf5c9';
+                    const align = isRight ? 'flex-end' : 'flex-start';
+                    const radius = isRight ? '12px 12px 0 12px' : '12px 12px 12px 0';
+                    msgHtml += `
+                        <div style="display:flex;justify-content:${align};margin-bottom:8px;">
+                            <div style="max-width:75%;padding:8px 12px;background:${bg};border:1.5px solid #2b2b2b;border-radius:${radius};font-size:13px;line-height:1.4;">
+                                <div style="font-size:10px;color:#888;">${escapeHtml(msg.sender)} · ${escapeHtml(msg.time || '')}</div>
+                                <div style="margin-top:2px;">${escapeHtml(msg.text)}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                msgEl.innerHTML = msgHtml;
             }
 
-            let msgHtml = '';
-            data.messages.forEach(msg => {
-                const isRight = msg.side === 'right';
-                const bg = isRight ? '#d3e2ed' : '#fdf5c9';
-                const align = isRight ? 'flex-end' : 'flex-start';
-                const radius = isRight ? '12px 12px 0 12px' : '12px 12px 12px 0';
-                msgHtml += `
-                    <div style="display:flex;justify-content:${align};margin-bottom:8px;">
-                        <div style="max-width:75%;padding:8px 12px;background:${bg};border:1.5px solid #2b2b2b;border-radius:${radius};font-size:13px;line-height:1.4;">
-                            <div style="font-size:10px;color:#888;">${escapeHtml(msg.sender)} · ${escapeHtml(msg.time || '')}</div>
-                            <div style="margin-top:2px;">${escapeHtml(msg.text)}</div>
-                        </div>
-                    </div>
-                `;
+            // 公开开关 - 立即生效
+            document.getElementById('detail-public-check').addEventListener('change', function () {
+                const isPublic = this.checked;
+                const statusEl = document.getElementById('detail-collection-status');
+                const linkArea = document.getElementById('detail-public-link');
+                const urlInput = document.getElementById('detail-public-url');
+                this.disabled = true;
+                statusEl.style.display = 'block';
+                statusEl.style.color = '#999';
+                statusEl.textContent = '处理中...';
+
+                fetch('/api/chat-history/collect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, code, is_public: isPublic }),
+                })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.success) {
+                        if (isPublic && result.public_url) {
+                            urlInput.value = window.location.origin + result.public_url;
+                            linkArea.style.display = 'block';
+                            statusEl.style.color = 'var(--success)';
+                            statusEl.textContent = '链接已生成';
+                        } else {
+                            linkArea.style.display = 'none';
+                            statusEl.style.color = 'var(--success)';
+                            statusEl.textContent = '已关闭公开';
+                        }
+                    } else {
+                        this.checked = !isPublic;
+                        statusEl.style.color = 'var(--danger)';
+                        statusEl.textContent = result.message || '操作失败';
+                    }
+                    this.disabled = false;
+                })
+                .catch(() => {
+                    this.checked = !isPublic;
+                    this.disabled = false;
+                    statusEl.style.color = 'var(--danger)';
+                    statusEl.textContent = '网络错误';
+                });
             });
-            msgEl.innerHTML = msgHtml;
+
+            // 复制公开链接
+            document.getElementById('btn-copy-public-link').addEventListener('click', () => {
+                const urlInput = document.getElementById('detail-public-url');
+                urlInput.select();
+                document.execCommand('copy');
+                const statusEl = document.getElementById('detail-collection-status');
+                statusEl.style.display = 'block';
+                statusEl.style.color = 'var(--success)';
+                statusEl.textContent = '链接已复制';
+            });
+
+            // 收藏保存（仅标题）
+            document.getElementById('btn-detail-collection-save').addEventListener('click', () => {
+                const title = document.getElementById('detail-title-input').value.trim();
+                const btn = document.getElementById('btn-detail-collection-save');
+                const statusEl = document.getElementById('detail-collection-status');
+                btn.disabled = true;
+                btn.textContent = '保存中...';
+
+                fetch('/api/chat-history/collect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, code, title: title || null }),
+                })
+                .then(r => r.json())
+                .then(result => {
+                    statusEl.style.display = 'block';
+                    if (result.success) {
+                        statusEl.style.color = 'var(--success)';
+                        statusEl.textContent = '已保存';
+                    } else {
+                        statusEl.style.color = 'var(--danger)';
+                        statusEl.textContent = result.message || '保存失败';
+                    }
+                    btn.disabled = false;
+                    btn.textContent = '保存';
+                })
+                .catch(() => {
+                    statusEl.style.display = 'block';
+                    statusEl.style.color = 'var(--danger)';
+                    statusEl.textContent = '网络错误';
+                    btn.disabled = false;
+                    btn.textContent = '保存';
+                });
+            });
         })
         .catch(() => {
             msgEl.innerHTML = '<div style="text-align:center;color:#f44336;padding:20px;">加载失败</div>';
         });
 }
 
+function parseProfilePath() {
+    const m = window.location.pathname.match(/^\/player\/(.+)/);
+    if (!m) return null;
+    return decodeURIComponent(m[1]);
+}
+
+function parseCollectionPath() {
+    const m = window.location.pathname.match(/^\/collection\/(.+)/);
+    if (!m) return null;
+    return decodeURIComponent(m[1]);
+}
+
+function showProfilePage() {
+    landingPage.style.display = 'none';
+    matchingPage.style.display = 'none';
+    chatPage.style.display = 'none';
+    resultArea.style.display = 'none';
+    profilePage.style.display = 'flex';
+    btnBack.style.display = 'none';
+
+    // Hero 入场
+    const hero = profilePage.querySelector('.profile-hero');
+    if (hero) {
+        hero.style.opacity = '0';
+        hero.style.transform = 'translateY(-12px)';
+        requestAnimationFrame(() => {
+            hero.style.transition = 'opacity 0.45s ease-out, transform 0.45s ease-out';
+            hero.style.opacity = '1';
+            hero.style.transform = 'translateY(0)';
+        });
+    }
+}
+
+async function showPublicCollection(token) {
+    // 标记为非游戏对局，阻止 beforeunload 弹窗
+    window._isPublicCollection = true;
+
+    // 隐藏其他页面
+    landingPage.style.display = 'none';
+    matchingPage.style.display = 'none';
+    resultArea.style.display = 'none';
+    profilePage.style.display = 'none';
+    btnBack.style.display = 'none';
+
+    // 改造 chat-page 为公开回顾页
+    chatPage.style.display = 'flex';
+    var inputArea = document.querySelector('.chat-input-area');
+    if (inputArea) inputArea.style.display = 'none';
+    var reportBtn = document.getElementById('btn-report');
+    if (reportBtn) reportBtn.style.display = 'none';
+    var judgeZone = document.getElementById('judgement-zone');
+    if (judgeZone) judgeZone.style.display = 'none';
+    var headerRight = document.querySelector('#chat-page > div > div.chat-header > div:nth-child(2)');
+    if (headerRight) headerRight.style.display = 'none';
+
+    // 标题栏
+    const oppInfo = chatPage.querySelector('.opponent-info');
+    if (oppInfo) {
+        oppInfo.innerHTML = `
+            <div class="avatar">
+                <svg class="icon" viewBox="0 0 24 24" style="width:24px;height:24px;">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+            </div>
+            <div>
+                <div style="font-size:12px;color:#888;" id="pc-header-sub">加载中...</div>
+            </div>
+        `;
+    }
+    // 居中标题
+    var chatHeader = chatPage.querySelector('.chat-header');
+    var existTitle = document.getElementById('pc-header-center-title');
+    if (!existTitle && chatHeader) {
+        var centerTitle = document.createElement('strong');
+        centerTitle.id = 'pc-header-center-title';
+        centerTitle.style.cssText = 'font-size:16px;position:absolute;left:50%;transform:translateX(-50%);';
+        centerTitle.textContent = '公开聊天回顾';
+        chatHeader.style.position = 'relative';
+        chatHeader.appendChild(centerTitle);
+    }
+    const timerDisplay = document.getElementById('timer-display');
+    if (timerDisplay) timerDisplay.textContent = '';
+
+    // 清空聊天区
+    chatBody.innerHTML = '';
+
+    try {
+        const r = await fetch('/api/collection/by-token?token=' + encodeURIComponent(token));
+        const data = await r.json();
+        if (data.error) {
+            const sys = document.createElement('div');
+            sys.className = 'sys-msg anim-fade-in';
+            sys.textContent = data.error;
+            chatBody.appendChild(sys);
+            const hdr = document.getElementById('pc-header-sub');
+            if (hdr) hdr.textContent = '无法查看';
+            return;
+        }
+
+        const resultLabels = { 'win': '胜利', 'lose': '失败', 'draw': '平局' };
+        const time = data.created_at ? data.created_at.substring(0, 16).replace('T', ' ') : '';
+        const hdr = document.getElementById('pc-header-sub');
+        if (hdr) hdr.textContent = escapeHtml(data.player_name) + ' vs ' + escapeHtml(data.opponent_name);
+        var centerTitle = document.getElementById('pc-header-center-title');
+        if (centerTitle) centerTitle.textContent = data.title || '公开聊天回顾';
+
+        // 结果信息
+        const sysMsg = document.createElement('div');
+        sysMsg.className = 'sys-msg anim-fade-in';
+        sysMsg.textContent = '结果：' + (resultLabels[data.result] || '') + ' · ' + data.message_count + '条消息 · ' + time;
+        chatBody.appendChild(sysMsg);
+
+        if (!data.messages || !data.messages.length) {
+            const empty = document.createElement('div');
+            empty.className = 'sys-msg anim-fade-in';
+            empty.textContent = '无聊天消息';
+            chatBody.appendChild(empty);
+        } else {
+            data.messages.forEach(msg => {
+                const bubble = document.createElement('div');
+                const isRight = msg.side === 'right';
+                bubble.className = isRight ? 'bubble bubble-right anim-slide-right' : 'bubble bubble-left anim-slide-left';
+                bubble.innerHTML = `
+                    <div class="bubble-info">${escapeHtml(msg.sender)} (${escapeHtml(msg.time || '')})</div>
+                    <div style="font-size:18px;">${escapeHtml(msg.text)}</div>
+                `;
+                chatBody.appendChild(bubble);
+            });
+        }
+
+        // 点赞按钮（仅登录用户可见）
+        var userCode = getUserRecoveryCode();
+        if (userCode && data.id) {
+            var likeDiv = document.createElement('div');
+            likeDiv.style.cssText = 'text-align:center;margin-top:16px;';
+            likeDiv.innerHTML = '<button class="doodle-btn" id="pc-btn-like" style="font-size:13px;padding:6px 16px;">&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span></button>';
+            chatBody.appendChild(likeDiv);
+
+            document.getElementById('pc-btn-like').addEventListener('click', function () {
+                var btn = this;
+                btn.disabled = true;
+                btn.textContent = '...';
+                fetch('/api/collection/like', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: data.id, code: userCode }),
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (result) {
+                    if (result.success) {
+                        var countEl = document.getElementById('pc-like-count');
+                        countEl.textContent = parseInt(countEl.textContent) + 1;
+                        btn.innerHTML = '&#10084; 已赞 <span id="pc-like-count">' + countEl.textContent + '</span>';
+                    } else {
+                        btn.disabled = false;
+                        btn.innerHTML = '&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span>';
+                    }
+                })
+                .catch(function () {
+                    btn.disabled = false;
+                    btn.innerHTML = '&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span>';
+                });
+            });
+        }
+
+        // 返回按钮
+        const backDiv = document.createElement('div');
+        backDiv.className = 'sys-msg';
+        backDiv.style.marginTop = '16px';
+        backDiv.innerHTML = '<a href="/" style="color:var(--ink-blue);font-size:14px;">返回首页</a>';
+        chatBody.appendChild(backDiv);
+    } catch (e) {
+        const sys = document.createElement('div');
+        sys.className = 'sys-msg anim-fade-in';
+        sys.style.color = 'var(--danger)';
+        sys.textContent = '网络错误，请稍后重试';
+        chatBody.appendChild(sys);
+        const hdr = document.getElementById('pc-header-sub');
+        if (hdr) hdr.textContent = '加载失败';
+    }
+}
+
+function hideAllPagesForProfile() {
+    landingPage.style.display = 'none';
+    matchingPage.style.display = 'none';
+    chatPage.style.display = 'none';
+    resultArea.style.display = 'none';
+    profilePage.style.display = 'none';
+}
+
+async function loadProfile(nickname) {
+    const about = document.getElementById('profile-about');
+    const keyStats = document.getElementById('profile-key-stats');
+    const hours = document.getElementById('profile-hours');
+    const tagsArea = document.getElementById('profile-tags-area');
+    const msgsArea = document.getElementById('profile-messages-area');
+    const social = document.getElementById('profile-social');
+    about.style.display = 'none';
+    hours.style.display = 'none';
+    tagsArea.style.display = 'none';
+    msgsArea.style.display = 'none';
+    social.style.display = 'none';
+
+    // 加载中 — 复用匹配页的点跳动动画
+    keyStats.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;">' +
+        '<div class="dot-bounce"><span></span><span></span><span></span></div>' +
+        '<div style="margin-top:10px;font-size:14px;color:var(--text-subtle);">正在翻阅档案...</div>' +
+        '</div>';
+
+    try {
+        const resp = await fetch('/api/player-profile?nickname=' + encodeURIComponent(nickname));
+        const data = await resp.json();
+
+        if (data.error) {
+            keyStats.innerHTML = '<div class="profile-placeholder">' + escapeHtml(data.error) + '</div>';
+            return;
+        }
+
+        // TODO: 测试假数据，上线前删除
+        data.messages = [
+            { from: '夜归人', text: '你藏得也太好了，完全没看出来', created_at: Math.floor(Date.now() / 1000) - 3600 },
+            { from: '摸鱼达人', text: '哈哈那局笑死我了', created_at: Math.floor(Date.now() / 1000) - 86400 },
+            { from: '匿名玩家', text: '下次别这么明显好不好', created_at: Math.floor(Date.now() / 1000) - 172800 },
+        ];
+        data.tags = [
+            { tag: '话痨', count: 5 },
+            { tag: '演技派', count: 3 },
+            { tag: 'AI本I', count: 2 },
+        ];
+
+        renderProfile(data);
+    } catch (e) {
+        keyStats.innerHTML = '<div class="profile-placeholder">加载失败，请稍后重试</div>';
+    }
+}
+
+function buildAboutLines(data, turingGames) {
+    const lines = [];
+
+    if (!turingGames) {
+        if ((data.whoisai_games || 0) > 0) {
+            lines.push('这里的数据来自 <b>图灵测试（1v1）</b> 模式。');
+            lines.push('你主要在玩 <b>谁是AI</b> 模式，去 1v1 打几局就能看到详细分析啦。');
+        } else {
+            lines.push('这里的数据来自 <b>图灵测试（1v1）</b> 模式。');
+            lines.push('去打几局就能看到你的 AI 识别能力分析。');
+        }
+        return lines;
+    }
+
+    const gag = data.guess_accuracy;
+    if (gag != null && gag > 0) {
+        lines.push(gag >= 60
+            ? '你是公认的 <b>AI 克星</b>，' + gag + '% 的判断准确率让 AI 无所遁形。'
+            : '你有点 <b>容易被 AI 骗</b>，猜对率只有 ' + gag + '%，下次多留个心眼。');
+    }
+    const er = data.exposure_rate;
+    if (er != null && er > 0) {
+        lines.push(er <= 40
+            ? '你的伪装能力很强，只有 <b>' + er + '%</b> 的对手能看穿你。'
+            : '你的 <b>暴露指数</b> 高达 ' + er + '%，总是藏不住真实身份。');
+    }
+    const msgs = data.avg_msgs;
+    if (msgs != null && msgs > 0) {
+        lines.push(msgs >= 15
+            ? '你是个 <b>话痨</b>，平均每局发 ' + msgs + ' 条消息，聊天框就是你的主场。'
+            : (msgs <= 5
+                ? '你 <b>惜字如金</b>，平均每局只发 ' + msgs + ' 条消息，但句句致命。'
+                : '你的聊天节奏 <b>不疾不徐</b>，平均每局 ' + msgs + ' 条消息。'));
+    }
+    const js = data.avg_judge_seconds;
+    if (js > 0) {
+        lines.push(js <= 10
+            ? '你是 <b>急性子</b>，平均 ' + js + ' 秒就做出判断。'
+            : '你 <b>深思熟虑</b>，平均花 ' + js + ' 秒才下定论。');
+    }
+    const ph = data.peak_hours;
+    if (ph && ph.length) {
+        const top = ph[0];
+        const label = top >= 22 ? '夜猫子' : (top >= 6 ? '白天出没' : '深夜党');
+        lines.push('你是 <b>' + label + '</b>，最常在 ' + top + ' 点左右上线。');
+    }
+
+    if ((data.whoisai_games || 0) > 0) {
+        const wr = data.whoisai_win_rate || 0;
+        lines.push('谁是AI 模式打了 ' + (data.whoisai_games || 0) + ' 局，胜率 ' + wr + '%。');
+    }
+
+    return lines;
+}
+
+function renderProfile(data) {
+    // 昵称 + 称号
+    document.getElementById('profile-nickname').textContent = data.nickname || '？？？';
+
+    const titleBadge = document.getElementById('profile-title');
+    if (data.title) {
+        titleBadge.textContent = data.title;
+        titleBadge.className = 'profile-title-badge visible';
+    } else {
+        titleBadge.className = 'profile-title-badge';
+    }
+
+    // 副标题：区分两种模式
+    const tg = data.turing_games || 0;
+    const wg = data.whoisai_games || 0;
+    const parts = [];
+    if (tg > 0) parts.push('图灵测试 ' + tg + ' 局');
+    if (wg > 0) parts.push('谁是AI ' + wg + ' 局');
+    parts.push('胜率 ' + (data.win_rate || 0) + '%');
+    document.getElementById('profile-subtitle').textContent = parts.join(' · ');
+
+    // ── 人物速写 ──
+    const aboutLines = buildAboutLines(data, tg);
+    const aboutEl = document.getElementById('profile-about');
+    if (aboutLines.length) {
+        aboutEl.style.display = '';
+        document.getElementById('profile-about-lines').innerHTML = aboutLines.map(l =>
+            '<div class="about-line">' + l + '</div>'
+        ).join('');
+        aboutEl.style.opacity = '0';
+        aboutEl.style.transform = 'translateY(16px) rotate(0.8deg)';
+        requestAnimationFrame(() => {
+            aboutEl.style.transition = 'opacity 0.4s ease-out, transform 0.4s ease-out';
+            aboutEl.style.opacity = '1';
+            aboutEl.style.transform = 'rotate(0.8deg)';
+        });
+    }
+
+    // ── 核心数据 ──
+    const kStats = [
+        { label: 'AI 胜率', value: data.ai_win_rate ? data.ai_win_rate + '%' : '-' },
+        { label: '真人胜率', value: data.human_win_rate ? data.human_win_rate + '%' : '-' },
+        { label: '胜率', value: (data.win_rate || 0) + '%' },
+        { label: '总局数', value: data.total_games || 0 },
+    ];
+    if ((data.whoisai_games || 0) > 0) {
+        kStats.push({ label: '谁是AI胜率', value: (data.whoisai_win_rate || 0) + '%' });
+    }
+    document.getElementById('profile-key-stats').innerHTML = kStats.map((s, i) =>
+        '<div class="profile-key-stat anim-pop-in" style="animation-delay:' + (i * 0.08) + 's">' +
+        '<div class="ks-label">' + escapeHtml(s.label) + '</div>' +
+        '<div class="ks-value">' + escapeHtml(String(s.value)) + '</div>' +
+        '</div>'
+    ).join('');
+
+    // ── 活跃时段 ──
+    const ph = data.peak_hours || [];
+    const hoursEl = document.getElementById('profile-hours');
+    if (ph.length) {
+        hoursEl.style.display = '';
+        const bars = document.getElementById('profile-hours-bars');
+        bars.innerHTML = ph.map((h, i) => {
+            const pct = Math.max(20, 100 - i * 25);
+            return (
+                '<div class="hours-row anim-slide-left" style="animation-delay:' + (i * 0.1) + 's">' +
+                '<div class="hours-time">' + h + '点</div>' +
+                '<div class="hours-bar-track"><div class="hours-bar-fill" style="width:0%" data-target="' + pct + '"></div></div>' +
+                '<div class="hours-count">' + (i === 0 ? '最活跃' : (i === 1 ? '次活跃' : '')) + '</div>' +
+                '</div>'
+            );
+        }).join('');
+        hoursEl.style.opacity = '0';
+        hoursEl.style.transform = 'translateY(12px) rotate(-0.5deg)';
+        requestAnimationFrame(() => {
+            hoursEl.style.transition = 'opacity 0.35s ease-out, transform 0.35s ease-out';
+            hoursEl.style.opacity = '1';
+            hoursEl.style.transform = 'rotate(-0.5deg)';
+        });
+        // 柱状图延迟填满
+        setTimeout(() => {
+            bars.querySelectorAll('.hours-bar-fill').forEach(el => {
+                el.style.width = el.getAttribute('data-target') + '%';
+            });
+        }, 400);
+    }
+
+    // ── 标签 ──
+    const tagsArea = document.getElementById('profile-tags-area');
+    const tagList = document.getElementById('profile-tag-list');
+    if (data.tags && data.tags.length) {
+        tagsArea.style.display = '';
+        tagList.innerHTML = data.tags.map((t, i) =>
+            '<span class="profile-tag-item anim-pop-in" style="animation-delay:' + (0.15 + i * 0.08) + 's">' +
+            escapeHtml(t.tag) +
+            '<span class="tag-count">×' + t.count + '</span>' +
+            '</span>'
+        ).join('');
+    } else {
+        tagsArea.style.display = 'none';
+    }
+
+    // ── 对手留言墙 ──
+    const msgsArea = document.getElementById('profile-messages-area');
+    const msgList = document.getElementById('profile-message-list');
+    const msgs = data.messages || [];
+    if (msgs.length) {
+        msgsArea.style.display = '';
+        msgList.innerHTML = msgs.map(m => {
+            const date = new Date(m.created_at * 1000);
+            const timeAgo = timeAgoText(date);
+            return `
+                <div class="profile-msg-item anim-pop-in">
+                    <div class="profile-msg-from">${escapeHtml(m.from)}</div>
+                    <div class="profile-msg-text">${escapeHtml(m.text)}</div>
+                    <div class="profile-msg-time">${timeAgo}</div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        msgsArea.style.display = 'none';
+    }
+
+    // 无社交数据则隐藏整个卡片
+    const social = document.getElementById('profile-social');
+    const hasTags = data.tags && data.tags.length;
+    const hasMsgs = data.messages && data.messages.length;
+    social.style.display = (hasTags || hasMsgs) ? '' : 'none';
+}
+
+// 初始化：检测 URL 是否为 /player/xxx
+(function initProfileRouting() {
+    const nickname = parseProfilePath();
+    if (nickname) {
+        showProfilePage();
+        loadProfile(nickname);
+    }
+})();
+
+// 初始化：检测 URL 是否为 /collection/{token} 公开收藏页
+(function initCollectionRouting() {
+    const token = parseCollectionPath();
+    if (token) {
+        hideAllPagesForProfile();
+        showPublicCollection(token);
+    }
+})();
+
+// 返回首页按钮
+document.getElementById('btn-profile-back').addEventListener('click', function () {
+    history.pushState(null, '', '/');
+    hideAllPagesForProfile();
+    landingPage.style.display = 'flex';
+    btnBack.style.display = 'none';
+});
+
 // 关闭详情弹窗事件（仅管理后台存在这些元素）
 var btnChatDetailClose = document.getElementById('btn-chat-detail-close');
 if (btnChatDetailClose) {
     btnChatDetailClose.addEventListener('click', function () {
-        document.getElementById('chat-history-detail-overlay').style.display = 'none';
+        closeOverlay(document.getElementById('chat-history-detail-overlay'));
+        settingsOverlay.style.display = 'flex';
     });
 }
 
 var chatDetailOverlay = document.getElementById('chat-history-detail-overlay');
 if (chatDetailOverlay) {
     chatDetailOverlay.addEventListener('click', function (e) {
-        if (e.target === e.currentTarget || e.target.classList.contains('admin-overlay-bg')) {
-            chatDetailOverlay.style.display = 'none';
+        if (e.target === e.currentTarget) {
+            closeOverlay(chatDetailOverlay);
+            settingsOverlay.style.display = 'flex';
         }
     });
 }

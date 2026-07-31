@@ -13,6 +13,9 @@ use Swoole\WebSocket\Server;
 use Swoole\Timer;
 use Swoole\WebSocket\Frame;
 
+/**
+ * 谁是AI WebSocket 处理器
+ */
 class WhoisAIWebSocketHandler extends BaseGameHandler
 {
     private WhoisAIService $WhoisAIService;
@@ -30,9 +33,18 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         $this->WhoisAIService = new WhoisAIService();
     }
 
-    public static function routePath(): string { return '/ws/WhoisAI'; }
-    public static function routePrefix(): string { return 'WhoisAI_'; }
-    public function getService(): object { return $this->WhoisAIService; }
+    public static function routePath(): string
+    {
+        return '/ws/WhoisAI';
+    }
+    public static function routePrefix(): string
+    {
+        return 'WhoisAI_';
+    }
+    public function getService(): object
+    {
+        return $this->WhoisAIService;
+    }
 
     /** @internal for admin */
     public function getWhoisAIService(): WhoisAIService
@@ -642,7 +654,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                 if ($playerCode) {
                     $identity = $p['identity'] ?? '';
                     $win = ($identity === WhoisAIService::IDENTITY_HUMAN) ? ($winner === 'human') : ($winner === 'ai');
-                    AsyncDbWriter::pushWhoisAIStats($playerCode, $win);
+                    AsyncDbWriter::pushWhoisAIStats($playerCode, $win, (int)date('G'));
                 }
             }
         }
@@ -847,5 +859,4 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         }
         return $resolved;
     }
-
 }

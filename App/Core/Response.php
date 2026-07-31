@@ -4,6 +4,9 @@ namespace App\Core;
 
 use Swoole\Http\Response as SwooleResponse;
 
+/**
+ * 响应封装
+ */
 class Response
 {
     private SwooleResponse $swooleResponse;

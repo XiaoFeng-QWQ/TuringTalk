@@ -700,6 +700,7 @@ main {
 
 #settings-overlay,
 #changelog-overlay,
+#chat-history-detail-overlay,
 #admin-panel-overlay {
     position: fixed;
     top: 0;
@@ -1681,4 +1682,639 @@ main {
     display: block;
     height: 20px;
     line-height: 20px;
+}
+
+/* ============================================================
+   个人资料公开页
+   ============================================================ */
+#profile-page {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 700px;
+    margin: 0 auto;
+}
+
+@media (max-width: 767px) {
+    #profile-page {
+        padding: 20px 20px 50px;
+    }
+}
+
+/* 桌面端两栏布局 */
+@media (min-width: 768px) {
+    #profile-page {
+        max-width: 860px;
+    }
+    .profile-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        width: 100%;
+    }
+    .profile-body > * {
+        min-width: 0;
+    }
+    .profile-key-stats {
+        grid-column: 1 / -1;
+    }
+    .profile-hours {
+        grid-column: 1 / -1;
+    }
+    .profile-about,
+    .profile-social {
+        margin-bottom: 0;
+    }
+    .profile-social {
+        align-self: start;
+    }
+}
+
+/* ── 档案头像区（便签叠放效果） ── */
+.profile-hero {
+    position: relative;
+    width: 100%;
+    margin-bottom: 30px;
+}
+
+/* 底部阴影纸 — 模拟多张便签叠放 */
+.profile-hero::before {
+    content: '';
+    position: absolute;
+    inset: 6px -6px -6px 6px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    transform: rotate(1.5deg);
+    z-index: 0;
+}
+
+.profile-hero::after {
+    content: '';
+    position: absolute;
+    inset: -5px 6px 6px -5px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 200px 15px 230px 12px / 12px 230px 15px 200px;
+    transform: rotate(-1deg);
+    z-index: 0;
+    opacity: 0.7;
+}
+
+.profile-card {
+    position: relative;
+    z-index: 1;
+    background-color: var(--note-blue);
+    padding: 30px 32px 24px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 4px 6px 0 rgba(0, 0, 0, 0.12);
+    transform: rotate(-0.8deg);
+}
+
+/* 档案编号 — 仿 landing-page .sticky-hero 顶部的 "实验 01" */
+.profile-card .dossier-label {
+    color: var(--ink-blue);
+    font-size: 14px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.profile-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.profile-nickname {
+    font-size: 28px;
+    font-weight: bold;
+    color: var(--ink-black);
+    text-decoration: underline wavy;
+    text-decoration-color: var(--note-yellow);
+    text-underline-offset: 6px;
+}
+
+.profile-title-badge {
+    display: none;
+    padding: 4px 16px;
+    border-radius: 20px 6px 20px 6px;
+    border: 2px solid var(--ink-black);
+    font-size: 16px;
+    font-weight: bold;
+    background: var(--note-yellow);
+    box-shadow: 3px 4px 0 var(--ink-black);
+    transform: rotate(-3deg);
+    white-space: nowrap;
+}
+
+.profile-title-badge.visible {
+    display: inline-block;
+}
+
+.profile-subtitle {
+    font-size: 14px;
+    color: var(--text-subtle);
+    margin-top: 4px;
+}
+
+/* ── 别人眼中的你 ── */
+.profile-social {
+    position: relative;
+    width: 100%;
+    margin-bottom: 24px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 22px 20px 18px;
+    transform: rotate(-0.4deg);
+    box-shadow: 3px 4px 0 rgba(0,0,0,0.1);
+}
+
+.social-label {
+    font-size: 13px;
+    color: var(--ink-blue);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.social-label .icon {
+    width: 14px;
+    height: 14px;
+}
+
+.social-body {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+}
+
+.social-body .profile-messages-area {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.social-body .profile-tags-area {
+    flex-shrink: 0;
+    width: 100px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 2px;
+}
+
+.social-body .profile-tag-list {
+    flex-direction: column;
+}
+
+.social-body .profile-tag-item {
+    font-size: 13px;
+    padding: 5px 12px;
+    box-shadow: 2px 2px 0 var(--ink-black);
+}
+
+@media (max-width: 480px) {
+    .social-body {
+        flex-direction: column;
+    }
+    .social-body .profile-tags-area {
+        width: 100%;
+    }
+    .social-body .profile-tag-list {
+        flex-direction: row;
+    }
+}
+
+/* ── 人物速写（叙事段落） ── */
+.profile-about {
+    position: relative;
+    width: 100%;
+    background: var(--note-pink);
+    border: 2px solid var(--ink-black);
+    border-radius: 200px 15px 230px 12px / 12px 230px 15px 200px;
+    padding: 22px 24px 18px;
+    transform: rotate(0.8deg);
+    box-shadow: 3px 4px 0 rgba(0,0,0,0.1);
+    margin-bottom: 24px;
+}
+
+.about-label {
+    font-size: 13px;
+    color: var(--ink-blue);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.about-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.about-line {
+    font-size: 14px;
+    color: var(--ink-black);
+    line-height: 1.6;
+    padding-left: 4px;
+    border-left: 3px solid var(--note-yellow);
+}
+
+/* ── 核心数据（4列横向排列） ── */
+.profile-key-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    gap: 10px;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+.profile-key-stat {
+    text-align: center;
+    padding: 14px 8px;
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background: var(--card-bg, #fff);
+    box-shadow: 2px 3px 0 rgba(0,0,0,0.1);
+}
+
+.profile-key-stat:nth-child(1) { background: var(--note-blue); transform: rotate(-1deg); }
+.profile-key-stat:nth-child(2) { background: var(--note-pink); transform: rotate(0.8deg); }
+.profile-key-stat:nth-child(3) { background: var(--note-green); transform: rotate(-0.6deg); }
+.profile-key-stat:nth-child(4) { background: var(--note-yellow); transform: rotate(1deg); }
+
+.profile-key-stat .ks-label {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-bottom: 4px;
+}
+
+.profile-key-stat .ks-value {
+    font-size: 28px;
+    font-weight: bold;
+    color: var(--ink-black);
+    line-height: 1.1;
+}
+
+/* ── 活跃时段柱状图 ── */
+.profile-hours {
+    width: 100%;
+    background: var(--note-blue);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 18px 22px;
+    box-shadow: 2px 4px 0 rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+    transform: rotate(-0.5deg);
+}
+
+.hours-label {
+    font-size: 13px;
+    color: var(--ink-blue);
+    margin-bottom: 14px;
+}
+
+.hours-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.hours-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.hours-row .hours-time {
+    width: 36px;
+    text-align: right;
+    font-weight: bold;
+    color: var(--ink-black);
+    flex-shrink: 0;
+}
+
+.hours-row .hours-bar-track {
+    flex: 1;
+    height: 14px;
+    background: rgba(255,255,255,0.5);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.hours-row .hours-bar-fill {
+    height: 100%;
+    background: var(--note-yellow);
+    border-right: 1.5px solid var(--ink-black);
+    border-radius: 7px 0 0 7px;
+    transition: width 0.6s ease-out;
+}
+
+.hours-row .hours-count {
+    width: 50px;
+    font-size: 11px;
+    color: var(--text-subtle);
+    flex-shrink: 0;
+}
+
+/* ── 加载 / 错误提示 ── */
+.profile-placeholder {
+    text-align: center;
+    padding: 50px 20px;
+    font-size: 15px;
+    color: var(--text-subtle);
+}
+.profile-tags-area {
+    width: 100%;
+    text-align: center;
+}
+
+.profile-tags-label {
+    font-size: 13px;
+    color: var(--text-subtle);
+    margin-bottom: 12px;
+}
+
+.profile-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+}
+
+.profile-tag-item {
+    padding: 6px 16px;
+    border: 2px solid var(--ink-black);
+    background: var(--note-yellow);
+    font-size: 15px;
+    font-weight: bold;
+    box-shadow: 3px 3px 0 var(--ink-black);
+    border-radius: 20px 5px 20px 5px;
+    transform: rotate(-2deg);
+}
+
+.profile-tag-item:nth-child(odd) {
+    background: var(--note-pink);
+    transform: rotate(2deg);
+}
+
+.profile-tag-item:nth-child(3n) {
+    background: var(--note-green);
+    transform: rotate(-1deg);
+}
+
+.profile-tag-item .tag-count {
+    font-size: 11px;
+    opacity: 0.6;
+    margin-left: 3px;
+}
+
+/* ── 对手留言墙 ── */
+.profile-messages-area {
+    width: 100%;
+}
+
+.profile-messages-label {
+    font-size: 13px;
+    color: var(--text-subtle);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.profile-messages-label .icon {
+    width: 14px;
+    height: 14px;
+}
+
+.profile-message-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+}
+
+.profile-msg-item {
+    width: 100%;
+    max-width: 380px;
+    padding: 12px 16px;
+    border: 2px solid var(--ink-black);
+    background: var(--surface-white);
+    box-shadow: 3px 3px 0 var(--ink-black);
+    border-radius: 8px 20px 20px 20px;
+    transform: rotate(-0.6deg);
+    text-align: left;
+}
+
+.profile-msg-item:nth-child(even) {
+    transform: rotate(0.5deg);
+    border-radius: 20px 8px 20px 20px;
+}
+
+.profile-msg-from {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-main);
+    margin-bottom: 4px;
+}
+
+.profile-msg-text {
+    font-size: 14px;
+    color: var(--text-main);
+    line-height: 1.5;
+}
+
+.profile-msg-time {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 6px;
+}
+
+/* ── 返回按钮 ── */
+.profile-back {
+    margin-top: 4px;
+}
+
+.profile-back .doodle-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 24px;
+    font-size: 15px;
+}
+
+/* 加载 / 错误提示 */
+.profile-placeholder {
+    text-align: center;
+    padding: 50px 20px;
+    font-size: 15px;
+    color: var(--text-subtle);
+    grid-column: 1 / -1;
+}
+
+/* ================================================================
+   断连兜底覆盖层
+   ================================================================ */
+#reconnect-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: rgba(0, 0, 0, 0.55);
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+
+#reconnect-overlay .reconnect-card {
+    background: #fff;
+    border-radius: 20px;
+    border: 3px solid var(--ink-black);
+    box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.2);
+    padding: 32px 28px;
+    max-width: 340px;
+    width: 90%;
+    text-align: center;
+    animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+#reconnect-overlay .reconnect-icon {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto 16px;
+    color: var(--ink-blue);
+    animation: reconnectPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes reconnectPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.12); opacity: 0.7; }
+}
+
+#reconnect-overlay .reconnect-title {
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--ink-black);
+    margin-bottom: 8px;
+}
+
+#reconnect-overlay .reconnect-desc {
+    font-size: 14px;
+    color: #666;
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+
+#reconnect-overlay .reconnect-progress {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 20px;
+}
+
+#reconnect-overlay .reconnect-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ccc;
+    transition: background 0.3s;
+}
+
+#reconnect-overlay .reconnect-dot.active {
+    background: var(--ink-blue);
+}
+
+#reconnect-overlay .reconnect-dot.done {
+    background: var(--success, #27ae60);
+}
+
+#reconnect-overlay .reconnect-dot.fail {
+    background: var(--danger, #e74c3c);
+}
+
+#reconnect-overlay .reconnect-btns {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+#reconnect-overlay .reconnect-btns .doodle-btn {
+    font-size: 14px;
+    padding: 10px 20px;
+    min-width: 100px;
+}
+
+#reconnect-overlay .reconnect-btns .btn-retry {
+    background: var(--ink-blue);
+    color: #fff;
+    border-color: var(--ink-blue);
+}
+
+#reconnect-overlay .reconnect-btns .btn-retry:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 聊天页顶部连接状态指示 */
+.connection-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    border-radius: 12px;
+    background: #f0f0f0;
+    color: #666;
+    white-space: nowrap;
+}
+
+.connection-indicator .conn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.connection-indicator.online .conn-dot {
+    background: var(--success, #27ae60);
+}
+
+.connection-indicator.offline .conn-dot {
+    background: var(--danger, #e74c3c);
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes popIn {
+    0% { transform: scale(0.8); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 480px) {
+    .profile-hero::before,
+    .profile-hero::after {
+        display: none;
+    }
+    .profile-key-stats {
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    }
 }

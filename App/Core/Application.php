@@ -15,10 +15,12 @@ use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Infrastructure\StickerService;
-use App\Services\Infrastructure\BridgeService;
 use App\Services\Repository\OnlineCountRepository;
 use App\Admin\Repository\AdminRepository;
 
+/**
+ * 应用程序入口
+ */
 class Application
 {
     /** 连接过载时设为 true，WebSocketHandler 据此拒绝新连接 */
@@ -36,7 +38,6 @@ class Application
     private function initialize(): void
     {
         \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
-
         Config::load(__DIR__ . '/../../Config/App.php');
         ErrorHandler::register();
         Logger::initialize();
@@ -113,9 +114,6 @@ class Application
             // 启动表情包异步同步服务（Redis → SQLite）
             StickerService::start();
 
-            // 启动跨站桥接服务（Python 站聊天大厅互通）
-            BridgeService::start($server, $webSocketHandler);
-
             // 初始化在线人数 SQLite 存储
             OnlineCountRepository::initialize();
             // 每 15 分钟记录一次在线人数到 SQLite
@@ -167,12 +165,14 @@ class Application
                 if ($connNum > $maxConn * 0.9 && !self::$connectionPaused) {
                     self::$connectionPaused = true;
                     Logger::warning('[HEALTH] Connection PAUSED — overload', [
-                        'current' => $connNum, 'max' => $maxConn,
+                        'current' => $connNum,
+                        'max' => $maxConn,
                     ]);
                 } elseif (self::$connectionPaused && $connNum < $maxConn * 0.7) {
                     self::$connectionPaused = false;
                     Logger::info('[HEALTH] Connection RESUMED — normalized', [
-                        'current' => $connNum, 'max' => $maxConn,
+                        'current' => $connNum,
+                        'max' => $maxConn,
                     ]);
                 }
 
@@ -182,7 +182,8 @@ class Application
                     gc_collect_cycles();
                     $after = round(memory_get_usage(true) / 1048576, 2);
                     Logger::warning('[HEALTH] GC triggered by memory threshold', [
-                        'before_mb' => $before, 'after_mb' => $after,
+                        'before_mb' => $before,
+                        'after_mb' => $after,
                         'freed_mb' => round($before - $after, 2),
                         'coroutines' => $coroutineCount,
                     ]);

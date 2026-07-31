@@ -4,6 +4,9 @@ namespace App\Core;
 
 use Swoole\Http\Request as SwooleRequest;
 
+/**
+ * 请求封装
+ */
 class Request
 {
     private SwooleRequest $swooleRequest;

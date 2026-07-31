@@ -21,8 +21,6 @@ use App\Config\Config;
  */
 class GameService
 {
-    private array $clients = [];
-
     /** 会话级互斥锁（per-session Channel(1)） */
     private static array $sessionLocks = [];
     private static int $sessionLockCount = 0;

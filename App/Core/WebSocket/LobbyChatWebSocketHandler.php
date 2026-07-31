@@ -13,13 +13,13 @@ use App\Services\Infrastructure\RedisService;
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 
+/**
+ * 聊天室 WebSocket 处理器
+ */
 class LobbyChatWebSocketHandler extends BaseGameHandler
 {
     private LobbyChatService $lobbyService;
     private string $lastOnlineHash = '';
-
-    /** 桥接转发回调，由 BridgeService 在 start() 时注册 */
-    public static ?\Closure $bridgeForward = null;
 
     public function __construct()
     {
@@ -652,46 +652,6 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             });
         }
 
-        // 跨站桥接转发（独立协程，不影响本地广播）
-        if (self::$bridgeForward) {
-            $bridge = self::$bridgeForward;
-            $type = $data['type'] ?? '';
-            if ($type === 'lobby_chat') {
-                $senderName = $data['sender_name'] ?? '未知';
-                $content    = $data['content']     ?? '';
-                $msgId      = (string)($data['id'] ?? '');
-                go(function () use ($bridge, $senderName, $content, $msgId) {
-                    $bridge($senderName, $content, $msgId);
-                });
-            } elseif ($type === 'lobby_revoke') {
-                $senderName = $data['sender_name'] ?? '未知';
-                $msgId      = (string)($data['message_id'] ?? '');
-                go(function () use ($bridge, $senderName, $msgId) {
-                    $bridge($senderName, '', $msgId, 'recall');
-                });
-            }
-        }
-    }
-
-    /**
-     * 桥接反向广播：从 Python 站收到的消息广播给 PHP lobby 所有连接
-     * 直接用 clientInfo 迭代（避免全量连接扫描），每条消息异步推送防止慢客户端阻塞广播链。
-     */
-    public function bridgeBroadcastToLobby(Server $server, array $data): void
-    {
-        $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if ($payload === false) return;
-
-        foreach ($this->clientInfo as $fdKey => $info) {
-            $fd = (int)$fdKey;
-            if (!$server->isEstablished($fd)) continue;
-            if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
-
-            go(function () use ($server, $fd, $payload) {
-                if (!$server->isEstablished($fd)) return;
-                $server->push($fd, $payload);
-            });
-        }
     }
 
     /**

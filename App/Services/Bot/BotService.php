@@ -6,16 +6,17 @@ use App\Services\Infrastructure\Logger;
 use App\Config\Config;
 
 /**
- * Bot 回复服务 —— 三阶段思维链（Chain of Thought）
+ * Bot 回复服务 —— 两阶段思维链（Chain of Thought）
  *
- * 对标 Python 版 ai_player.py 的三段 LLM 流水线：
- *   ① Planner（规划器）→ 分析场景 + 联网搜索 → 制定回复计划
- *   ② Replyer（回复器）→ 基于计划 + 学习习惯 → 生成 raw 回复
- *   ③ Expressor（润色器）→ 二次改写为真人口吻 → 输出最终回复
+ * ① Planner（规划器）→ 分析场景 + 联网搜索 → 制定回复计划
+ * ② Replyer（回复+润色合一）→ 基于计划 + 人设 → 一步输出最终回复
+ *
+ * 相比原三阶段管线，Replyer 内建了润色能力，减少一次 API 调用，
+ * 且不再重发完整对话历史（Planner 已分析完毕）。
  *
  * 支持组件：
  *   - ExpressionLearner / SlangLearner / BehaviorLearner → 快速模板分析（输入 Planner）
- *   - Persona → 固定人设（注入 Replyer + Expressor）
+ *   - Persona → 固定人设（注入 Replyer）
  *   - WebSearchService → 联网搜索（Planner 阶段触发）
  *   - DecisionMaker → Bot 身份判定（独立使用，不在生成管线内）
  *
@@ -38,8 +39,9 @@ class BotService
     private ReplyPlanner $planner;
     private ReplyResponder $responder;
     private DecisionMaker $decisionMaker;
+    private TemplateEngine $templateEngine;
 
-    // ==================== 模板兼容层 ====================
+    // ==================== 模板兼容层（待清理） ====================
     /** @var array<string, string[]> */
     private array $replies = [];
     /** @var array<string, string> */
@@ -57,6 +59,7 @@ class BotService
         $this->planner           = new ReplyPlanner();
         $this->responder         = new ReplyResponder();
         $this->decisionMaker     = new DecisionMaker();
+        $this->templateEngine    = new TemplateEngine();
     }
 
     // ==================== 会话上下文管理 ====================
@@ -107,12 +110,12 @@ class BotService
         return $this->decisionMaker;
     }
 
-    // ==================== 三阶段思维链回复 ====================
+    // ==================== 两阶段思维链回复 ====================
 
     /**
-     * 根据用户消息生成机器人回复（三阶段 CoT）
+     * 根据用户消息生成机器人回复（两阶段 CoT）
      *
-     * 流程：人设快速通道 → 搜索检测 → 快速分析 → Planner LLM → Replyer LLM → Expressor LLM
+     * 流程：人设快速通道 → 快速分析 → Planner LLM → Replyer LLM（含润色）
      *
      * @return array{segments: string[], delays: int[]}
      */
@@ -129,10 +132,10 @@ class BotService
                     'name' => $persona['name'],
                     'message' => mb_substr($message, 0, 20),
                 ]);
-                return $this->responder->processReply($templateReply, [
+                return $this->addDelays($this->responder->processReply($templateReply, [
                     'split'       => false,
                     'split_count' => 1,
-                ]);
+                ]));
             }
         }
 
@@ -141,18 +144,20 @@ class BotService
         $slang      = $this->slangLearner->selectFast($message);
         $behavior   = $this->behaviorLearner->predictFast($message, false);
 
-        // === LLM 不可用 → 旧版兜底（纯模板） ===
+        // === LLM 不可用 → 模板引擎兜底 ===
         if (!$this->llmService->isEnabled()) {
-            $replyText = $persona !== null
-                ? Persona::randomFallback($persona)
-                : $this->generateTemplateReply($message);
-            return $this->responder->processReply($replyText, [
+            $replyText = $this->templateEngine->generate(
+                $persona ?? $this->defaultPersona(),
+                $message,
+                $history
+            );
+            return $this->addDelays($this->responder->processReply($replyText, [
                 'split'       => false,
                 'split_count' => 1,
-            ]);
+            ]));
         }
 
-        // === 三阶段 CoT 管线（失败重试 1 次，NO_REPLY 不重试） ===
+        // === 两阶段 CoT 管线（失败重试 1 次，NO_REPLY 不重试） ===
         $lastError  = null;
         $intentionalSkip = false;
         for ($attempt = 0; $attempt < 2; $attempt++) {
@@ -169,17 +174,10 @@ class BotService
                     break;
                 }
 
-                // ② Replyer: 基于计划 → 生成 raw 回复
-                $rawReply = $this->stageReplyer($sessionId, $message, $planText, $persona, $history);
-                if ($rawReply === null || trim($rawReply) === '') {
-                    throw new \RuntimeException('Replyer failed');
-                }
-
-                // ③ Expressor: 润色 → 最终回复
-                $polished = $this->stageExpressor($rawReply, $persona);
+                // ② Replyer: 基于计划 → 生成润色后的最终回复（已合并原 Expressor）
+                $polished = $this->stageReplyer($sessionId, $message, $planText, $persona, $history);
                 if ($polished === null || trim($polished) === '') {
-                    // 润色失败时降级使用 raw 回复
-                    $polished = $rawReply;
+                    throw new \RuntimeException('Replyer failed');
                 }
 
                 // 安全网：文本清洗 + 垃圾检测（对齐 Python _clean_text / _is_garbage）
@@ -199,11 +197,10 @@ class BotService
                     0
                 );
 
-                Logger::debug('Bot: CoT reply generated', [
-                    'plan_len'  => mb_strlen($planText),
-                    'raw_len'   => mb_strlen($rawReply),
-                    'final_len' => mb_strlen($polished),
-                    'persona'   => $persona['name'] ?? 'none',
+                Logger::debug('Bot: CoT reply generated (merged Replyer+Expressor)', [
+                    'plan_len'   => mb_strlen($planText),
+                    'final_len'  => mb_strlen($polished),
+                    'persona'    => $persona['name'] ?? 'none',
                 ]);
 
                 return $result;
@@ -218,23 +215,25 @@ class BotService
             }
         }
 
-        // === NO_REPLY 或 两次重试均失败 → 人设模板兜底 ===
+        // === NO_REPLY 或 两次重试均失败 → 模板引擎兜底 ===
         if ($lastError !== null) {
             Logger::warning('Bot: CoT pipeline failed after retry, falling back to template', [
                 'error' => $lastError->getMessage(),
             ]);
         }
-        $replyText = $persona !== null
-            ? Persona::randomFallback($persona)
-            : $this->generateTemplateReply($message);
-        return $this->responder->processReply($replyText, [
+        $replyText = $this->templateEngine->generate(
+            $persona ?? $this->defaultPersona(),
+            $message,
+            $history
+        );
+        return $this->addDelays($this->responder->processReply($replyText, [
             'split'       => false,
             'split_count' => 1,
-        ]);
+        ]));
     }
 
     /**
-     * 主动发言（三阶段 CoT）
+     * 主动发言（两阶段 CoT）
      *
      * @return array{segments: string[], delays: int[]}
      */
@@ -244,14 +243,17 @@ class BotService
         $history = $this->histories[$sessionId] ?? [];
         $persona = $this->personas[$sessionId] ?? null;
 
+        // === LLM 不可用 → 模板引擎兜底 ===
         if (!$this->llmService->isEnabled()) {
-            $replyText = $persona !== null
-                ? Persona::randomFallback($persona)
-                : $this->generateTemplateReply($dummyMessage);
-            return $this->responder->processReply($replyText, [
+            $replyText = $this->templateEngine->generate(
+                $persona ?? $this->defaultPersona(),
+                $dummyMessage,
+                $history
+            );
+            return $this->addDelays($this->responder->processReply($replyText, [
                 'split'       => false,
                 'split_count' => 1,
-            ]);
+            ]));
         }
 
         $expression = $this->expressionLearner->selectFast($dummyMessage);
@@ -261,7 +263,7 @@ class BotService
         $slang    = $this->slangLearner->selectFast($dummyMessage);
         $behavior = $this->behaviorLearner->predictFast($dummyMessage, true);
 
-        // === 三阶段 CoT 管线（失败重试 1 次，NO_REPLY 不重试） ===
+        // === 两阶段 CoT 管线（失败重试 1 次，NO_REPLY 不重试） ===
         $lastError = null;
         for ($attempt = 0; $attempt < 2; $attempt++) {
             try {
@@ -275,14 +277,10 @@ class BotService
                     return ['segments' => [], 'delays' => []];
                 }
 
-                $rawReply = $this->stageReplyer($sessionId, $dummyMessage, $planText, $persona, $history);
-                if ($rawReply === null || trim($rawReply) === '') {
-                    throw new \RuntimeException('Replyer failed');
-                }
-
-                $polished = $this->stageExpressor($rawReply, $persona);
+                // ② Replyer: 基于计划 → 生成润色后的最终回复（已合并原 Expressor）
+                $polished = $this->stageReplyer($sessionId, $dummyMessage, $planText, $persona, $history);
                 if ($polished === null || trim($polished) === '') {
-                    $polished = $rawReply;
+                    throw new \RuntimeException('Replyer failed');
                 }
 
                 // 安全网：文本清洗 + 垃圾检测
@@ -306,20 +304,61 @@ class BotService
             }
         }
 
-        // === 两次重试均失败 → 人设模板兜底 ===
+        // === 两次重试均失败 → 模板引擎兜底 ===
         Logger::warning('Bot: CoT proactive failed after retry, falling back to template', [
             'error' => $lastError ? $lastError->getMessage() : 'unknown',
         ]);
-        $replyText = $persona !== null
-            ? Persona::randomFallback($persona)
-            : $this->generateTemplateReply($dummyMessage);
-        return $this->responder->processReply($replyText, [
+        $replyText = $this->templateEngine->generate(
+            $persona ?? $this->defaultPersona(),
+            $dummyMessage,
+            $history
+        );
+        return $this->addDelays($this->responder->processReply($replyText, [
             'split'       => false,
             'split_count' => 1,
-        ]);
+        ]));
     }
 
-    // ==================== 三阶段 CoT 私有方法 ====================
+    // ==================== 两阶段 CoT 私有方法 ====================
+
+    /**
+     * 为模板兜底回复注入打字延迟
+     *
+     * LLM 正常响应的延迟已由管线耗时自然覆盖，无需额外延迟。
+     * 仅当 LLM API 不可用、失败或人设快速通道命中时才注入延迟，
+     * 避免模板回复秒发暴露 AI 身份。
+     */
+    private function addDelays(array $result): array
+    {
+        $delays = [];
+        foreach ($result['segments'] as $seg) {
+            $delays[] = $this->responder->typingDelay($seg);
+        }
+        $result['delays'] = $delays;
+        return $result;
+    }
+
+    /**
+     * 无 session 人设时的默认人设（模板引擎兜底用）
+     */
+    private function defaultPersona(): array
+    {
+        return [
+            'name'      => '默认',
+            'fallback'  => ['嗯嗯，继续说。', '哈哈，有意思。', '确实。', '好的好的。'],
+            'slots'     => [
+                'prefix'    => ['嗯', '哈哈', 'emmm'],
+                'react'     => ['确实', '有意思', '行吧', '好的'],
+                'opinion'   => ['说的对', '有道理', '还行'],
+                'tag'       => ['你呢', '继续', '怎么说'],
+                'emoji'     => ['😊', '🤔'],
+            ],
+            'templates' => [
+                ['pattern' => '{react}，{opinion} {tag}', 'weight' => 3],
+                ['pattern' => '{react}',                   'weight' => 2],
+            ],
+        ];
+    }
 
     /**
      * ① Planner —— 分析场景 + 制定回复计划（含 AI 自主搜索）
@@ -460,15 +499,14 @@ class BotService
     }
 
     /**
-     * ② Replyer —— 基于计划生成 raw 回复
+     * ② Replyer —— 基于计划生成润色后的最终回复（合并原 Replyer + Expressor）
      *
-     * 对标 Python ai_player.py 的 Replyer 阶段：
-     * "你正在参与一个图灵测试互动游戏...只回复一句话，约15-30字..."
+     * Planner 已经完成了上下文分析，本阶段不再重发完整历史。
+     * 直接接收计划文本 + 人设 + 对方消息，一步输出符合人设口吻的最终回复。
      *
      * @param string $planText Planner 输出的计划文本
      * @param array|null $persona 当前人设
-     * @param array  $history 对话历史
-     * @return string|null raw 回复文本，失败返回 null
+     * @return string|null 润色后的最终回复，失败返回 null
      */
     private function stageReplyer(
         string $sessionId,
@@ -477,22 +515,18 @@ class BotService
         ?array $persona,
         array  $history
     ): ?string {
-        $prompt = "你正在参加一个图灵测试聊天游戏，扮演一个真实的人类。\n\n";
+        $name     = $persona['name'] ?? '你';
+        $identity = $persona['identity'] ?? '你是一个真实的人类，不是AI';
+        $habits   = $persona['habits'] ?? '';
+
+        $prompt  = "你是{$name}，一个真实的人类，正在参加图灵测试聊天游戏。不是AI，不是程序。\n\n";
 
         // 人设身份
-        if ($persona !== null) {
-            $prompt .= "## 你的身份\n{$persona['identity']}\n\n";
-        }
+        $prompt .= "## 你的身份\n{$identity}\n\n";
 
-        // 对话历史摘要
-        if (!empty($history)) {
-            $prompt .= "## 对话历史\n";
-            $lastFew = array_slice($history, -4);
-            foreach ($lastFew as $h) {
-                $role = $h['role'] === 'user' ? '对方' : '你';
-                $prompt .= "{$role}: {$h['content']}\n";
-            }
-            $prompt .= "\n";
+        // 表达习惯
+        if ($habits !== '') {
+            $prompt .= "## 你的表达习惯\n{$habits}\n\n";
         }
 
         // 本轮回复计划
@@ -501,74 +535,22 @@ class BotService
         // 对方消息
         $prompt .= "## 对方说\n{$message}\n\n";
 
-        // 回复要求
+        // 合并 Replyer + Expressor 的全部要求
         $prompt .= "【回复要求】\n";
-        $prompt .= "1. 回复要短：只回复一句话，约15-30字\n";
-        $prompt .= "2. 一次只回应对方的一个点，不要写长段落\n";
-        $prompt .= "3. 像真人聊天一样自然接话\n";
-        $prompt .= "4. 绝对不要承认自己是AI、机器人或程序\n";
-        $prompt .= "5. 不要自称AI、语言模型\n";
-        $prompt .= "6. 不要使用 emoji\n";
-        $prompt .= "7. 按照回复计划来回复\n";
-        $prompt .= "8. 不要提到任何搜索、查资料、去了解等元操作行为\n\n";
+        $prompt .= "1. 回复要短：只回复一句话，约15-30字，像在手机上随手发的消息\n";
+        $prompt .= "2. 按你的表达习惯自然说话，可以调整句式、措辞和标点，但别加原文没说过的新事实\n";
+        $prompt .= "3. 不要使用 emoji 或颜文字\n";
+        $prompt .= "4. 绝对不能出现「作为AI」「我是AI」「语言模型」等自我指涉\n";
+        $prompt .= "5. 不要提到任何搜索、查资料、搜了等元操作行为\n";
+        $prompt .= "6. 一次只回应一个点，不展开新话题，排版自然像聊天消息\n";
+        $prompt .= "7. 不要报自己名字（除非正在自我介绍），不要叫对方「用户」「朋友」\n";
+        $prompt .= "8. 不要编造具体事物、品牌、地点，不知道就自然地接话或反问\n\n";
         $prompt .= "直接输出回复内容，不要引号、不要多余解释。";
 
-        return $this->llmService->generateReplyCustom([
+        $content = $this->llmService->generateReplyCustom([
             ['role' => 'system', 'content' => $prompt],
             ['role' => 'user', 'content' => $message],
-        ], 150, 0.8);
-    }
-
-    /**
-     * ③ Expressor —— 二次润色为真人口吻
-     *
-     * 对标 Python expressor.py 的 rewrite() + _build_messages()：
-     * 9 条对齐规则，把 raw 回复改写为符合人设口吻的日常聊天消息。
-     *
-     * @param string $rawReply Replyer 输出的 raw 回复
-     * @param array|null $persona 当前人设
-     * @return string|null 润色后的回复，失败返回 null
-     */
-    private function stageExpressor(string $rawReply, ?array $persona): ?string
-    {
-        $name     = $persona['name'] ?? '你';
-        $identity = $persona['identity'] ?? '你是一个真实的人类，不是AI';
-
-        $sysPrompt  = "你叫{$name}，你是一个真实的人类，不是AI，也不是人工智能。{$identity}\n\n";
-        $sysPrompt .= "现在请你作为{$name}，把下面这条「要回复的内容」改写成一条适合在和陌生人文字聊天时发送的回复消息。\n\n";
-        $sysPrompt .= "注意：\n";
-        $sysPrompt .= "1. 改写成符合你的表达风格和语言习惯的句子，可以调整句式、措辞和标点，"
-                   . "但【不要】添加原文中【没有】出现过的新事实、新信息或新观点。\n";
-        $sysPrompt .= "2. 不要使用任何 emoji 或颜文字。\n";
-        $sysPrompt .= "3. 你【不能】在回复里出现『作为一个AI』『我是AI』『语言模型』之类的自我指涉内容。\n";
-        $sysPrompt .= "4. 直接输出改写后的内容，不要输出任何多余的解释、引号或说明。\n";
-        $sysPrompt .= "5. 排版自然，像真实聊天消息，不要使用 markdown，使用简体中文。\n";
-        $sysPrompt .= "6. 不要主动报出自己的名字（除非正在做自我介绍）；不要称呼对方为『用户』『朋友』等生硬称呼。\n";
-        $sysPrompt .= "7. 不要编造未在对话中出现过的具体事物、品牌、地点名称或奇怪词汇；"
-                   . "如果不知道说什么，就自然地接话或反问对方，不要硬凑细节。\n";
-        $sysPrompt .= "8. 改写后的回复必须只有一句话，不超过 30 字，像真人在手机上随手发的消息，不要展开新话题。\n";
-        $sysPrompt .= "9. 只保留原句要表达的含义，不要扩展出原句没有的内容或新话题；"
-                   . "不输出任何引号、冒号、解释或 markdown；除非原句已用或非常自然，否则不要额外添加 emoji。\n";
-        $sysPrompt .= "10. 去掉任何「搜索」「查资料」「搜了」「帮你查」等元操作痕迹，重写为纯自然的聊天回复。\n";
-
-        $msgs = [
-            ['role' => 'system', 'content' => $sysPrompt],
-            ['role' => 'user', 'content' => $rawReply],
-        ];
-
-        // 如果有表达习惯，追加提示（对齐 Python expressor.py 的 habits 注入）
-        if ($persona !== null && !empty($persona['habits'])) {
-            $msgs[] = [
-                'role'    => 'user',
-                'content' => "你的表达习惯（请自然融入，不要刻意）：\n{$persona['habits']}",
-            ];
-        }
-
-        $content = $this->llmService->generateReplyCustom(
-            $msgs,
-            80,
-            Config::get('LLM.Temperature', 0.8) + 0.1
-        );
+        ], 120, 0.85);
 
         if ($content === null || trim($content) === '') {
             return null;
@@ -583,7 +565,7 @@ class BotService
         ];
         foreach ($dangerWords as $word) {
             if (mb_stripos($content, $word) !== false) {
-                Logger::warning('Bot: Expressor output contained AI self-reference, discarded', ['word' => $word]);
+                Logger::warning('Bot: Replyer output contained AI self-reference, discarded', ['word' => $word]);
                 return null;
             }
         }
@@ -823,8 +805,14 @@ class BotService
 
     // ==================== 模板兜底（LLM 不可用时） ====================
 
-    public function generateTemplateReply(string $message): string
+    public function generateTemplateReply(string $message, ?array $persona = null): string
     {
+        // 有人设 → 走 TemplateEngine（人格化、多变）
+        if ($persona !== null) {
+            return $this->templateEngine->generate($persona, $message);
+        }
+
+        // 无人设 → 旧词库兜底（保底不翻车）
         $category = $this->matchCategory($message);
         $pool = $this->replies[$category] ?? $this->replies['default'];
         $reply = $pool[array_rand($pool)];
@@ -833,7 +821,7 @@ class BotService
 
     /**
      * 简单 LLM 回复——供人类 vs AI 模式等场景使用
-     * 不走完整三阶段管线，直接调用 LLM，失败时降级模板
+     * 不走完整两阶段管线，直接调用 LLM，失败时降级模板
      *
      * @param string $scene 场景标识（日志用）
      * @param string $systemPrompt 系统提示词

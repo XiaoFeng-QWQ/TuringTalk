@@ -10,6 +10,9 @@ use App\Core\Sanitizer;
 use App\Services\Infrastructure\StickerService;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * 管理员旁观时处理表情
+ */
 class StickerHandler
 {
     public function __construct(

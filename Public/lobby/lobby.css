@@ -242,6 +242,16 @@
     line-height: 1.55;
 }
 
+/* 自动链接样式 */
+.auto-link {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-all;
+}
+.auto-link:hover {
+    color: var(--note-blue-dark, #2563eb);
+}
+
 
 .lobby-msg-context-menu {
     position: fixed;

@@ -6,6 +6,9 @@ use App\Enums\LogLevel;
 use App\Config\Config;
 use Swoole\Coroutine;
 
+/**
+ * 日志记录器
+ */
 class Logger
 {
     private static ?string $logFile = null;

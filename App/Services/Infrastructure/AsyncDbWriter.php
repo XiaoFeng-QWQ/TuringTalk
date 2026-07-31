@@ -85,13 +85,29 @@ class AsyncDbWriter
     /**
      * 推送 WhoisAI 战绩写入任务
      */
-    public static function pushWhoisAIStats(string $code, bool $win): void
+    public static function pushWhoisAIStats(string $code, bool $win, ?int $activeHour = null): void
     {
         self::push([
             'type' => 'whoisai_stats',
             'data' => [
+                'code'        => $code,
+                'win'         => $win,
+                'active_hour' => $activeHour ?? (int)date('G'),
+            ],
+        ]);
+    }
+
+    /**
+     * 推送对手标签记录任务
+     */
+    public static function pushTag(string $code, string $tag): void
+    {
+        if (empty($code) || empty($tag)) return;
+        self::push([
+            'type' => 'tag',
+            'data' => [
                 'code' => $code,
-                'win'  => $win,
+                'tag'  => $tag,
             ],
         ]);
     }
@@ -157,6 +173,10 @@ class AsyncDbWriter
             case 'whoisai_stats':
                 self::processWhoisAIStats($task['data']);
                 break;
+
+            case 'tag':
+                PlayerStatsRepository::recordTag($task['data']['code'], $task['data']['tag']);
+                break;
         }
     }
 
@@ -178,7 +198,7 @@ class AsyncDbWriter
 
     private static function processWhoisAIStats(array $data): void
     {
-        PlayerStatsRepository::recordWhoisAIGame($data['code'], (bool)$data['win']);
+        PlayerStatsRepository::recordWhoisAIGame($data['code'], (bool)$data['win'], (int)($data['active_hour'] ?? 0));
     }
 
     // ==================== 聊天室消息队列 ====================

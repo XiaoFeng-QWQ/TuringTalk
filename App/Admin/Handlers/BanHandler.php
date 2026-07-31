@@ -10,6 +10,9 @@ use App\Services\Repository\BanRepository;
 use App\Core\Sanitizer;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * 管理员旁观时封禁指定玩家
+ */
 class BanHandler
 {
     public function __construct(
@@ -84,9 +87,15 @@ class BanHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'ban_player', 'player', $data['player_fd'] ?? '',
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'ban_player',
+            'player',
+            $data['player_fd'] ?? '',
             json_encode(['ip' => $targetIp, 'fp' => substr($targetFingerprint, 0, 16), 'reason' => $reason], JSON_UNESCAPED_UNICODE),
-            $this->tracker->getAdminIp($fd));
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin banned player from spectate', ['admin_fd' => $fd, 'target_fd' => $playerFd, 'target_ip' => $targetIp]);
     }
@@ -150,9 +159,15 @@ class BanHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'ban_player', 'player', '',
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'ban_player',
+            'player',
+            '',
             json_encode(['ip' => $ip, 'fp' => substr($fingerprint, 0, 16), 'reason' => $reason], JSON_UNESCAPED_UNICODE),
-            $this->tracker->getAdminIp($fd));
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin banned by info', ['admin_fd' => $fd, 'ip' => $ip, 'fp' => substr($fingerprint, 0, 16), 'reason' => $reason]);
     }

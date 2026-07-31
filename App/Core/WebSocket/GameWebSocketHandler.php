@@ -20,6 +20,9 @@ use App\Services\Repository\ReportRepository;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
 
+/**
+ * 游戏 WebSocket 处理器
+ */
 class GameWebSocketHandler extends BaseGameHandler
 {
     public static function routePath(): string
@@ -53,6 +56,9 @@ class GameWebSocketHandler extends BaseGameHandler
     /** @var array<string, bool> 防重入标记 */
     private array $cleaning = [];
     private array $mutualChatTimers = [];
+
+    /** @var array<string, bool> 防重复留言: "senderCode:targetCode" => true */
+    private array $leaveMessagedPairs = [];
 
     /** Bot LLM 调用并发信号量（10 槽位 + 5s 超时防死锁，超时 fallback 模板） */
     private static ?Channel $botLlmSem = null;
@@ -149,6 +155,9 @@ class GameWebSocketHandler extends BaseGameHandler
                     break;
                 case 'save_history':
                     $this->handleSaveHistory($server, $fd, $data);
+                    break;
+                case 'leave_message':
+                    $this->handleLeaveMessage($server, $fd, $data);
                     break;
                 case 'leave_result':
                     $this->handleLeaveResult($server, $fd, $data);
@@ -461,8 +470,81 @@ class GameWebSocketHandler extends BaseGameHandler
                 'type' => 'save_history_status',
                 'success' => $result['success'],
                 'message' => $result['message'] ?? '',
+                'id' => $result['id'] ?? 0,
             ]);
         });
+    }
+
+    private function handleLeaveMessage(Server $server, int $fd, array $data): void
+    {
+        $code = GameService::getPlayerCode($fd);
+        if ($code === null) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'leave_message_status',
+                'success' => false,
+                'message' => '请先获取恢复码',
+            ]);
+            return;
+        }
+
+        $player = PlayerStatsRepository::findByCode($code);
+        if (!$player) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'leave_message_status',
+                'success' => false,
+                'message' => '玩家数据不存在',
+            ]);
+            return;
+        }
+
+        $text = $data['text'] ?? '';
+        if (empty(trim($text))) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'leave_message_status',
+                'success' => false,
+                'message' => '留言内容不能为空',
+            ]);
+            return;
+        }
+
+        // 从当前会话反查对手
+        $opponentFd = $this->gameService->getOpponentFd($fd);
+        if ($opponentFd === null || $opponentFd <= 0) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'leave_message_status',
+                'success' => true,
+                'message' => '留言已保存',
+            ]);
+            return;
+        }
+
+        $targetCode = GameService::getPlayerCode($opponentFd);
+        if ($targetCode === null) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'leave_message_status',
+                'success' => true,
+                'message' => '留言已保存',
+            ]);
+            return;
+        }
+
+        $pairKey = $code . ':' . $targetCode;
+        if (!empty($this->leaveMessagedPairs[$pairKey])) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'leave_message_status',
+                'success' => false,
+                'message' => '你已经留过言了',
+            ]);
+            return;
+        }
+        $this->leaveMessagedPairs[$pairKey] = true;
+
+        $result = PlayerStatsRepository::leaveMessage($targetCode, $player['nickname'], $text, false);
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'leave_message_status',
+            'success' => $result['success'],
+            'message' => $result['message'],
+        ]);
     }
 
     /**
@@ -475,7 +557,7 @@ class GameWebSocketHandler extends BaseGameHandler
         return $session['player' . $opponentIndex . '_nickname'] ?? '';
     }
 
-    private function pushGameResult(array $session, string $sessionId, int $playerFd, ?string $guess, string $opponentTruth, ?string $timeoutReason): void
+    private function pushGameResult(array $session, string $sessionId, int $playerFd, ?string $guess, string $opponentTruth, string | null $timeoutReason): void
     {
         $playerIndex = $this->gameService->getPlayerIndex($playerFd);
         $nickname = $session['player' . $playerIndex . '_nickname'] ?? '';
@@ -487,17 +569,49 @@ class GameWebSocketHandler extends BaseGameHandler
         $msgCounts = GameService::getPlayerMessageCounts($sessionId);
         $totalMsgs = ($playerIndex === 1) ? ($msgCounts[0] ?? 0) : ($msgCounts[1] ?? 0);
 
+        // 对手是否猜对了我（暴露指数）
+        $opponentIndex = $playerIndex === 1 ? 2 : 1;
+        $opponentGuessKey = 'player' . $opponentIndex . '_guess';
+        $myTruthKey = 'player' . $playerIndex . '_truth';
+        $opponentGuess = $session[$opponentGuessKey] ?? null;
+        $myTruth = $session[$myTruthKey] ?? null;
+        $wasExposed = ($opponentGuess && $myTruth && $opponentGuess === $myTruth) ? true : null;
+        if ($opponentGuess === null || $opponentGuess === '' || $myTruth === null || $myTruth === '') {
+            $wasExposed = null;
+        }
+
         AsyncDbWriter::pushStats($code, [
-            'code'           => $code,
-            'nickname'       => $nickname,
-            'ip'             => $this->clientInfo[(string)$playerFd]['ip'] ?? '',
-            'fp'             => $this->clientInfo[(string)$playerFd]['fingerprint'] ?? '',
-            'user_guess'     => $guess,
-            'opponent_truth' => $opponentTruth,
-            'timeout_reason' => $timeoutReason,
-            'total_msgs'     => $totalMsgs,
-            'duration'       => $duration,
+            'code'              => $code,
+            'nickname'          => $nickname,
+            'ip'                => $this->clientInfo[(string)$playerFd]['ip'] ?? '',
+            'fp'                => $this->clientInfo[(string)$playerFd]['fingerprint'] ?? '',
+            'user_guess'        => $guess,
+            'opponent_truth'    => $opponentTruth,
+            'timeout_reason'    => $timeoutReason,
+            'total_msgs'        => $totalMsgs,
+            'duration'          => $duration,
+            'was_exposed'       => $wasExposed,
+            'opponent_guess'    => $opponentGuess,
+            'judge_duration_ms' => self::getJudgeDurationFromSession($session),
         ]);
+
+        // 推送对手给我的标签
+        $opponentTagKey = 'player' . $opponentIndex . '_tag';
+        $opponentTag = $session[$opponentTagKey] ?? '';
+        if ($opponentTag !== '') {
+            AsyncDbWriter::pushTag($code, $opponentTag);
+        }
+    }
+
+    /**
+     * 从 session 计算判定耗时（毫秒）
+     */
+    private static function getJudgeDurationFromSession(array $session): int
+    {
+        $startedAt = $session['judge_started_at'] ?? 0;
+        if ($startedAt <= 0) return 0;
+        $elapsed = time() - $startedAt;
+        return max(0, $elapsed * 1000);
     }
 
     /**
@@ -747,7 +861,9 @@ class GameWebSocketHandler extends BaseGameHandler
 
             $this->botService->addToHistory($sessionId, 'user', $text);
 
-            Coroutine::create(function () use ($server, $fd, $text, $sessionId) {
+            $botSide = ($session['player1_fd'] === $fd) ? 'right' : 'left';
+
+            Coroutine::create(function () use ($server, $fd, $text, $sessionId, $botSide) {
                 // 限制 Bot LLM 并发（10 槽位 + 5s 超时）
                 if (self::$botLlmSem === null) {
                     self::$botLlmSem = new Channel(self::BOT_LLM_SLOTS);
@@ -769,15 +885,17 @@ class GameWebSocketHandler extends BaseGameHandler
                         'session_id' => $sessionId,
                     ]);
                     if ($server->isEstablished($fd)) {
-                        $fallbackReply = $this->botService->generateTemplateReply($text);
+                        $fallbackReply = $this->botService->generateTemplateReply($text, $this->botService->getPersona($sessionId));
                         $this->botService->addToHistory($sessionId, 'assistant', $fallbackReply);
+                        // 模板兜底 → 模拟打字延迟，避免秒回暴露 AI
+                        Coroutine::sleep($this->botService->replyDelay($fallbackReply) / 1000);
                         if ($server->isEstablished($fd)) {
                             $this->sendToPlayer($server, $fd, [
                                 'type' => 'message',
                                 'text' => $fallbackReply,
                                 'sender' => '对方',
                             ]);
-                            GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, 'left');
+                            GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, $botSide);
                         }
                     }
                     return;
@@ -788,15 +906,17 @@ class GameWebSocketHandler extends BaseGameHandler
                     self::$botLlmSem->pop();
                     Logger::debug('[LLM] Bot skip reply: already generating', ['session_id' => $sessionId]);
                     if ($server->isEstablished($fd)) {
-                        $fallbackReply = $this->botService->generateTemplateReply($text);
+                        $fallbackReply = $this->botService->generateTemplateReply($text, $this->botService->getPersona($sessionId));
                         $this->botService->addToHistory($sessionId, 'assistant', $fallbackReply);
+                        // 模板兜底 → 模拟打字延迟，避免秒回暴露 AI
+                        Coroutine::sleep($this->botService->replyDelay($fallbackReply) / 1000);
                         if ($server->isEstablished($fd)) {
                             $this->sendToPlayer($server, $fd, [
                                 'type' => 'message',
                                 'text' => $fallbackReply,
                                 'sender' => '对方',
                             ]);
-                            GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, 'left');
+                            GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, $botSide);
                         }
                     }
                     return;
@@ -814,7 +934,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
                     // 如果管线判断不应该回复，兼容旧逻辑
                     if (empty($segments)) {
-                        $fallbackReply = $this->botService->generateTemplateReply($text);
+                        $fallbackReply = $this->botService->generateTemplateReply($text, $this->botService->getPersona($sessionId));
                         $segments = [$fallbackReply];
                         $delays   = [$this->botService->replyDelay($fallbackReply)];
                     }
@@ -863,15 +983,20 @@ class GameWebSocketHandler extends BaseGameHandler
                         ]);
 
                         // 记录到聊天历史
-                        GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, 'left');
+                        GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, $botSide);
 
                         // 转发给旁观者
                         $this->sendToSpectators($server, $sessionId, [
                             'type'   => 'spectate_message',
                             'text'   => $seg,
                             'sender' => 'Bot(AI)',
-                            'side'   => 'left',
+                            'side'   => $botSide,
                         ]);
+
+                        // 段间延迟（模拟打字间隔）
+                        if ($i < count($segments) - 1 && isset($delays[$i]) && $delays[$i] > 0) {
+                            Coroutine::sleep($delays[$i] / 1000);
+                        }
                     }
                 } finally {
                     self::$botLlmSem->pop();
@@ -1259,6 +1384,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
         $sessionId = $session['id'];
         $opponentFd = $this->gameService->getOpponentFd($fd);
+        $leaverIndex = ($session['player1_fd'] === $fd) ? 1 : 2;
 
         // 跨 Worker 定时器清理
         $sessionWorkerId = (int)($session['worker_id'] ?? 0);
@@ -1272,17 +1398,15 @@ class GameWebSocketHandler extends BaseGameHandler
         }
 
         if ($opponentFd > 0) {
-            $leaverTruth = ($session['player1_fd'] === $fd)
-                ? ($session['player1_truth'] ?? 'ai')
-                : ($session['player2_truth'] ?? 'ai');
             $this->sendToPlayer($server, $opponentFd, [
                 'type' => 'system',
                 'text' => '对方已离开',
             ]);
+
             $this->sendToPlayer($server, $opponentFd, [
                 'type' => 'timeout',
                 'reason' => 'opponent_left',
-                'opponent_truth' => $leaverTruth,
+                'opponent_truth' => $session['player' . $leaverIndex . '_truth'] ?? 'ai',
                 'session_id' => $sessionId,
                 'opponent_name' => $this->getOpponentName($session, $opponentFd),
             ]);
@@ -1292,7 +1416,6 @@ class GameWebSocketHandler extends BaseGameHandler
         $this->gameService->transitionState($sessionId, 'finished');
 
         // 异步写入双方战绩（离开者=you_timeout，对手=opponent_timeout）
-        $leaverIndex = ($session['player1_fd'] === $fd) ? 1 : 2;
         $opponentIndex = $leaverIndex === 1 ? 2 : 1;
         $leaverGuess = $session['player' . $leaverIndex . '_guess'] ?? null;
         $opponentGuess = $session['player' . $opponentIndex . '_guess'] ?? null;
@@ -1633,6 +1756,8 @@ class GameWebSocketHandler extends BaseGameHandler
     private function startJudgementTimer(Server $server, string $sessionId): void
     {
         $judgementTimeout = Config::get('Game.JudgementTimeout', 60);
+        // 记录判定阶段开始时间，用于计算判定耗时
+        $this->gameService->updateSession($sessionId, ['judge_started_at' => time()]);
         $this->judgeTimers[$sessionId] = Timer::after($judgementTimeout * 1000, function () use ($server, $sessionId) {
             try {
                 $session = $this->gameService->getSession($sessionId);
@@ -1857,13 +1982,15 @@ class GameWebSocketHandler extends BaseGameHandler
                 return;
             }
 
+            $botSide = ($session['player1_fd'] === $playerFd) ? 'right' : 'left';
+
             if (!$this->botService->shouldProactive()) {
                 $nextInterval = $this->botService->proactiveInterval();
                 $this->botTimers[$sessionId] = Timer::after($nextInterval, $scheduleNext);
                 return;
             }
 
-            Coroutine::create(function () use ($server, $sessionId, $playerFd, &$scheduleNext) {
+            Coroutine::create(function () use ($server, $sessionId, $playerFd, $botSide, &$scheduleNext) {
                 // 二次状态检查：协程创建后 session 可能已结束（判定/超时/disconnect）
                 $currentSession = $this->gameService->getSession($sessionId);
                 if (!$currentSession || $currentSession['state'] !== 'chatting' || !empty($currentSession['closing'])) {
@@ -1920,7 +2047,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
                     // 如果管线返回空，使用模板兜底
                     if (empty($segments)) {
-                        $fallbackMsg = $this->botService->generateTemplateReply('（主动发言）');
+                        $fallbackMsg = $this->botService->generateTemplateReply('（主动发言）', $this->botService->getPersona($sessionId));
                         $segments = [$fallbackMsg];
                         $delays   = [mt_rand(2000, 6000)];
                     }
@@ -1969,15 +2096,20 @@ class GameWebSocketHandler extends BaseGameHandler
                         ]);
 
                         // 记录到聊天历史
-                        GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, 'left');
+                        GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, $botSide);
 
                         // 转发给旁观者
                         $this->sendToSpectators($server, $sessionId, [
                             'type'   => 'spectate_message',
                             'text'   => $seg,
                             'sender' => 'Bot(AI)',
-                            'side'   => 'left',
+                            'side'   => $botSide,
                         ]);
+
+                        // 段间延迟（模拟打字间隔）
+                        if ($i < count($segments) - 1 && isset($delays[$i]) && $delays[$i] > 0) {
+                            Coroutine::sleep($delays[$i] / 1000);
+                        }
                     }
                 } finally {
                     self::$botLlmSem->pop();

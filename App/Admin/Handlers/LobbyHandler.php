@@ -10,6 +10,9 @@ use App\Services\Repository\BanRepository;
 use App\Core\Sanitizer;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * 管理员旁观时处理玩家列表
+ */
 class LobbyHandler
 {
     public function __construct(
@@ -65,8 +68,15 @@ class LobbyHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'lobby_delete', 'lobby', (string)$messageId,
-            json_encode(['sender' => $deletedSender], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'lobby_delete',
+            'lobby',
+            (string)$messageId,
+            json_encode(['sender' => $deletedSender], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin deleted lobby message', ['admin_fd' => $fd, 'message_id' => $messageId]);
     }
@@ -95,8 +105,15 @@ class LobbyHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'lobby_announce', 'lobby', null,
-            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'lobby_announce',
+            'lobby',
+            null,
+            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin sent lobby announcement', ['admin_fd' => $fd, 'text' => $text]);
     }
@@ -133,9 +150,15 @@ class LobbyHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'lobby_ban', 'player', (string)$targetFd,
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'lobby_ban',
+            'player',
+            (string)$targetFd,
             json_encode(['ip' => $info['ip'] ?? '', 'fp' => substr($info['fingerprint'] ?? '', 0, 16), 'reason' => $reason], JSON_UNESCAPED_UNICODE),
-            $this->tracker->getAdminIp($fd));
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin banned lobby player', ['admin_fd' => $fd, 'target_fd' => $targetFd]);
     }
@@ -159,8 +182,15 @@ class LobbyHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'lobby_rate_limit', 'lobby', null,
-            json_encode(['seconds' => $seconds], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'lobby_rate_limit',
+            'lobby',
+            null,
+            json_encode(['seconds' => $seconds], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
     }
 
     public function handleHistory(Server $server, int $fd, array $data = []): void
@@ -213,8 +243,15 @@ class LobbyHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'lobby_batch_delete', 'lobby', implode(',', $ids),
-            null, $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'lobby_batch_delete',
+            'lobby',
+            implode(',', $ids),
+            null,
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin batch deleted lobby messages', ['admin_fd' => $fd, 'count' => $deleted]);
     }
@@ -253,8 +290,15 @@ class LobbyHandler
 
         $username = $this->tracker->getUsername($fd);
         $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'lobby_batch_ban', 'player', implode(',', $targetFds),
-            json_encode(['reason' => $reason], JSON_UNESCAPED_UNICODE), $this->tracker->getAdminIp($fd));
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'lobby_batch_ban',
+            'player',
+            implode(',', $targetFds),
+            json_encode(['reason' => $reason], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
 
         Logger::info('Admin batch banned lobby players', ['admin_fd' => $fd, 'count' => $banned]);
     }

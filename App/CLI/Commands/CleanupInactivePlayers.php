@@ -5,7 +5,6 @@ namespace App\CLI\Commands;
 use App\CLI\Command;
 use App\Services\Infrastructure\Database;
 use App\Services\Infrastructure\Logger;
-use PDO;
 
 /**
  * 清理非活跃玩家数据

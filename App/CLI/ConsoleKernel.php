@@ -7,6 +7,9 @@ use App\Core\ErrorHandler;
 use App\Services\Infrastructure\Logger;
 use App\CLI\Commands\CleanupInactivePlayers;
 
+/**
+ * 命令行接口内核
+ */
 class ConsoleKernel
 {
     private array $commands = [];

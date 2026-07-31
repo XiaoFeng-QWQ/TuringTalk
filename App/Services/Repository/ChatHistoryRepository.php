@@ -39,11 +39,29 @@ class ChatHistoryRepository
             opponent_truth  VARCHAR(10)   NOT NULL DEFAULT "" COMMENT "对方真实身份",
             result          VARCHAR(10)   NOT NULL DEFAULT "" COMMENT "win/lose/draw",
             message_count   INT           NOT NULL DEFAULT 0 COMMENT "消息条数",
+            title           VARCHAR(100)  NOT NULL DEFAULT "" COMMENT "收藏标题",
+            is_public       TINYINT(1)    NOT NULL DEFAULT 0 COMMENT "是否公开",
+            public_token    VARCHAR(64)   NOT NULL DEFAULT "" COMMENT "公开访问令牌",
+            likes           INT           NOT NULL DEFAULT 0 COMMENT "点赞数",
             created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_code (code),
             INDEX idx_created (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         COMMENT="玩家保存的聊天记录"');
+
+        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN title VARCHAR(100) NOT NULL DEFAULT ""'); } catch (\Throwable $e) {}
+        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0'); } catch (\Throwable $e) {}
+        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN public_token VARCHAR(64) NOT NULL DEFAULT ""'); } catch (\Throwable $e) {}
+        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN likes INT NOT NULL DEFAULT 0'); } catch (\Throwable $e) {}
+
+        $pdo->exec('CREATE TABLE IF NOT EXISTS collection_likes (
+            collection_id BIGINT UNSIGNED NOT NULL,
+            code          VARCHAR(32)     NOT NULL DEFAULT "",
+            created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (collection_id, code),
+            INDEX idx_collection (collection_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        COMMENT="收藏点赞记录"');
     }
 
     /**
@@ -75,31 +93,6 @@ class ChatHistoryRepository
             return ['success' => false, 'message' => '对局已过期，聊天记录已从内存中清除'];
         }
 
-        $cleaned = [];
-        $count   = 0;
-        foreach ($messages as $msg) {
-            if (!is_array($msg)) continue;
-            if ($count >= self::MAX_MESSAGES) break;
-
-            $text = mb_substr((string)($msg['text'] ?? ''), 0, self::MAX_MESSAGE_LEN);
-            $cleaned[] = [
-                'sender' => mb_substr((string)($msg['sender'] ?? ''), 0, 32),
-                'text'   => $text,
-                'side'   => ($msg['side'] ?? '') === 'right' ? 'right' : 'left',
-                'time'   => (string)($msg['time'] ?? ''),
-            ];
-            $count++;
-        }
-
-        if (empty($cleaned)) {
-            return ['success' => false, 'message' => '没有有效的聊天消息'];
-        }
-
-        $json = json_encode($cleaned, JSON_UNESCAPED_UNICODE);
-        if (strlen($json) > self::MAX_JSON_SIZE) {
-            return ['success' => false, 'message' => '聊天记录过大，无法保存'];
-        }
-
         // 从会话数据获取元信息（通过昵称匹配确定玩家是 P1 还是 P2）
         $session = GameService::getSessionStatic($sessionId);
         $playerNickname = $player['nickname'] ?? '';
@@ -108,6 +101,7 @@ class ChatHistoryRepository
         $playerGuess  = '';
         $opponentTruth = '';
         $result       = 'draw';
+        $isP1 = false;
 
         if ($session) {
             $p1Nick = $session['player1_nickname'] ?? '';
@@ -124,6 +118,38 @@ class ChatHistoryRepository
             }
 
             if (empty($opponentName)) $opponentName = '对方';
+        }
+
+        $cleaned = [];
+        $count   = 0;
+        foreach ($messages as $msg) {
+            if (!is_array($msg)) continue;
+            if ($count >= self::MAX_MESSAGES) break;
+
+            $text = mb_substr((string)($msg['text'] ?? ''), 0, self::MAX_MESSAGE_LEN);
+            $rawSide = ($msg['side'] ?? '') === 'right' ? 'right' : 'left';
+            // 归一化 side：保存者的消息始终显示在右边（right），对手在左边（left）
+            // 原始数据中 P1 消息=left, P2 消息=right
+            // 如果保存者是 P1，需要把 left→right, right→left
+            if ($isP1) {
+                $rawSide = ($rawSide === 'right') ? 'left' : 'right';
+            }
+            $cleaned[] = [
+                'sender' => mb_substr((string)($msg['sender'] ?? ''), 0, 32),
+                'text'   => $text,
+                'side'   => $rawSide,
+                'time'   => (string)($msg['time'] ?? ''),
+            ];
+            $count++;
+        }
+
+        if (empty($cleaned)) {
+            return ['success' => false, 'message' => '没有有效的聊天消息'];
+        }
+
+        $json = json_encode($cleaned, JSON_UNESCAPED_UNICODE);
+        if (strlen($json) > self::MAX_JSON_SIZE) {
+            return ['success' => false, 'message' => '聊天记录过大，无法保存'];
         }
 
         $playerName   = mb_substr($playerName, 0, 32);
@@ -202,7 +228,7 @@ class ChatHistoryRepository
 
         $offset = ($page - 1) * $pageSize;
         $stmt = $pdo->prepare(
-            'SELECT id, code, session_id, player_name, opponent_name, player_guess, opponent_truth, result, message_count, created_at
+            'SELECT id, code, session_id, player_name, opponent_name, player_guess, opponent_truth, result, message_count, title, is_public, likes, created_at
              FROM saved_chat_history
              WHERE code = ?
              ORDER BY created_at DESC
@@ -230,6 +256,179 @@ class ChatHistoryRepository
             'SELECT * FROM saved_chat_history WHERE id = ? AND code = ? LIMIT 1'
         );
         $stmt->execute([$id, $code]);
+        $row = $stmt->fetch();
+
+        if (!$row) return null;
+
+        $row['messages'] = json_decode($row['messages'], true) ?: [];
+        return $row;
+    }
+
+    // ================================================================
+    //  经典对局收藏
+    // ================================================================
+
+    /**
+     * 设置收藏信息：标题 + 公开状态
+     * isPublic=true 时生成/返回 public_token，isPublic=false 时清除 token
+     */
+    public static function setCollection(int $id, string $code, ?string $title = null, ?bool $isPublic = null): array
+    {
+        $detail = self::getDetail($id, $code);
+        if (!$detail) {
+            return ['success' => false, 'message' => '该对局记录不存在'];
+        }
+
+        $updates = [];
+        $params = [];
+        if ($title !== null) {
+            $updates[] = 'title = ?';
+            $params[] = mb_substr($title, 0, 100);
+        }
+        if ($isPublic !== null) {
+            if ($isPublic) {
+                if (!empty($detail['public_token'])) {
+                    $token = $detail['public_token'];
+                } else {
+                    $token = bin2hex(random_bytes(16));
+                    $updates[] = 'public_token = ?';
+                    $params[] = $token;
+                }
+            } else {
+                $token = null;
+                $updates[] = 'public_token = ?';
+                $params[] = '';
+            }
+            $updates[] = 'is_public = ?';
+            $params[] = $isPublic ? 1 : 0;
+        }
+
+        if (empty($updates)) {
+            return ['success' => false, 'message' => '没有需要更新的内容'];
+        }
+
+        $params[] = $id;
+        $params[] = $code;
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'UPDATE saved_chat_history SET ' . implode(', ', $updates) . ' WHERE id = ? AND code = ?'
+        );
+        $stmt->execute($params);
+
+        $result = ['success' => true, 'message' => '设置已更新'];
+        if (isset($token) && $token) {
+            $result['public_token'] = $token;
+            $result['public_url'] = '/collection/' . $token;
+        }
+        return $result;
+    }
+
+    /**
+     * 获取玩家公开收藏列表（用于个人资料页）
+     */
+    public static function getPlayerCollections(string $code, int $page = 1, int $pageSize = 10): array
+    {
+        if ($page < 1) $page = 1;
+        if ($pageSize < 1 || $pageSize > 50) $pageSize = self::PAGE_SIZE;
+
+        $pdo = Database::connect();
+
+        $countStmt = $pdo->prepare(
+            'SELECT COUNT(*) FROM saved_chat_history WHERE code = ? AND is_public = 1'
+        );
+        $countStmt->execute([$code]);
+        $total = (int)$countStmt->fetchColumn();
+
+        $offset = ($page - 1) * $pageSize;
+        $stmt = $pdo->prepare(
+            'SELECT id, player_name, opponent_name, player_guess, opponent_truth, result, message_count, title, likes, created_at
+             FROM saved_chat_history
+             WHERE code = ? AND is_public = 1
+             ORDER BY created_at DESC
+             LIMIT ? OFFSET ?'
+        );
+        $stmt->execute([$code, (int)$pageSize, (int)$offset]);
+        $list = $stmt->fetchAll();
+
+        return [
+            'list'      => $list,
+            'total'     => $total,
+            'page'      => $page,
+            'page_size' => $pageSize,
+        ];
+    }
+
+    /**
+     * 收藏详情（公开访问，对方昵称匿名化）
+     */
+    public static function getCollectionDetail(int $id): ?array
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'SELECT * FROM saved_chat_history WHERE id = ? AND is_public = 1 LIMIT 1'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+
+        if (!$row) return null;
+
+        $row['messages'] = json_decode($row['messages'], true) ?: [];
+        return $row;
+    }
+
+    /**
+     * 点赞收藏（同一玩家对同一收藏只能点赞一次）
+     */
+    public static function likeCollection(int $id, string $code): array
+    {
+        $pdo = Database::connect();
+
+        $check = $pdo->prepare(
+            'SELECT id FROM saved_chat_history WHERE id = ? AND is_public = 1 LIMIT 1'
+        );
+        $check->execute([$id]);
+        if (!$check->fetch()) {
+            return ['success' => false, 'message' => '该收藏不存在或未公开'];
+        }
+
+        try {
+            $pdo->beginTransaction();
+
+            $likeStmt = $pdo->prepare(
+                'INSERT INTO collection_likes (collection_id, code) VALUES (?, ?)'
+            );
+            $likeStmt->execute([$id, $code]);
+
+            $updateStmt = $pdo->prepare(
+                'UPDATE saved_chat_history SET likes = likes + 1 WHERE id = ?'
+            );
+            $updateStmt->execute([$id]);
+
+            $pdo->commit();
+            return ['success' => true, 'message' => '已点赞'];
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            if (strpos($e->getMessage(), 'Duplicate') !== false) {
+                return ['success' => false, 'message' => '已经点过赞了'];
+            }
+            Logger::error('likeCollection failed', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => '点赞失败'];
+        }
+    }
+
+    /**
+     * 通过公开令牌获取收藏详情（无需登录，直接访问）
+     */
+    public static function getByPublicToken(string $token): ?array
+    {
+        if (empty($token) || strlen($token) > 64) return null;
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'SELECT * FROM saved_chat_history WHERE public_token = ? AND is_public = 1 LIMIT 1'
+        );
+        $stmt->execute([$token]);
         $row = $stmt->fetch();
 
         if (!$row) return null;

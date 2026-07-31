@@ -113,6 +113,10 @@ class LLMService
         $ssl = ($urlParts['scheme'] ?? '') === 'https';
         $path = ($urlParts['path'] ?? '') . '/chat/completions';
 
+        // 手动指定 IP（绕过 Swoole DNS）
+        $resolvedIP = Config::get('LLM.ResolvedIP', '');
+        $connHost = ($resolvedIP !== '') ? $resolvedIP : $host;
+
         $body = [
             'model'       => $model,
             'messages'    => $messages,
@@ -123,8 +127,8 @@ class LLMService
 
         $lastErr = null;
         for ($attempt = 0; $attempt < self::MAX_RETRIES; $attempt++) {
-            // 创建客户端
-            $client = new Client($host, $port, $ssl);
+            // 创建客户端（ResolvedIP 不为空时连接指定 IP）
+            $client = new Client($connHost, $port, $ssl);
             $client->set([
                 'timeout' => $timeout,
                 'ssl_verify_peer' => false,
@@ -133,10 +137,15 @@ class LLMService
             ]);
 
             // 设置请求头
-            $client->setHeaders([
+            $headers = [
                 'Content-Type' => 'application/json',
                 'Authorization' => 'Bearer ' . $apiKey,
-            ]);
+            ];
+            // 当使用自定义 IP 时，设置 Host 头以通过 SSL SNI 校验
+            if ($resolvedIP !== '') {
+                $headers['Host'] = $host;
+            }
+            $client->setHeaders($headers);
 
             // 发送 POST 请求
             $client->post($path, $json);
@@ -216,7 +225,7 @@ class LLMService
     }
 
     /**
-     * 获取 API Key —— 优先从 Storage/TOKENS.txt 随机选一行，不存在则降级到配置文件
+     * 获取 API Key —— 优先从 Config/TOKENS.txt 随机选一行，不存在则降级到配置文件
      */
     public function getApiKey(): string
     {
@@ -245,7 +254,7 @@ class LLMService
     private static function getTokensFilePath(): ?string
     {
         if (self::$tokensFile === null) {
-            $candidate = realpath(__DIR__ . '/../../../Storage/TOKENS.txt');
+            $candidate = realpath(__DIR__ . '/../../../Config/TOKENS.txt');
             self::$tokensFile = $candidate !== false ? $candidate : null;
         }
         return self::$tokensFile;

@@ -3,6 +3,7 @@
 namespace App\Core\WebSocket;
 
 use App\Core\Sanitizer;
+use App\Services\Game\GameService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Repository\BanRepository;
@@ -484,11 +485,13 @@ abstract class BaseGameHandler
 
         $existing = PlayerStatsRepository::findByNickname($nickname);
         if ($existing) {
+            GameService::setPlayerCode($fd, $existing['code']);
             return $existing['code'];
         }
 
         $code = PlayerStatsRepository::generateCode();
         PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
+        GameService::setPlayerCode($fd, $code);
         Logger::info(static::class . ' recovery code created', ['fd' => $fd, 'code' => $code, 'nickname' => $nickname]);
         return $code;
     }

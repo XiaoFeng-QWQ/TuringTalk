@@ -584,7 +584,7 @@
 
         if (isSticker) {
             var stickerUrl = '';
-            // 跨站表情贴纸：[sticker_url:直链URL]
+            // 表情贴纸：[sticker_url:直链URL]
             if (/^\[sticker_url:/.test(data.content)) {
                 stickerUrl = data.content.replace(/^\[sticker_url:/, '').replace(/\]$/, '');
             } else {
@@ -609,7 +609,7 @@
 
             bubble.innerHTML =
                 replyHtml +
-                '<div class="lobby-msg-text">' + escapeHtml(data.content) + '</div>';
+                '<div class="lobby-msg-text">' + autoLink(escapeHtml(data.content)) + '</div>';
 
             var replyDiv = bubble.querySelector('.lobby-msg-reply');
             if (replyDiv) {
@@ -1206,6 +1206,25 @@
 
     function escapeHtmlAttr(text) {
         return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /**
+     * 自动检测已转义文本中的 URL 并转为可点击链接
+     * 先 escape 再匹配，杜绝 XSS 风险。
+     */
+    function autoLink(text) {
+        // 匹配 http/https URL，以及 www. 开头的域名
+        return text.replace(
+            /(https?:\/\/[^\s<>"'，。！？、；：》\)\]]+)|(?<!\w)www\.[^\s<>"'，。！？、；：》\)\]]+/gi,
+            function (match) {
+                var href = match;
+                // www. 开头没有协议 → 补 https://
+                if (/^www\./i.test(href)) {
+                    href = 'https://' + href;
+                }
+                return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" class="auto-link">' + match + '</a>';
+            }
+        );
     }
 
     function parseStickerId(text) {

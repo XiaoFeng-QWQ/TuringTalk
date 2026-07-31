@@ -7,6 +7,9 @@ use App\Core\WebSocket\BaseGameHandler;
 use App\Admin\Tracker;
 use App\Admin\Repository\AdminRepository;
 
+/**
+ * 管理员旁观时查看操作日志
+ */
 class LogHandler
 {
     public function __construct(

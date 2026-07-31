@@ -10,6 +10,9 @@ use App\Admin\Repository\AdminRepository;
 use App\Services\Game\GameService;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * 管理员旁观时旁观指定对局
+ */
 class SpectateHandler
 {
     public function __construct(

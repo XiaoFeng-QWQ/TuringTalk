@@ -67,6 +67,7 @@ class ReplyResponder
         }
 
         // 不模拟打字延迟：管线阶段多，LLM 耗时已足够覆盖「真人思考」的体感
+        // 模板兜底时由 BotService 手动注入延迟
         return [
             'segments' => $segments,
             'delays'   => array_fill(0, count($segments), 0),

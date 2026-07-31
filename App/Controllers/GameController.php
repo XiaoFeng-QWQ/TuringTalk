@@ -10,6 +10,9 @@ use App\Services\Repository\ChatHistoryRepository;
 use App\Admin\Repository\AdminRepository;
 use App\Config\Config;
 
+/**
+ * 游戏控制器
+ */
 class GameController
 {
     const PUBLIC_DIR = __DIR__ . '/../../Public/';
@@ -218,6 +221,32 @@ class GameController
         $response->send();
     }
 
+    /**
+     * GET /api/player-profile?nickname=xxx
+     * 获取玩家公开身份档案（Phase 1：风格画像 + 称号）
+     */
+    public function playerProfile(Request $request, Response $response): void
+    {
+        $nickname = Sanitizer::text($request->get('nickname', ''), 16);
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($nickname)) {
+            $response->setContent(json_encode(['error' => '昵称不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $profile = PlayerStatsRepository::getPlayerProfileByNickname($nickname);
+        if (!$profile) {
+            $response->setContent(json_encode(['error' => '玩家不存在'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $response->setContent(json_encode($profile, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
     // ==================== 聊天记录保存 ====================
 
     /**
@@ -249,31 +278,6 @@ class GameController
         } catch (\Throwable $e) {
             $response->setContent(json_encode(['error' => '上传失败: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE));
         }
-        $response->send();
-    }
-
-    /**
-     * POST /api/save-chat-history
-     * 玩家在对局结束后保存聊天记录（服务端从内存读取消息）
-     */
-    public function saveChatHistory(Request $request, Response $response): void
-    {
-        $body = $request->getJsonBody();
-        $response->setHeader('Content-Type', 'application/json');
-
-        $code = Sanitizer::identifier($body['code'] ?? '');
-        if (empty($code)) {
-            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
-            $response->send();
-            return;
-        }
-
-        $result = ChatHistoryRepository::save([
-            'code'       => $code,
-            'session_id' => Sanitizer::identifier($body['session_id'] ?? ''),
-        ]);
-
-        $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
         $response->send();
     }
 
@@ -329,6 +333,223 @@ class GameController
         }
 
         $response->setContent(json_encode($detail, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * GET /api/collection/by-token?token=xxx
+     * 通过公开令牌获取收藏详情（无需登录）
+     */
+    public function collectionByToken(Request $request, Response $response): void
+    {
+        $token = Sanitizer::identifier($request->get('token', ''));
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($token)) {
+            $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $detail = ChatHistoryRepository::getByPublicToken($token);
+        if (!$detail) {
+            $response->setContent(json_encode(['error' => '该链接已失效或不存在'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $response->setContent(json_encode($detail, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * GET /api/player-messages?code=xxx
+     * 获取自己的留言列表（含隐藏状态，用于管理）
+     */
+    public function getMyMessages(Request $request, Response $response): void
+    {
+        $code = Sanitizer::identifier($request->get('code') ?? '');
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($code)) {
+            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $player = PlayerStatsRepository::findByCode($code);
+        if (!$player) {
+            $response->setContent(json_encode(['error' => '玩家不存在'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $msgData = PlayerStatsRepository::getMessageDataForOwner($code);
+        $response->setContent(json_encode($msgData, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/player-message/hide
+     * 隐藏/显示某条留言
+     */
+    public function hideMessage(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $code = Sanitizer::identifier($body['code'] ?? '');
+        $messageId = Sanitizer::identifier($body['message_id'] ?? '');
+        $hidden = !empty($body['hidden']);
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($code) || empty($messageId)) {
+            $response->setContent(json_encode(['error' => '参数不完整'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $result = PlayerStatsRepository::hideMessage($code, $messageId, $hidden);
+        $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/player-message/settings
+     * 更新留言设置
+     */
+    public function updateMessageSettings(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $code = Sanitizer::identifier($body['code'] ?? '');
+        $allow = ($body['allow_messages'] ?? true) ? true : false;
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($code)) {
+            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        PlayerStatsRepository::updateMessageSettings($code, $allow);
+        $response->setContent(json_encode(['success' => true, 'message' => '设置已更新'], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    // ==================== 经典对局收藏 ====================
+
+    /**
+     * POST /api/chat-history/collect
+     * 设置收藏标题 / 公开状态
+     */
+    public function setCollection(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $id = (int)($body['id'] ?? 0);
+        $code = Sanitizer::identifier($body['code'] ?? '');
+        $title = isset($body['title']) ? Sanitizer::text($body['title'], 100) : null;
+        $isPublic = isset($body['is_public']) ? (bool)$body['is_public'] : null;
+        $response->setHeader('Content-Type', 'application/json');
+
+        if ($id <= 0 || empty($code)) {
+            $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $result = ChatHistoryRepository::setCollection($id, $code, $title, $isPublic);
+        $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * GET /api/player-collections?nickname=xxx&page=1
+     * 获取玩家公开收藏列表
+     */
+    public function playerCollections(Request $request, Response $response): void
+    {
+        $nickname = Sanitizer::text($request->get('nickname', ''), 16);
+        $page = max(1, (int)($request->get('page', '1')));
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($nickname)) {
+            $response->setContent(json_encode(['error' => '昵称不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $player = PlayerStatsRepository::findByNickname($nickname);
+        if (!$player) {
+            $response->setContent(json_encode(['error' => '玩家不存在'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $data = ChatHistoryRepository::getPlayerCollections($player['code'], $page);
+        $response->setContent(json_encode($data, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * GET /api/collection/detail?id=xxx
+     * 获取公开收藏详情
+     */
+    public function collectionDetail(Request $request, Response $response): void
+    {
+        $id = (int)($request->get('id', '0'));
+        $response->setHeader('Content-Type', 'application/json');
+
+        if ($id <= 0) {
+            $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $detail = ChatHistoryRepository::getCollectionDetail($id);
+        if (!$detail) {
+            $response->setContent(json_encode(['error' => '该收藏不存在或未公开'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $response->setContent(json_encode($detail, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/collection/like
+     * 点赞收藏
+     */
+    public function likeCollection(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $id = (int)($body['id'] ?? 0);
+        $code = Sanitizer::identifier($body['code'] ?? '');
+        $response->setHeader('Content-Type', 'application/json');
+
+        if ($id <= 0 || empty($code)) {
+            $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $result = ChatHistoryRepository::likeCollection($id, $code);
+        $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * GET /collection/{token}
+     * 公开收藏查看页（无需登录）
+     */
+    public function viewPublicCollection(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
+        $files = ['/style.css', '/shared.js', '/script.js'];
+        foreach ($files as $file) {
+            $hash = $this->getFileVersionHash(ltrim($file, '/'));
+            $html = str_replace($file . '?v=', $file . '?v=' . $hash, $html);
+        }
+        $response->setHeader('Content-Type', 'text/html; charset=utf-8');
+        $response->setContent($html);
         $response->send();
     }
 

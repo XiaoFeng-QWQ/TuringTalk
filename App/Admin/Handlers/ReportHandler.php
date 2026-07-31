@@ -9,6 +9,9 @@ use App\Admin\Repository\AdminRepository;
 use App\Services\Repository\ReportRepository;
 use App\Services\Infrastructure\Logger;
 
+/**
+ * 管理员旁观时处理举报记录
+ */
 class ReportHandler
 {
     public function __construct(

@@ -5,6 +5,9 @@ namespace App\Core;
 use App\Controllers\GameController;
 use App\Config\Config;
 
+/**
+ * 路由器
+ */
 class Router
 {
     private array $routes = [];
@@ -27,10 +30,20 @@ class Router
                 '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
                 '/api/chat-history/detail' => [GameController::class, 'chatHistoryDetail'],
+                '/api/player-profile' => [GameController::class, 'playerProfile'],
+                '/api/player-collections' => [GameController::class, 'playerCollections'],
+                '/api/collection/detail' => [GameController::class, 'collectionDetail'],
+                '/api/collection/by-token' => [GameController::class, 'collectionByToken'],
+                '/api/player-messages' => [GameController::class, 'getMyMessages'],
+                '/player/{nickname}' => [GameController::class, 'index'],
+                '/collection/{token}' => [GameController::class, 'viewPublicCollection'],
             ],
             'POST' => [
-                '/api/save-chat-history' => [GameController::class, 'saveChatHistory'],
                 '/api/upload-userdata' => [GameController::class, 'uploadUserData'],
+                '/api/player-message/hide' => [GameController::class, 'hideMessage'],
+                '/api/player-message/settings' => [GameController::class, 'updateMessageSettings'],
+                '/api/chat-history/collect' => [GameController::class, 'setCollection'],
+                '/api/collection/like' => [GameController::class, 'likeCollection'],
             ],
         ];
 

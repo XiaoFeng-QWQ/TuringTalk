@@ -67,7 +67,8 @@ class AdminRepository
                 return;
             }
             $hash = password_hash($password, PASSWORD_BCRYPT);
-            SqliteHelper::execute(self::$pdo,
+            SqliteHelper::execute(
+                self::$pdo,
                 'INSERT INTO admins (username, password_hash, role, status) VALUES (?, ?, ?, ?)',
                 [$username, $hash, 'super_admin', 1]
             );
@@ -99,7 +100,8 @@ class AdminRepository
     public static function createAdmin(string $username, string $password, int $createdBy): array
     {
         $hash = password_hash($password, PASSWORD_BCRYPT);
-        SqliteHelper::execute(self::$pdo,
+        SqliteHelper::execute(
+            self::$pdo,
             'INSERT INTO admins (username, password_hash, role, created_by) VALUES (?, ?, ?, ?)',
             [$username, $hash, 'admin', $createdBy]
         );
@@ -137,7 +139,8 @@ class AdminRepository
      */
     public static function listAdmins(): array
     {
-        return SqliteHelper::fetchAll(self::$pdo,
+        return SqliteHelper::fetchAll(
+            self::$pdo,
             'SELECT id, username, role, status, created_at, last_login_at FROM admins ORDER BY id'
         );
     }
@@ -149,7 +152,8 @@ class AdminRepository
      */
     public static function writeLog(int $adminId, string $username, string $action, ?string $targetType, ?string $targetId, ?string $detail, ?string $ip): void
     {
-        SqliteHelper::execute(self::$pdo,
+        SqliteHelper::execute(
+            self::$pdo,
             'INSERT INTO admin_logs (admin_id, username, action, target_type, target_id, detail, ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [$adminId, $username, $action, $targetType, $targetId, $detail, $ip]
         );
@@ -164,14 +168,16 @@ class AdminRepository
         if ($adminId !== null) {
             $count = SqliteHelper::fetchOne(self::$pdo, 'SELECT COUNT(*) FROM admin_logs WHERE admin_id = ?', [$adminId]);
             $total = (int)($count['COUNT(*)'] ?? 0);
-            $rows = SqliteHelper::fetchAll(self::$pdo,
+            $rows = SqliteHelper::fetchAll(
+                self::$pdo,
                 'SELECT * FROM admin_logs WHERE admin_id = ? ORDER BY id DESC LIMIT ? OFFSET ?',
                 [$adminId, $pageSize, $offset]
             );
         } else {
             $count = SqliteHelper::fetchOne(self::$pdo, 'SELECT COUNT(*) FROM admin_logs');
             $total = (int)($count['COUNT(*)'] ?? 0);
-            $rows = SqliteHelper::fetchAll(self::$pdo,
+            $rows = SqliteHelper::fetchAll(
+                self::$pdo,
                 'SELECT * FROM admin_logs ORDER BY id DESC LIMIT ? OFFSET ?',
                 [$pageSize, $offset]
             );
