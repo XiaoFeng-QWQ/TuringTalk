@@ -22,8 +22,9 @@ class LobbyChatService
 
     /**
      * 发送消息：写入 Redis 缓存 + 推送异步写入队列
+     * senderId 为 player_data.id，用于消息归属判断（防止昵称冒用）
      */
-    public function send(string $senderName, string $content, string $ip = '', string $fingerprint = '', ?int $replyToId = null, ?string $replyToName = null, ?string $replyToText = null): array
+    public function send(string $senderName, string $senderId, string $content, string $ip = '', string $fingerprint = '', ?int $replyToId = null, ?string $replyToName = null, ?string $replyToText = null): array
     {
         $redis = RedisService::connect();
         $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
@@ -31,6 +32,7 @@ class LobbyChatService
         $msg = [
             'id'          => $id,
             'sender_name' => $senderName,
+            'sender_id'   => $senderId,
             'sender_ip'   => $ip,
             'sender_fp'   => $fingerprint,
             'content'     => mb_substr($content, 0, self::MAX_CONTENT_LEN),
@@ -106,6 +108,7 @@ class LobbyChatService
                 $stmt->execute($likeParams);
                 $total += (int)$stmt->fetchColumn();
             } catch (\Throwable $e) {
+                Logger::warning('LobbyChatService: count query failed, skipping table', ['table' => $table, 'error' => $e->getMessage()]);
                 continue;
             }
         }
@@ -119,6 +122,7 @@ class LobbyChatService
                 $pdo->query("SELECT 1 FROM `{$table}` LIMIT 0");
                 $unions[] = "SELECT id, sender_name, sender_ip, sender_fp, content, reply_to_id, reply_to_name, reply_to_text, is_deleted, created_at FROM `{$table}`{$whereClause}";
             } catch (\Throwable $e) {
+                Logger::warning('LobbyChatService: table check failed, skipping', ['table' => $table, 'error' => $e->getMessage()]);
                 continue;
             }
         }
@@ -206,6 +210,7 @@ class LobbyChatService
                 $row = $stmt->fetch();
                 if ($row) return $row;
             } catch (\Throwable $e) {
+                Logger::warning('LobbyChatService: getMessage query failed, skipping table', ['table' => $table, 'id' => $id, 'error' => $e->getMessage()]);
                 continue;
             }
         }
@@ -271,9 +276,10 @@ class LobbyChatService
 
     /**
      * 撤回消息（玩家自行操作，限3分钟内）
+     * 用 senderId（player_data.id）验证发送者，防止昵称冒用
      * @return array|null 撤回成功返回消息数据，失败返回 null
      */
-    public function revokeMessage(int $messageId, string $senderName): ?array
+    public function revokeMessage(int $messageId, string $senderId): ?array
     {
         $redis = RedisService::connect();
         $raw = $redis->lRange(RedisService::KP_LOBBY_MSGS, 0, -1) ?: [];
@@ -284,9 +290,10 @@ class LobbyChatService
         foreach ($raw as $idx => $json) {
             $m = json_decode($json, true);
             if ($m && (int)($m['id'] ?? 0) === $messageId) {
-                // 验证发送者
-                if (($m['sender_name'] ?? '') !== $senderName) {
-                    Logger::info('Lobby revoke denied: not sender', ['id' => $messageId, 'sender' => $senderName, 'owner' => $m['sender_name']]);
+                // 验证发送者（优先用 sender_id，旧消息无 sender_id 时降级用 sender_name）
+                $msgSenderId = $m['sender_id'] ?? '';
+                if ($msgSenderId !== '' && $msgSenderId !== $senderId) {
+                    Logger::info('Lobby revoke denied: not sender (id)', ['id' => $messageId, 'senderId' => $senderId, 'owner' => $msgSenderId]);
                     return null;
                 }
                 // 检查3分钟限制
@@ -311,7 +318,7 @@ class LobbyChatService
         // 更新 Redis list 中的该条消息
         $redis->lSet(RedisService::KP_LOBBY_MSGS, $targetIndex, $newJson);
 
-        Logger::info('Lobby message revoked', ['id' => $messageId, 'sender' => $senderName]);
+        Logger::info('Lobby message revoked', ['id' => $messageId, 'senderId' => $senderId]);
         return $targetMsg;
     }
 

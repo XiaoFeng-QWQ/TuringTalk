@@ -419,10 +419,10 @@ abstract class BaseGameHandler
             // 通过恢复码查找玩家
             $existing = PlayerStatsRepository::findByCode($recoveryCode);
             if (!$existing) {
-                return ['success' => false, 'error' => '恢复码无效', 'nickname' => $nickname, 'recovery_code' => null];
+                return ['success' => false, 'error' => '恢复码无效', 'nickname' => $nickname, 'recovery_code' => null, 'player_id' => null];
             }
             // 使用数据库中已有的昵称
-            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'recovery_code' => $recoveryCode];
+            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'recovery_code' => $recoveryCode, 'player_id' => $existing['id']];
         }
 
         // 无恢复码，检查昵称唯一性
@@ -430,14 +430,14 @@ abstract class BaseGameHandler
         if ($existing) {
             // 检查是否是同一设备（IP + 指纹匹配）
             if ($existing['fp'] !== $fp || $existing['ip'] !== $ip) {
-                return ['success' => false, 'error' => '该昵称已被占用，请换一个', 'nickname' => $nickname, 'recovery_code' => null];
+                return ['success' => false, 'error' => '该昵称已被占用，请换一个', 'nickname' => $nickname, 'recovery_code' => null, 'player_id' => null];
             }
             // 同一设备 → 允许，返回已有恢复码
-            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => $existing['code']];
+            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => $existing['code'], 'player_id' => $existing['id']];
         }
 
         // 全新玩家
-        return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => null];
+        return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => null, 'player_id' => null];
     }
 
     // ==================== 表情 ====================

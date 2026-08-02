@@ -214,16 +214,10 @@ class PlayerStatsRepository
             turing_test TEXT,
             WhoisAI TEXT,
             sticker_favorites TEXT,
+            messages TEXT,
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-
-        try { $pdo->exec('ALTER TABLE player_data ADD COLUMN sticker_favorites TEXT'); } catch (\Throwable $e) {}
-        try { $pdo->exec('ALTER TABLE player_data ADD COLUMN messages TEXT'); } catch (\Throwable $e) {}
-
-        // 索引
-        try { $pdo->exec('CREATE UNIQUE INDEX idx_player_data_code ON player_data(code)'); } catch (\Throwable $e) {}
-        try { $pdo->exec('CREATE INDEX idx_player_data_nickname ON player_data(nickname)'); } catch (\Throwable $e) {}
 
         // 对手标签累计表
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_tags (
@@ -279,6 +273,7 @@ class PlayerStatsRepository
             $data = @unserialize($raw);
             return is_array($data) ? $data : self::getEmptyStats($gameMode);
         } catch (\Throwable $e) {
+            Logger::warning('PlayerStatsRepository: unserialize game stats failed', ['code' => $code, 'gameMode' => $gameMode, 'error' => $e->getMessage()]);
             return self::getEmptyStats($gameMode);
         }
     }
@@ -833,6 +828,7 @@ class PlayerStatsRepository
                 'allow_messages' => $data['allow_messages'] ?? true,
             ];
         } catch (\Throwable $e) {
+            Logger::warning('PlayerStatsRepository: unserialize message data failed', ['code' => $code, 'error' => $e->getMessage()]);
             return ['messages' => [], 'allow_messages' => true];
         }
     }

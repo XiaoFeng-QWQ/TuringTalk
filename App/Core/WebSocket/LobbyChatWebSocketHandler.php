@@ -5,6 +5,7 @@ namespace App\Core\WebSocket;
 use App\Core\Sanitizer;
 use App\Controllers\GameController;
 use App\Services\Chat\LobbyChatService;
+use App\Services\Chat\SongService;
 use App\Services\Repository\ReportRepository;
 use App\Services\Repository\BanRepository;
 use App\Services\Repository\PlayerStatsRepository;
@@ -19,11 +20,13 @@ use Swoole\WebSocket\Frame;
 class LobbyChatWebSocketHandler extends BaseGameHandler
 {
     private LobbyChatService $lobbyService;
+    private SongService $songService;
     private string $lastOnlineHash = '';
 
     public function __construct()
     {
         $this->lobbyService = new LobbyChatService();
+        $this->songService = new SongService();
     }
 
     public static function routePath(): string
@@ -71,10 +74,41 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
     public function onClose(Server $server, int $fd): void
     {
-        // 在清理前获取昵称
+        // 在清理前获取昵称和玩家ID
         $nickname = $this->clientInfo[(string)$fd]['nickname'] ?? '';
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
 
         $this->cleanupConnection($server, $fd);
+
+        // 清理该用户的点歌投票记录和频率队列（用 player_data.id 清理，避免重连后 fd 变化的旧记录泄漏）
+        $this->songService->cleanupUserData($fd, $playerId);
+
+        // 在线人数减少 → 阈值降低
+        $onlineCount = count($this->getOnlinePlayers($server));
+
+        // 1. 检查池中歌曲是否应晋升
+        $promoted = $this->songService->promoteEligibleSongs($onlineCount);
+        if (count($promoted) > 0) {
+            foreach ($promoted as $song) {
+                $this->broadcastSongPromoted($server, $song);
+            }
+            // 如果当前无播放，设置下一首为播放状态
+            if (!$this->songService->getPlaying()) {
+                $next = $this->songService->popPlaylist();
+                if ($next) {
+                    $this->songService->setPlaying($next, time(), $onlineCount);
+                }
+            }
+        }
+
+        // 2. 检查移除投票阈值（人数下降 → 阈值降低 → 已有票数可能达标）
+        $removedByVote = $this->songService->checkRemoveThresholds($onlineCount);
+
+        // 3. 广播歌单更新，同步票数到客户端
+        //    cleanupUserData 清除了该玩家的所有投票，不广播会导致客户端票数不同步
+        if (count($promoted) > 0 || count($removedByVote) > 0) {
+            $this->broadcastPlaylistUpdate($server);
+        }
 
         $this->broadcastOnlineCountIfChanged($server, $fd);
 
@@ -146,6 +180,30 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->handleGetStickers($server, $fd, $data);
                     break;
 
+                case 'lobby_song_search':
+                    $this->handleSongSearch($server, $fd, $data);
+                    break;
+
+                case 'lobby_song_request':
+                    $this->handleSongRequest($server, $fd, $data);
+                    break;
+
+                case 'lobby_song_vote':
+                    $this->handleSongVote($server, $fd, $data);
+                    break;
+
+                case 'lobby_song_remove_vote':
+                    $this->handleSongRemoveVote($server, $fd, $data);
+                    break;
+
+                case 'lobby_song_list':
+                    $this->handleSongList($server, $fd, $data);
+                    break;
+
+                case 'lobby_song_current':
+                    $this->handleSongCurrent($server, $fd, $data);
+                    break;
+
                 default:
                     break;
             }
@@ -175,10 +233,16 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
         $nickname = $valid['nickname'];
         $recoveryCode = $valid['recovery_code'];
+        $playerId = $valid['player_id'] ?? null;
 
         // 新玩家：立即创建 player_data 记录（聊天室没有"对局结束"时机）
         if (!$recoveryCode) {
             $recoveryCode = $this->getOrCreatePlayerCode($fd, $nickname);
+            // 新建记录后查回 player_data.id
+            if ($recoveryCode && !$playerId) {
+                $player = PlayerStatsRepository::findByCode($recoveryCode);
+                $playerId = $player['id'] ?? null;
+            }
         }
 
         // 封禁检查（IP + 指纹）
@@ -194,14 +258,16 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 保存昵称到连接信息
+        // 保存昵称和玩家ID到连接信息
         if (isset($this->clientInfo[(string)$fd])) {
-            $this->clientInfo[(string)$fd]['nickname'] = $nickname;
+            $this->clientInfo[(string)$fd]['nickname']  = $nickname;
+            $this->clientInfo[(string)$fd]['player_id'] = $playerId;
         }
 
         $this->sendToPlayer($server, $fd, [
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
+            'player_id'     => $playerId ?: null,
             'recovery_code' => $recoveryCode ?: null,
         ]);
 
@@ -239,19 +305,16 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $nickname = Sanitizer::nickname($data['nickname'] ?? '');
-        if ($nickname === '') {
-            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先设置昵称']);
+        // 发送者身份从连接信息获取，不信任客户端传的 nickname（防止身份伪造）
+        $nickname = $this->clientInfo[(string)$fd]['nickname'] ?? '';
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        if ($nickname === '' || $playerId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先进入聊天室']);
             return;
         }
 
         $content = trim($data['content'] ?? '');
         if ($content === '') return;
-
-        // 保存昵称到连接信息（供管理命令查找用）
-        if (isset($this->clientInfo[(string)$fd])) {
-            $this->clientInfo[(string)$fd]['nickname'] = $nickname;
-        }
 
         // 管理命令检测（/ 开头）
         if (str_starts_with($content, '/') && $this->isAdmin($fd)) {
@@ -284,6 +347,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
         $msg = $this->lobbyService->send(
             $nickname,
+            $playerId,
             $content,
             $this->clientInfo[(string)$fd]['ip'] ?? '',
             $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
@@ -297,6 +361,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'type'        => 'lobby_chat',
             'id'          => $msg['id'],
             'sender_name' => $msg['sender_name'],
+            'sender_id'   => $msg['sender_id'] ?? '',
             'content'     => $msg['content'],
             'reply_to'    => $msg['reply_to'],
             'mentions'    => $mentions,
@@ -424,14 +489,14 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $clientInfo = $this->getClientInfo($fd);
-        $senderName = Sanitizer::nickname($clientInfo['nickname'] ?? '');
-        if ($senderName === '') {
-            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先设置昵称']);
+        // 用 player_data.id 验证身份，防止昵称冒用撤回别人消息
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        if ($playerId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先进入聊天室']);
             return;
         }
 
-        $result = $this->lobbyService->revokeMessage($messageId, $senderName);
+        $result = $this->lobbyService->revokeMessage($messageId, $playerId);
         if ($result === null) {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '撤回失败：消息不存在、不是你的消息或已超过3分钟']);
             return;
@@ -441,7 +506,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $this->broadcastLobby($server, 0, [
             'type'       => 'lobby_revoke',
             'message_id' => $messageId,
-            'sender_name' => $senderName,
+            'sender_name' => $result['sender_name'] ?? '',
         ]);
     }
 
@@ -623,9 +688,293 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 $this->handleDelete($server, $fd, ['message_id' => $messageId]);
                 break;
 
+            case '/removesong':
+                $songId = $parts[1] ?? '';
+                if ($songId === '') {
+                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '用法: /removesong <歌曲ID>']);
+                    return;
+                }
+                if ($this->songService->removeFromPool($songId)) {
+                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "已从歌单移除: {$songId}"]);
+                    $this->broadcastPlaylistUpdate($server);
+                } else {
+                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "未找到该歌曲: {$songId}"]);
+                }
+                break;
+
             default:
                 break;
         }
+    }
+
+    // ==================== 点歌 ====================
+
+    /**
+     * 搜索歌曲
+     */
+    private function handleSongSearch(Server $server, int $fd, array $data): void
+    {
+        $keyword = trim($data['keyword'] ?? '');
+        if ($keyword === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_song_search_result', 'error' => '请输入搜索关键词']);
+            return;
+        }
+
+        $songs = $this->songService->search($keyword, 15);
+        $this->sendToPlayer($server, $fd, [
+            'type'    => 'lobby_song_search_result',
+            'keyword' => $keyword,
+            'songs'   => $songs,
+        ]);
+    }
+
+    /**
+     * 点歌：加入投票池，如果当前无播放则立即开始播放
+     */
+    private function handleSongRequest(Server $server, int $fd, array $data): void
+    {
+        $nickname = Sanitizer::nickname($data['nickname'] ?? '');
+        if ($nickname === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先设置昵称']);
+            return;
+        }
+
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        if ($playerId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '身份验证失败，请重新进入']);
+            return;
+        }
+
+        $songId = trim($data['song_id'] ?? '');
+        if ($songId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '无效的歌曲ID']);
+            return;
+        }
+
+        $result = $this->songService->request($fd, $songId, $playerId, $nickname);
+        if (isset($result['error'])) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $result['error']]);
+            return;
+        }
+
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_song_requested',
+            'song' => $result,
+        ]);
+
+        // 如果当前没有播放歌曲，预填队列并设置播放状态
+        if (!$this->songService->getPlaying()) {
+            // 1. 从投票池补歌到队列（至少 3 首）
+            $this->songService->replenishPlaylist(3);
+            // 2. 从队列弹出一首作为当前播放
+            $next = $this->songService->popPlaylist();
+            if ($next) {
+                $this->songService->setPlaying($next, time(), count($this->getOnlinePlayers($server)));
+            }
+        }
+
+        // 广播歌单更新（客户端根据 playing 状态自主播放）
+        $this->broadcastPlaylistUpdate($server);
+    }
+
+    /**
+     * 投票
+     */
+    private function handleSongVote(Server $server, int $fd, array $data): void
+    {
+        $songId = trim($data['song_id'] ?? '');
+        if ($songId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '无效的歌曲ID']);
+            return;
+        }
+
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        if ($playerId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先进入聊天室']);
+            return;
+        }
+
+        $onlineCount = count($this->getOnlinePlayers($server));
+
+        $result = $this->songService->vote($fd, $songId, $playerId, $onlineCount);
+        if (isset($result['error'])) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $result['error']]);
+            return;
+        }
+
+        // 广播投票更新
+        $this->broadcastLobby($server, 0, [
+            'type'    => 'lobby_vote_update',
+            'song_id' => $result['song_id'],
+            'votes'   => $result['votes'],
+        ]);
+
+        // 歌曲晋升到播放队列 → 广播系统消息 + 歌单更新
+        if (!empty($result['promoted'])) {
+            $promotedSong = $result['promoted_song'] ?? null;
+            if ($promotedSong) {
+                $this->broadcastSongPromoted($server, $promotedSong);
+            }
+
+            // 如果当前无播放歌曲，设置下一首为播放状态
+            if (!$this->songService->getPlaying()) {
+                $next = $this->songService->popPlaylist();
+                if ($next) {
+                    $this->songService->setPlaying($next, time(), count($this->getOnlinePlayers($server)));
+                }
+            }
+            $this->broadcastPlaylistUpdate($server);
+        }
+    }
+
+    /**
+     * 移除投票（从播放队列移除）
+     */
+    private function handleSongRemoveVote(Server $server, int $fd, array $data): void
+    {
+        $songId = trim($data['song_id'] ?? '');
+        if ($songId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '无效的歌曲ID']);
+            return;
+        }
+
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        if ($playerId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先进入聊天室']);
+            return;
+        }
+
+        $onlineCount = count($this->getOnlinePlayers($server));
+
+        $result = $this->songService->removeVote($fd, $songId, $playerId, $onlineCount);
+        if (isset($result['error'])) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $result['error']]);
+            return;
+        }
+
+        // 广播移除投票更新
+        $this->broadcastLobby($server, 0, [
+            'type'         => 'lobby_remove_vote_update',
+            'song_id'      => $result['song_id'],
+            'remove_votes' => $result['remove_votes'],
+        ]);
+
+        // 歌曲被从播放队列移除 → 广播歌单更新
+        if (!empty($result['removed'])) {
+            $this->broadcastPlaylistUpdate($server);
+        }
+    }
+
+    /**
+     * 获取歌单
+     */
+    private function handleSongList(Server $server, int $fd, array $data): void
+    {
+        $playlist = $this->songService->getPlaylist();
+        $pool     = $this->songService->getPool();
+        $playing  = $this->songService->getPlaying();
+
+        $this->sendToPlayer($server, $fd, [
+            'type'     => 'lobby_song_list',
+            'playlist' => $playlist,
+            'pool'     => $pool,
+            'playing'  => $playing,
+        ]);
+    }
+
+    /**
+     * 获取当前播放歌曲
+     */
+    private function handleSongCurrent(Server $server, int $fd, array $data): void
+    {
+        $playing = $this->songService->getPlaying();
+        if ($playing) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'lobby_song_current',
+                'song' => $playing,
+            ]);
+        } else {
+            $this->sendToPlayer($server, $fd, [
+                'type'    => 'lobby_song_current',
+                'waiting' => true,
+            ]);
+        }
+    }
+
+    /**
+     * 向所有在线用户广播歌单更新（含当前播放信息）
+     */
+    private function broadcastPlaylistUpdate(Server $server): void
+    {
+        $playlist = $this->songService->getPlaylist();
+        $playing  = $this->songService->getPlaying();
+
+        $msg = [
+            'type'     => 'list_update',
+            'playlist' => $playlist,
+            'pool'     => $this->songService->getPool(),
+        ];
+        if ($playing) {
+            $msg['playing'] = $playing;
+        }
+
+        $this->broadcastLobby($server, 0, $msg);
+    }
+
+    /**
+     * 定时清理：移除投票池中长时间未晋升的陈旧歌曲（入池超时未晋升/未被补歌选中）
+     * 由 Application 的 60 秒定时器调用
+     */
+    public function scheduledCleanup(Server $server): void
+    {
+        $removed = $this->songService->cleanupStalePoolSongs();
+        if ($removed > 0) {
+            $this->broadcastPlaylistUpdate($server);
+        }
+    }
+
+    /**
+     * 每日 00:00 清空歌单并推送给所有在线客户端
+     * 由 Application 的每日定时器调用
+     */
+    public function scheduledClearPlaylist(Server $server): void
+    {
+        $this->songService->clearAll();
+
+        // 广播清空后的歌单（空 playlist、空 pool、无 playing）
+        $this->broadcastLobby($server, 0, [
+            'type'     => 'list_update',
+            'playlist' => [],
+            'pool'     => [],
+        ]);
+
+        // 广播系统消息
+        $this->broadcastLobby($server, 0, [
+            'type' => 'lobby_system',
+            'text' => '新的一天开始，歌单已重置，快来点歌吧！',
+        ]);
+    }
+
+    /**
+     * 广播歌曲加入播放队列的系统消息
+     */
+    private function broadcastSongPromoted(Server $server, array $song): void
+    {
+        $name   = $song['name'] ?? '';
+        $artist = $song['artist'] ?? '';
+        $adder  = $song['adder'] ?? '';
+        $votes  = (int)($song['votes'] ?? 0);
+        if ($name === '') return;
+
+        $text = '《' . $name . '》' . ($artist ? ' - ' . $artist : '') . ' 获得 ' . $votes . ' 票，已加入播放队列';
+        if ($adder !== '') {
+            $text .= '（点歌人: ' . $adder . '）';
+        }
+
+        $this->broadcastLobby($server, 0, [
+            'type' => 'lobby_system',
+            'text' => $text,
+        ]);
     }
 
     // ==================== 工具方法 ====================
@@ -651,7 +1000,6 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 $server->push($fd, $payload);
             });
         }
-
     }
 
     /**
@@ -661,19 +1009,21 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
      */
     private function getOnlinePlayers(Server $server): array
     {
-        $players = [];
+        $seen = [];
         foreach ($this->clientInfo as $fdKey => $info) {
             $fd = (int)$fdKey;
             if (!$server->isEstablished($fd)) continue;
             if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
             $nickname = $info['nickname'] ?? '';
             if ($nickname === '') continue;
-            $players[] = [
+            // 去重：同昵称保留 fd 最大的（最新的连接）
+            if (isset($seen[$nickname]) && $seen[$nickname]['fd'] >= $fd) continue;
+            $seen[$nickname] = [
                 'fd'       => $fd,
                 'nickname' => $nickname,
             ];
         }
-        return $players;
+        return array_values($seen);
     }
 
     private function broadcastOnlineCountIfChanged(Server $server, int $excludeFd): void
@@ -716,4 +1066,5 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
         return null;
     }
+
 }

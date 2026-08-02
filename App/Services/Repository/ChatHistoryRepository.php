@@ -49,11 +49,6 @@ class ChatHistoryRepository
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         COMMENT="玩家保存的聊天记录"');
 
-        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN title VARCHAR(100) NOT NULL DEFAULT ""'); } catch (\Throwable $e) {}
-        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 0'); } catch (\Throwable $e) {}
-        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN public_token VARCHAR(64) NOT NULL DEFAULT ""'); } catch (\Throwable $e) {}
-        try { $pdo->exec('ALTER TABLE saved_chat_history ADD COLUMN likes INT NOT NULL DEFAULT 0'); } catch (\Throwable $e) {}
-
         $pdo->exec('CREATE TABLE IF NOT EXISTS collection_likes (
             collection_id BIGINT UNSIGNED NOT NULL,
             code          VARCHAR(32)     NOT NULL DEFAULT "",

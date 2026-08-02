@@ -226,7 +226,8 @@ class StickerService
                 if (stripos($msg, 'locked') !== false || stripos($msg, 'busy') !== false) {
                     break;
                 }
-                // 其他错误也跳过，保留记录
+                // 其他错误记录日志，保留记录下次重试
+                Logger::error('StickerService: drainSyncQueueLazy failed', ['id' => $id, 'type' => $task['type'] ?? 'unknown', 'error' => $msg]);
             }
         }
 

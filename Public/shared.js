@@ -245,13 +245,34 @@ function handleStickersList(data) {
         });
     }
     saveStickerCache(map, data.version || 0);
+
+    // 清理已不存在的收藏 ID：后台可能删除了某些表情，
+    // 但 UserData.stickerFavorites 还保留着旧 ID，导致收藏标签页显示为空
+    var favs = getStickerFavorites();
+    if (favs.length > 0) {
+        var cleaned = favs.filter(function (id) { return map.hasOwnProperty(id); });
+        if (cleaned.length !== favs.length) {
+            setStickerFavorites(cleaned);
+        }
+    }
+
     return map;
 }
 
 function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker, manageMode) {
+    // 如果传入的 stickerMap 为空，尝试从缓存加载，避免缓存有数据但内存 stickerMap 为空导致收藏列表显示为空
+    var keys = stickerMap ? Object.keys(stickerMap) : [];
+    if (keys.length === 0) {
+        var cached = loadStickerCache();
+        if (Object.keys(cached).length > 0) stickerMap = cached;
+    }
+
     var favs = getStickerFavorites();
+    // 防御性：确保 favs 始终为数组
+    if (!Array.isArray(favs)) favs = [];
+
     var activeTab = bodyEl.dataset.tab || 'all';
-    var ids = Object.keys(stickerMap);
+    var ids = Object.keys(stickerMap || {});
 
     if (activeTab === 'favs') {
         ids = ids.filter(function (id) { return favs.indexOf(id) !== -1; });

@@ -121,6 +121,7 @@ class ReportRepository
             $stmt->execute([$sessionId]);
             return (bool)$stmt->fetchColumn();
         } catch (\Throwable $e) {
+            Logger::error('ReportRepository: hasReports failed', ['session_id' => $sessionId, 'error' => $e->getMessage()]);
             return false;
         }
     }

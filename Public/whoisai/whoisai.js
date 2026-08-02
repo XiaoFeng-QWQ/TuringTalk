@@ -374,7 +374,6 @@
 
     function appendWhoisAISticker(stickerId, stickerName, isMine, senderSeat) {
         var url = whoisaiStickerMap[stickerId] ? whoisaiStickerMap[stickerId].url : '';
-        if (!url) return;
 
         var wrapper = document.createElement('div');
         wrapper.className = 'whoisai-chat-msg';
@@ -384,14 +383,22 @@
         sender.className = 'whoisai-chat-sender';
         sender.textContent = isMine ? ('玩家' + mySeat) : (stickerName || '玩家' + senderSeat);
 
-        var img = document.createElement('img');
-        img.src = url;
-        img.alt = stickerName;
-        img.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;margin-top:4px;';
-        img.onerror = function () { this.style.display = 'none'; };
+        if (!url) {
+            var placeholder = document.createElement('div');
+            placeholder.style.cssText = 'color:#999;font-style:italic;padding:8px 12px;margin-top:4px;';
+            placeholder.textContent = '[表情不存在: ' + (stickerName || stickerId) + ']';
+            wrapper.appendChild(sender);
+            wrapper.appendChild(placeholder);
+        } else {
+            var img = document.createElement('img');
+            img.src = url;
+            img.alt = stickerName;
+            img.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;margin-top:4px;';
+            img.onerror = function () { this.style.display = 'none'; };
+            wrapper.appendChild(sender);
+            wrapper.appendChild(img);
+        }
 
-        wrapper.appendChild(sender);
-        wrapper.appendChild(img);
         $messages.appendChild(wrapper);
         $messages.scrollTop = $messages.scrollHeight;
     }

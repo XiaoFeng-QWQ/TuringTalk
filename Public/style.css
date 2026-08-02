@@ -1041,7 +1041,7 @@ main {
 #announcement-area {
     position: fixed;
     top: 0;
-    left: 0;
+    left: 32%;
     right: 0;
     z-index: 9999;
     pointer-events: none;

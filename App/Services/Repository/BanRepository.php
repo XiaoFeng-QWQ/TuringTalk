@@ -175,8 +175,6 @@ class BanRepository
         )');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_bans_ip ON bans(ip)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_bans_fingerprint ON bans(fingerprint)');
-
-        try { $pdo->exec("ALTER TABLE bans ADD COLUMN reason TEXT NOT NULL DEFAULT ''"); } catch (\Throwable $e) {}
     }
 
     /**

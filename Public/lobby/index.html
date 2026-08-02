@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,12 +14,13 @@
     <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
     <script src="/shared.js?v="></script>
 </head>
+
 <body>
 
     <div id="announcement-area"></div>
 
     <header>
-        <button class="doodle-btn" id="btn-back" style="border-radius: 50%; padding: 10px;" onclick="window.location.href='/'">
+        <button class="doodle-btn" id="btn-back" style="border-radius: 50%; padding: 10px;" title="返回">
             <svg class="icon" viewBox="0 0 24 24">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
@@ -26,7 +28,7 @@
 
         <div class="logo-text">
             <svg class="icon" viewBox="0 0 24 24" style="width:1.1em;height:1.1em;">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
             </svg>
             公共聊天室
         </div>
@@ -46,10 +48,10 @@
             </button>
             <button class="doodle-btn" id="btn-toggle-users" title="在线用户" style="padding:8px 8px;">
                 <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
             </button>
         </div>
@@ -58,24 +60,31 @@
     <main>
         <div id="lobby-main">
             <div class="lobby-container">
-                
+
                 <div id="lobby-has-identity" class="lobby-chat" style="display:none;">
                     <div class="lobby-chat-header">
                         <div class="lobby-title">
                             <svg class="icon" viewBox="0 0 24 24" style="width:20px;height:20px;">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                             </svg>
                             聊天大厅
                         </div>
-                        <div id="lobby-connection-status" class="lobby-connection-status">
-                            <span class="status-dot"></span> 连接中...
+                        <div id="lobby-lyrics" class="lobby-lyrics"></div>
+                        <div class="lobby-chat-actions">
+                            <button id="lobby-btn-song" class="lobby-song-btn" title="点歌">
+                                <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                                    <path d="M9 18V5l12-2v13" />
+                                    <circle cx="6" cy="18" r="3" />
+                                    <circle cx="18" cy="16" r="3" />
+                                </svg>
+                            </button>
+                            <button id="lobby-btn-notify" class="lobby-notify-btn" title="通知已关闭">
+                                <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                                    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                                </svg>
+                            </button>
                         </div>
-                        <button id="lobby-btn-notify" class="lobby-notify-btn" title="通知已关闭">
-                            <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
-                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                            </svg>
-                        </button>
                     </div>
 
                     <div id="lobby-reply-preview" class="lobby-reply-preview">
@@ -84,13 +93,14 @@
                         <button class="preview-cancel" id="lobby-reply-preview-cancel">&times;</button>
                     </div>
 
-                    
+
                     <div id="lobby-messages" class="lobby-messages"></div>
 
-                    
+
                     <div class="lobby-input-area">
                         <div class="input-inner">
-                            <input type="text" id="lobby-chat-input" maxlength="500" placeholder="说点什么..." autocomplete="off">
+                            <input type="text" id="lobby-chat-input" maxlength="500" placeholder="说点什么..."
+                                autocomplete="off">
                             <button class="sticker-btn" id="lobby-btn-sticker" title="发送表情">
                                 <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
                                     <rect x="3" y="3" width="18" height="18" rx="3" />
@@ -102,72 +112,97 @@
                         </div>
                         <button id="lobby-btn-send" class="doodle-btn send-btn">
                             <svg class="icon" viewBox="0 0 24 24">
-                                <line x1="22" y1="2" x2="11" y2="13"/>
-                                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                <line x1="22" y1="2" x2="11" y2="13" />
+                                <polygon points="22 2 15 22 11 13 2 9 22 2" />
                             </svg>
                             发送
                         </button>
                     </div>
                 </div>
 
-                
+
                 <div id="lobby-no-identity" class="lobby-identity-card" style="display:none;">
                     <div class="id-card-inner">
                         <div class="id-icon">?</div>
                         <h2>您还没有身份记录</h2>
                         <p>输入昵称和恢复码可以立即恢复您的战绩和身份</p>
-                        <input type="text" id="lobby-recover-nickname" class="tag-input" maxlength="12" placeholder="你的昵称" autocomplete="off">
+                        <input type="text" id="lobby-recover-nickname" class="tag-input" maxlength="12"
+                            placeholder="你的昵称" autocomplete="off">
                         <div class="recover-row">
                             <input type="text" id="lobby-recover-input" placeholder="输入恢复码..." maxlength="32">
-                            <button id="lobby-btn-recover" class="doodle-btn" style="flex-shrink:0;font-size:14px;">恢复</button>
+                            <button id="lobby-btn-recover" class="doodle-btn"
+                                style="flex-shrink:0;font-size:14px;">恢复</button>
                         </div>
                         <div id="lobby-recover-msg" class="recover-msg"></div>
                         <div class="divider">或者</div>
                         <button id="lobby-btn-go-home" class="doodle-btn btn-full">返回首页创建身份</button>
-                        <button id="lobby-btn-new-name" class="doodle-btn btn-full" style="border-style:dashed;">直接填写昵称</button>
+                        <button id="lobby-btn-new-name" class="doodle-btn btn-full"
+                            style="border-style:dashed;">直接填写昵称</button>
                     </div>
                 </div>
 
-                
+
                 <div id="lobby-fill-name" class="lobby-identity-card" style="display:none;">
                     <div class="id-card-inner">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:44px;height:44px;stroke:var(--ink-blue);margin-bottom:8px;">
-                            <circle cx="12" cy="8" r="4"/>
-                            <path d="M4 20c0-4 4-7 8-7s8 3 8 7"/>
+                        <svg class="icon" viewBox="0 0 24 24"
+                            style="width:44px;height:44px;stroke:var(--ink-blue);margin-bottom:8px;">
+                            <circle cx="12" cy="8" r="4" />
+                            <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
                         </svg>
                         <h2>设定你的昵称</h2>
                         <p>进入后会自动生成恢复码，用于跨模式保留身份</p>
-                        <input type="text" id="lobby-nickname-input" class="tag-input" maxlength="12" placeholder="你的昵称" autocomplete="off">
-                        <button id="lobby-btn-join" class="doodle-btn success btn-full" style="margin-top:16px;font-size:16px;">
+                        <input type="text" id="lobby-nickname-input" class="tag-input" maxlength="12" placeholder="你的昵称"
+                            autocomplete="off">
+                        <button id="lobby-btn-join" class="doodle-btn success btn-full"
+                            style="margin-top:16px;font-size:16px;">
                             <svg class="icon" viewBox="0 0 24 24">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                             </svg>
                             进入聊天室
                         </button>
                     </div>
                 </div>
 
-                
+
                 <div id="lobby-users-panel" class="lobby-users" style="display:none;">
                     <h3>
-                        <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                            <circle cx="9" cy="7" r="4"/>
-                        </svg>
                         在线 <span class="count-num" id="lobby-users-count">0</span>
                     </h3>
                     <div id="lobby-users-list"></div>
+                </div>
+
+                <div id="lobby-song-panel" class="lobby-song-panel" style="display:none;">
+                    <div class="song-panel-header">
+                        <h3>点歌列表</h3>
+                        <label class="song-listen-toggle" title="开启后自动同步播放大厅歌曲">
+                            <input type="checkbox" id="lobby-song-listen-toggle" checked>
+                            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                            <span class="toggle-label">听歌</span>
+                        </label>
+                    </div>
+                    <div id="lobby-song-playing-info" class="lobby-song-playing-info"></div>
+                    <div id="lobby-song-playlist" class="lobby-song-playlist"></div>
+                    <div class="lobby-song-search">
+                        <input type="text" id="lobby-song-search-input" placeholder="搜索网易云音乐歌曲支持直接艺人名称..."
+                            maxlength="50">
+                        <button id="lobby-song-search-btn" class="doodle-btn">搜索</button>
+                    </div>
+                    <div id="lobby-song-search-results" class="lobby-song-search-results"></div>
                 </div>
             </div>
         </div>
     </main>
 
-    
+
     <div id="lobby-sticker-picker" class="sticker-picker" style="display:none;">
         <div class="sticker-picker-header">
             <span>选择表情</span>
+            <button class="doodle-btn"
+                onclick="if(confirm('投稿表情时需要选择\'表情包投稿\'板块\n并附带表情包图片然后@logarh\n随后便等待审核\n审核通过并上传后会在评论区进行提醒\n为了防止表情包太多导致比较早期投稿表情包的用户找不到自己的表情包\n只有多人点赞或被多次重复投稿的表情包才会被上传\n\n《投稿内容规范》\n1.禁止带有辱骂、人身攻击、骚扰或发表任何侮辱性内容\n2. \n· 禁止带有广告、垃圾信息、大量色情、暴力、恐怖及其他违法违规内容。\n· 不涉政、不键政，禁止传播反动言论、极端思想及邪教内容。\n· 未经他人允许，不得公开带有他人隐私信息的内容。确认之后跳转到QQ频道加入地址')){window.open('https://pd.qq.com/s/exuuxhyi9')}"
+                style="padding:2px 8px;font-size:12px;">投稿</button>
             <button class="doodle-btn" id="lobby-btn-manage-sticker" style="padding:2px 8px;font-size:12px;">管理</button>
-            <button class="doodle-btn" id="lobby-btn-close-sticker-picker" style="padding:2px 8px;font-size:14px;">&times;</button>
+            <button class="doodle-btn" id="lobby-btn-close-sticker-picker"
+                style="padding:2px 8px;font-size:14px;">&times;</button>
         </div>
         <div class="sticker-picker-tabs">
             <span class="sticker-picker-tab active" data-tab="all">全部</span>
@@ -178,7 +213,7 @@
         </div>
     </div>
 
-    
+
     <div id="lobby-sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>
         <img id="lobby-sticker-lightbox-img" src="" alt="">
@@ -186,6 +221,23 @@
             style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
     </div>
 
+    <div id="lobby-song-info" class="lobby-song-info" style="display:none;">
+        <div class="song-info-cover">
+            <img id="lobby-song-info-cover" src="" alt="">
+        </div>
+        <div class="song-info-body">
+            <div class="song-info-name" id="lobby-song-info-name"></div>
+            <div class="song-info-artist" id="lobby-song-info-artist"></div>
+            <div class="song-info-progress">
+                <div class="song-info-progress-bar" id="lobby-song-info-progress-bar"></div>
+            </div>
+            <div class="song-info-time" id="lobby-song-info-time"></div>
+            <div class="song-info-adder" id="lobby-song-info-adder"></div>
+            <div class="song-info-next" id="lobby-song-info-next"></div>
+        </div>
+    </div>
+
     <script src="/lobby/lobby.js?v="></script>
 </body>
+
 </html>

@@ -50,6 +50,7 @@ class Database
                 $pdo->query('SELECT 1');
                 return $pdo;
             } catch (\Throwable $e) {
+                Logger::warning('DB: context connection lost, creating new', ['error' => $e->getMessage()]);
                 unset($ctx[$key]);
             }
         }
@@ -60,6 +61,7 @@ class Database
             try {
                 $pdo->query('SELECT 1');
             } catch (\Throwable $e) {
+                Logger::warning('DB: pooled connection dead, creating new', ['error' => $e->getMessage()]);
                 $pdo = self::createPDO();
             }
         } else {
@@ -74,7 +76,7 @@ class Database
                 $pdo->query('SELECT 1');
                 self::$pool?->push($pdo, 0.001);
             } catch (\Throwable $e) {
-                // 连接坏了不归还，或者不在协程中（defer 在非协程中忽略）
+                Logger::warning('DB: connection dead on defer, discarded', ['error' => $e->getMessage()]);
             }
         });
 
@@ -110,6 +112,7 @@ class Database
                 try {
                     self::$pool->push(self::createPDO(), 0.001);
                 } catch (\Throwable $e) {
+                    Logger::warning('DB: pool warmup failed, stopping early', ['index' => $i, 'error' => $e->getMessage()]);
                     break;
                 }
             }

@@ -1106,7 +1106,6 @@ function appendMessage(text, side, sender) {
 /** 渲染表情到聊天区 */
 function appendSticker(stickerId, stickerName, side, sender) {
     const url = stickerMap[stickerId] ? stickerMap[stickerId].url : '';
-    if (!url) return;
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble bubble-sticker ' + (side === 'right' ? 'bubble-right anim-slide-right' : 'bubble-left anim-slide-left');
@@ -1114,10 +1113,17 @@ function appendSticker(stickerId, stickerName, side, sender) {
     const now = new Date();
     const ts = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
 
-    bubble.innerHTML = `
+    if (!url) {
+        bubble.innerHTML = `
+                <div class="bubble-info">${escapeHtml(sender)} (${ts})</div>
+                <span style="color:#999;font-style:italic;">[表情不存在: ${escapeHtml(stickerName || stickerId)}]</span>
+            `;
+    } else {
+        bubble.innerHTML = `
                 <div class="bubble-info">${escapeHtml(sender)} (${ts})</div>
                 <img src="${escapeHtmlAttr(url)}" alt="${escapeHtmlAttr(stickerName)}" class="sticker-msg-img" loading="lazy">
             `;
+    }
 
     scrollChatToBottom();
     chatBody.appendChild(bubble);

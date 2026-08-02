@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,12 +14,14 @@
     <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
     <script src="/shared.js?v="></script>
 </head>
+
 <body>
 
     <div id="announcement-area"></div>
 
     <header>
-        <button class="doodle-btn" id="btn-back" style="border-radius: 50%; padding: 10px;" onclick="window.location.href='/'">
+        <button class="doodle-btn" id="btn-back" style="border-radius: 50%; padding: 10px;"
+            onclick="window.location.href='/'">
             <svg class="icon" viewBox="0 0 24 24">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
@@ -43,7 +46,7 @@
     </header>
 
     <main>
-        
+
         <section id="whoisai-match-panel">
             <div class="sticky-hero" style="max-width:440px;">
                 <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 02</div>
@@ -52,60 +55,72 @@
             </div>
 
             <div class="id-card doodle-border whoisai-match-card">
-                
+
                 <div id="whoisai-has-identity" style="display:none;text-align:center;width:100%;">
-                    <svg class="icon" viewBox="0 0 24 24" style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
-                        <circle cx="12" cy="8" r="4"/>
-                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7"/>
+                    <svg class="icon" viewBox="0 0 24 24"
+                        style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
+                        <circle cx="12" cy="8" r="4" />
+                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
                     </svg>
                     <h2 style="font-size:20px;margin:0 0 4px;">欢迎回来，<span id="whoisai-hello-nickname"></span></h2>
                     <p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;">4~6人匹配对局，随机混入AI</p>
-                    <button id="whoisai-match-btn-authed" class="doodle-btn success" style="width:100%;justify-content:center;font-size:16px;">
+                    <button id="whoisai-match-btn-authed" class="doodle-btn success"
+                        style="width:100%;justify-content:center;font-size:16px;">
                         <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M22 2L11 13"/>
-                            <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+                            <path d="M22 2L11 13" />
+                            <path d="M22 2l-7 20-4-9-9-4 20-7z" />
                         </svg>
                         开始匹配
                     </button>
                 </div>
 
-                
+
                 <div id="whoisai-no-identity" style="display:none;text-align:center;width:100%;">
                     <div style="font-size:48px;margin-bottom:8px;">?</div>
                     <h2 style="font-size:18px;margin:0 0 4px;color:var(--text-secondary);">您还没有身份记录</h2>
                     <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">输入昵称和恢复码可以立即恢复您的战绩和身份</p>
-                    <input type="text" id="whoisai-recover-nickname" class="tag-input" maxlength="12" placeholder="你的昵称" autocomplete="off" style="width:100%;text-align:center;font-size:16px;margin-bottom:10px;">
+                    <input type="text" id="whoisai-recover-nickname" class="tag-input" maxlength="12" placeholder="你的昵称"
+                        autocomplete="off" style="width:100%;text-align:center;font-size:16px;margin-bottom:10px;">
                     <div style="display:flex;gap:6px;margin-bottom:12px;">
-                        <input type="text" id="whoisai-recover-input" placeholder="输入恢复码..." maxlength="32" style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;background:var(--bg-input);color:var(--text);">
-                        <button id="whoisai-btn-recover" class="doodle-btn" style="flex-shrink:0;font-size:14px;">恢复</button>
+                        <input type="text" id="whoisai-recover-input" placeholder="输入恢复码..." maxlength="32"
+                            style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;background:var(--bg-input);color:var(--text);">
+                        <button id="whoisai-btn-recover" class="doodle-btn"
+                            style="flex-shrink:0;font-size:14px;">恢复</button>
                     </div>
-                    <div id="whoisai-recover-msg" style="font-size:12px;color:var(--danger);margin-bottom:10px;display:none;"></div>
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text-secondary);font-size:12px;">
+                    <div id="whoisai-recover-msg"
+                        style="font-size:12px;color:var(--danger);margin-bottom:10px;display:none;"></div>
+                    <div
+                        style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text-secondary);font-size:12px;">
                         <span style="flex:1;height:1px;background:var(--ink-blue);opacity:0.2;"></span>
                         或者
                         <span style="flex:1;height:1px;background:var(--ink-blue);opacity:0.2;"></span>
                     </div>
-                    <button id="whoisai-btn-go-home" class="doodle-btn" style="width:100%;justify-content:center;margin-bottom:12px;font-size:15px;">
+                    <button id="whoisai-btn-go-home" class="doodle-btn"
+                        style="width:100%;justify-content:center;margin-bottom:12px;font-size:15px;">
                         返回首页创建身份
                     </button>
-                    <button id="whoisai-btn-new-name" class="doodle-btn" style="width:100%;justify-content:center;font-size:15px;border-style:dashed;">
+                    <button id="whoisai-btn-new-name" class="doodle-btn"
+                        style="width:100%;justify-content:center;font-size:15px;border-style:dashed;">
                         直接填写昵称
                     </button>
                 </div>
 
-                
+
                 <div id="whoisai-fill-name" style="display:none;text-align:center;width:100%;">
-                    <svg class="icon" viewBox="0 0 24 24" style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
-                        <circle cx="12" cy="8" r="4"/>
-                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7"/>
+                    <svg class="icon" viewBox="0 0 24 24"
+                        style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
+                        <circle cx="12" cy="8" r="4" />
+                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
                     </svg>
                     <h2 style="font-size:20px;margin:0 0 4px;">设定你的昵称</h2>
                     <p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;">对局结束后会自动生成恢复码</p>
-                    <input type="text" id="whoisai-nickname" class="tag-input" maxlength="12" placeholder="你的昵称" autocomplete="off" style="width:100%;text-align:center;font-size:18px;">
-                    <button id="whoisai-match-btn" class="doodle-btn success" style="width:100%;justify-content:center;margin-top:12px;font-size:16px;">
+                    <input type="text" id="whoisai-nickname" class="tag-input" maxlength="12" placeholder="你的昵称"
+                        autocomplete="off" style="width:100%;text-align:center;font-size:18px;">
+                    <button id="whoisai-match-btn" class="doodle-btn success"
+                        style="width:100%;justify-content:center;margin-top:12px;font-size:16px;">
                         <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M22 2L11 13"/>
-                            <path d="M22 2l-7 20-4-9-9-4 20-7z"/>
+                            <path d="M22 2L11 13" />
+                            <path d="M22 2l-7 20-4-9-9-4 20-7z" />
                         </svg>
                         开始匹配
                     </button>
@@ -131,10 +146,10 @@
                     <aside id="whoisai-player-panel" class="whoisai-player-panel">
                         <h3>
                             <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                                <circle cx="9" cy="7" r="4"/>
-                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" />
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                             </svg>
                             存活 <span id="whoisai-alive-count">0</span>
                         </h3>
@@ -154,11 +169,12 @@
                                     <path d="M8 14c0 0 1.5 2 4 2s4-2 4-2" />
                                 </svg>
                             </button>
-                            <input type="text" id="whoisai-chat-input" maxlength="300" placeholder="输入你的推理..." autocomplete="off">
+                            <input type="text" id="whoisai-chat-input" maxlength="300" placeholder="输入你的推理..."
+                                autocomplete="off">
                             <button id="whoisai-chat-send" class="doodle-btn">
                                 <svg class="icon" viewBox="0 0 24 24">
-                                    <line x1="22" y1="2" x2="11" y2="13"/>
-                                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                    <line x1="22" y1="2" x2="11" y2="13" />
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
                                 </svg>
                             </button>
                         </div>
@@ -168,8 +184,8 @@
                 <div id="whoisai-vote-panel" class="whoisai-vote-panel" style="display:none;">
                     <h3>
                         <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
-                            <polyline points="9 11 12 14 22 4"/>
-                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                            <polyline points="9 11 12 14 22 4" />
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
                         </svg>
                         投票选出 AI
                     </h3>
@@ -186,11 +202,15 @@
         </section>
     </main>
 
-    
+
     <div id="whoisai-sticker-picker" class="sticker-picker" style="display:none;">
         <div class="sticker-picker-header">
             <span>选择表情</span>
-            <button class="doodle-btn" id="whoisai-btn-manage-sticker" style="padding:2px 8px;font-size:12px;">管理</button>
+            <button class="doodle-btn"
+                onclick="if(confirm('投稿表情时需要选择\'表情包投稿\'板块\n并附带表情包图片然后@logarh\n随后便等待审核\n审核通过并上传后会在评论区进行提醒\n为了防止表情包太多导致比较早期投稿表情包的用户找不到自己的表情包\n只有多人点赞或被多次重复投稿的表情包才会被上传\n\n《投稿内容规范》\n1.禁止带有辱骂、人身攻击、骚扰或发表任何侮辱性内容\n2. \n· 禁止带有广告、垃圾信息、大量色情、暴力、恐怖及其他违法违规内容。\n· 不涉政、不键政，禁止传播反动言论、极端思想及邪教内容。\n· 未经他人允许，不得公开带有他人隐私信息的内容。确认之后跳转到QQ频道加入地址')){window.open('https://pd.qq.com/s/exuuxhyi9')}"
+                style="padding:2px 8px;font-size:12px;">投稿</button>
+            <button class="doodle-btn" id="whoisai-btn-manage-sticker"
+                style="padding:2px 8px;font-size:12px;">管理</button>
             <button class="doodle-btn" id="whoisai-btn-close-sticker-picker"
                 style="padding:2px 8px;font-size:14px;">&times;</button>
         </div>
@@ -212,4 +232,5 @@
 
     <script src="/whoisai/whoisai.js?v="></script>
 </body>
+
 </html>

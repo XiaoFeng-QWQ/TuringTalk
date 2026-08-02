@@ -56,6 +56,19 @@ class RedisService
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
     public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send';  // last_send → hash  fd => 最后发言时间戳
 
+    // 点歌系统
+    public const KP_LOBBY_SONG_POOL    = self::LOBBY_PREFIX . 'song:pool';       // zset   投票池 {songId: votes}
+    public const KP_LOBBY_SONG_META    = self::LOBBY_PREFIX . 'song:meta:';      // hash   歌曲元数据前缀
+    public const KP_LOBBY_SONG_VOTERS  = self::LOBBY_PREFIX . 'song:voters:';    // set    投票人前缀
+    public const KP_LOBBY_SONG_REMOVE_VOTERS = self::LOBBY_PREFIX . 'song:remove_voters:'; // set 移除投票人前缀
+    public const KP_LOBBY_SONG_PLAYING = self::LOBBY_PREFIX . 'song:playing';    // hash   当前播放
+    public const KP_LOBBY_SONG_CACHE   = self::LOBBY_PREFIX . 'song:cache';      // hash   歌曲缓存（field=songId, value=JSON）
+    public const KP_LOBBY_SONG_HISTORY = self::LOBBY_PREFIX . 'song:history';    // set    已播歌曲历史（防重复点歌）
+    public const KP_LOBBY_SONG_PLAYLIST = self::LOBBY_PREFIX . 'song:playlist'; // list   播放队列（即将播放的歌曲）
+    public const KP_LOBBY_SONG_FINISHED = self::LOBBY_PREFIX . 'song:finished:';// set    歌曲完成状态前缀（fd 集合）
+    public const KP_LOBBY_SONG_REQ_Q   = self::LOBBY_PREFIX . 'song:req_q:';     // list   点歌频率队列
+    public const KP_LOBBY_SONG_VOTE_Q  = self::LOBBY_PREFIX . 'song:vote_q:';    // list   投票频率队列（含正向+移除）
+
     /**
      * 获取当前协程专属的 Redis 连接
      * @return \Redis
@@ -161,6 +174,11 @@ class RedisService
         $redis->del(self::KP_LOBBY_MUTED);                     // 聊天室禁言
         $redis->del(self::KP_LOBBY_MSG_ID);                    // 聊天室消息 ID 计数器
         $redis->del(self::KP_LOBBY_REPORTED);                 // 聊天室已举报集合
+        $redis->del(self::KP_LOBBY_SONG_POOL);               // 点歌投票池
+        $redis->del(self::KP_LOBBY_SONG_PLAYING);            // 点歌当前播放
+        $redis->del(self::KP_LOBBY_SONG_CACHE);              // 点歌缓存
+        $redis->del(self::KP_LOBBY_SONG_HISTORY);            // 点歌历史
+        $redis->del(self::KP_LOBBY_SONG_PLAYLIST);           // 播放队列
 
         // 2. SCAN 批量删除带通配符的模式
         // 注意：tg:sticker:sync 不受清理影响（不在 patterns 中）
@@ -171,6 +189,12 @@ class RedisService
             self::KP_CODE,       // tg:code:*
             self::KP_MATCH_TIMER,// tg:timer:*
             self::KP_SPECTATOR,  // tg:spec:*
+            self::KP_LOBBY_SONG_META,         // tg:lobby:song:meta:*
+            self::KP_LOBBY_SONG_VOTERS,       // tg:lobby:song:voters:*
+            self::KP_LOBBY_SONG_REMOVE_VOTERS,// tg:lobby:song:remove_voters:*
+            self::KP_LOBBY_SONG_REQ_Q,        // tg:lobby:song:req_q:*
+            self::KP_LOBBY_SONG_VOTE_Q,       // tg:lobby:song:vote_q:*
+            self::KP_LOBBY_SONG_FINISHED,     // tg:lobby:song:finished:*
         ];
 
         $totalScanned = 0;

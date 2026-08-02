@@ -38,30 +38,54 @@ class SpectateHandler
             }
         }
 
-        // 先获取历史消息快照，再注册旁观者。
-        // 如果先注册旁观者再取历史，getSessionMessages() 内的 Redis I/O 会让出协程，
-        // 期间 Bot 可能推送 spectate_message 到客户端，而客户端 enterSpectatorView 会
-        // 清空 chatBody 重新渲染历史，导致先到达的消息丢失。
+        // 旁观视角归一化：游戏中玩家始终把自己（人类）显示在右边。
+        // 但存储的 side 是 P1=left、P2=right。若人类是 P1，管理员旁观会看到人类在左边。
+        // 检测是否需要翻转：P1 是人类且 P2 不是人类（AI Bot）时交换双方数据。
+        $p1IsHuman = ($session['player1_truth'] ?? '') === 'human';
+        $p2IsHuman = (int)($session['player2_fd'] ?? 0) > 0;
+        $needFlip = $p1IsHuman && !$p2IsHuman;  // P1 人类 vs P2 AI → 翻转
+
+        // 历史消息 side 翻转
+        $history = GameService::getSessionMessages($sessionId);
+        if ($needFlip && is_array($history)) {
+            foreach ($history as &$msg) {
+                if (isset($msg['side'])) {
+                    $msg['side'] = ($msg['side'] === 'right') ? 'left' : 'right';
+                }
+            }
+            unset($msg);
+        }
+
         $p2Label = $session['player2_fd'] > 0 ? $session['player2_nickname'] : 'Bot(AI)';
         $p2Truth = $session['player2_fd'] > 0 ? '人类' : 'AI';
+
+        $player1Data = [
+            'fd'       => (int)$session['player1_fd'],
+            'nickname' => $session['player1_nickname'],
+            'truth'    => $session['player1_truth'] === 'human' ? '人类' : 'AI',
+            'tag'      => $session['player1_tag'] ?? '',
+        ];
+        $player2Data = [
+            'fd'       => (int)$session['player2_fd'],
+            'nickname' => $p2Label,
+            'truth'    => $p2Truth,
+            'tag'      => $session['player2_tag'] ?? '',
+        ];
+
+        // 翻转后 human 始终出现在 player2 位置（前端 banner 中靠右）
+        if ($needFlip) {
+            $tmp = $player1Data;
+            $player1Data = $player2Data;
+            $player2Data = $tmp;
+        }
 
         $this->game->sendToPlayer($server, $fd, [
             'type'       => 'session_detail',
             'session_id' => $sessionId,
             'state'      => $session['state'],
-            'history'    => GameService::getSessionMessages($sessionId),
-            'player1' => [
-                'fd'       => (int)$session['player1_fd'],
-                'nickname' => $session['player1_nickname'],
-                'truth'    => $session['player1_truth'] === 'human' ? '人类' : 'AI',
-                'tag'      => $session['player1_tag'] ?? '',
-            ],
-            'player2' => [
-                'fd'       => (int)$session['player2_fd'],
-                'nickname' => $p2Label,
-                'truth'    => $p2Truth,
-                'tag'      => $session['player2_tag'] ?? '',
-            ],
+            'history'    => $history,
+            'player1'    => $player1Data,
+            'player2'    => $player2Data,
         ]);
 
         // 历史记录已发送完毕，此时才注册旁观者接收实时消息转发

@@ -39,6 +39,8 @@ class Application
     {
         \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         Config::load(__DIR__ . '/../../Config/App.php');
+
+        Logger::info('Application initializing...');
         ErrorHandler::register();
         Logger::initialize();
         BanRepository::initialize();
@@ -58,7 +60,7 @@ class Application
         $serverOptions = Config::get('Server.Options', []);
         $this->server->set($serverOptions);
 
-        Logger::info('Server initialized', [
+        Logger::info('Server initialized, ready to start', [
             'host' => $host,
             'port' => $port,
             'websocket_enabled' => Config::get('WebSocket.Enable', false),
@@ -137,66 +139,45 @@ class Application
                 $webSocketHandler->getWhoisAIHandler()->getWhoisAIService()->sweepExpiredRooms();
             });
 
-            // 健康检查（每 30 秒）
-            \Swoole\Timer::tick(30000, function () use ($server, $workerId, $webSocketHandler) {
-                $gameService = $webSocketHandler->getGameHandler()->getGameService();
-                $stats = $server->stats();
-                $coroutineCount = \Swoole\Coroutine::stats()['coroutine_num'] ?? 0;
-                $memoryMB = round(memory_get_usage(true) / 1048576, 2);
-                $peakMemoryMB = round(memory_get_peak_usage(true) / 1048576, 2);
-
-                Logger::debug('[HEALTH] Worker health check', [
-                    'worker_id' => $workerId,
-                    'connections' => $stats['connection_num'] ?? 0,
-                    'accept_count' => $stats['accept_count'] ?? 0,
-                    'close_count' => $stats['close_count'] ?? 0,
-                    'active_sessions' => $gameService->getActiveSessionCount(),
-                    'online' => $webSocketHandler->getOnlineCount(),
-                    'coroutines' => $coroutineCount,
-                    'memory_mb' => $memoryMB,
-                    'peak_memory_mb' => $peakMemoryMB,
-                    'paused' => self::$connectionPaused,
-                ]);
-
-                $connNum = $stats['connection_num'] ?? 0;
-                $maxConn = Config::get('Server.Options.max_connection', 1024);
-
-                // ── 连接过载：90% 断流，70% 恢复 ──
-                if ($connNum > $maxConn * 0.9 && !self::$connectionPaused) {
-                    self::$connectionPaused = true;
-                    Logger::warning('[HEALTH] Connection PAUSED — overload', [
-                        'current' => $connNum,
-                        'max' => $maxConn,
-                    ]);
-                } elseif (self::$connectionPaused && $connNum < $maxConn * 0.7) {
-                    self::$connectionPaused = false;
-                    Logger::info('[HEALTH] Connection RESUMED — normalized', [
-                        'current' => $connNum,
-                        'max' => $maxConn,
-                    ]);
-                }
-
-                // ── 内存告警：触发 GC ──
-                if ($memoryMB > 256) {
-                    $before = $memoryMB;
-                    gc_collect_cycles();
-                    $after = round(memory_get_usage(true) / 1048576, 2);
-                    Logger::warning('[HEALTH] GC triggered by memory threshold', [
-                        'before_mb' => $before,
-                        'after_mb' => $after,
-                        'freed_mb' => round($before - $after, 2),
-                        'coroutines' => $coroutineCount,
-                    ]);
-                }
-
-                // ── 协程数告警 ──
-                if ($coroutineCount > 500) {
-                    Logger::warning('[HEALTH] High coroutine count — possible leak', [
-                        'coroutines' => $coroutineCount,
-                        'connections' => $connNum,
-                    ]);
+            // 每 60 秒清理投票池中陈旧歌曲（入池超 10 分钟未晋升自动移除）
+            \Swoole\Timer::tick(60000, function () use ($server, $webSocketHandler) {
+                try {
+                    $lobbyHandler = $webSocketHandler->getLobbyHandler();
+                    if ($lobbyHandler) {
+                        $lobbyHandler->scheduledCleanup($server);
+                    }
+                } catch (\Throwable $e) {
+                    Logger::error('Lobby scheduled cleanup failed', ['error' => $e->getMessage()]);
                 }
             });
+
+            // 每日 00:00 清空歌单
+            $scheduleMidnightTimer = function () use ($server, $webSocketHandler, &$scheduleMidnightTimer) {
+                try {
+                    $lobbyHandler = $webSocketHandler->getLobbyHandler();
+                    if ($lobbyHandler) {
+                        $lobbyHandler->scheduledClearPlaylist($server);
+                    }
+                } catch (\Throwable $e) {
+                    Logger::error('Daily playlist clear failed', ['error' => $e->getMessage()]);
+                }
+
+                // 注册下一次 00:00 的定时器
+                $now = time();
+                $nextMidnight = strtotime('tomorrow 00:00:00');
+                $secondsUntilNext = max(1, $nextMidnight - $now);
+                \Swoole\Timer::after($secondsUntilNext * 1000, $scheduleMidnightTimer);
+            };
+
+            // 计算距离今天/明天 00:00 的秒数
+            $midnight = strtotime('today 00:00:00');
+            $now = time();
+            if ($now >= $midnight) {
+                // 今天 00:00 已过，等明天 00:00
+                $midnight = strtotime('tomorrow 00:00:00');
+            }
+            $initialDelay = max(1, $midnight - $now);
+            \Swoole\Timer::after($initialDelay * 1000, $scheduleMidnightTimer);
         });
 
         $this->server->on('WorkerStop', function (Server $server, int $workerId) {

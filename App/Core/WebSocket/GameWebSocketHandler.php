@@ -615,6 +615,17 @@ class GameWebSocketHandler extends BaseGameHandler
     }
 
     /**
+     * 旁观视角 side 翻转检查：若 P1 是人类而 P2 是 AI Bot，
+     * 则游戏内人类把自己显示在右边，管理员旁观时也应把人类放右边。
+     */
+    private static function shouldFlipSpectateSide(array $session): bool
+    {
+        $p1IsHuman = ($session['player1_truth'] ?? '') === 'human';
+        $p2IsAI   = (int)($session['player2_fd'] ?? 0) <= 0;
+        return $p1IsHuman && $p2IsAI;
+    }
+
+    /**
      * 清理对局，如果该对局有举报则先异步保存聊天记录到 MySQL，
      * 写入完成后再清除内存中的聊天记录。
      */
@@ -843,14 +854,18 @@ class GameWebSocketHandler extends BaseGameHandler
             ]);
         }
 
-        // 转发给旁观者（带角色标注）
+        // 转发给旁观者（带角色标注，归一化 side 使人类始终在右边）
         $isP1 = $session['player1_fd'] === $fd;
         $roleLabel = $isP1 ? '玩家1' : '玩家2';
+        $spSide = $isP1 ? 'left' : 'right';
+        if (self::shouldFlipSpectateSide($session)) {
+            $spSide = ($spSide === 'right') ? 'left' : 'right';
+        }
         $this->sendToSpectators($server, $sessionId, [
             'type' => 'spectate_message',
             'text' => $text,
             'sender' => $roleLabel,
-            'side' => $isP1 ? 'left' : 'right',
+            'side' => $spSide,
         ]);
 
         // 如果对手是 Bot
@@ -862,8 +877,9 @@ class GameWebSocketHandler extends BaseGameHandler
             $this->botService->addToHistory($sessionId, 'user', $text);
 
             $botSide = ($session['player1_fd'] === $fd) ? 'right' : 'left';
+            $needFlipSpectate = self::shouldFlipSpectateSide($session);
 
-            Coroutine::create(function () use ($server, $fd, $text, $sessionId, $botSide) {
+            Coroutine::create(function () use ($server, $fd, $text, $sessionId, $botSide, $needFlipSpectate) {
                 // 限制 Bot LLM 并发（10 槽位 + 5s 超时）
                 if (self::$botLlmSem === null) {
                     self::$botLlmSem = new Channel(self::BOT_LLM_SLOTS);
@@ -896,6 +912,17 @@ class GameWebSocketHandler extends BaseGameHandler
                                 'sender' => '对方',
                             ]);
                             GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, $botSide);
+                            // 转发给旁观者（归一化 side）
+                            $spSide = $botSide;
+                            if ($needFlipSpectate) {
+                                $spSide = ($spSide === 'right') ? 'left' : 'right';
+                            }
+                            $this->sendToSpectators($server, $sessionId, [
+                                'type'   => 'spectate_message',
+                                'text'   => $fallbackReply,
+                                'sender' => 'Bot(AI)',
+                                'side'   => $spSide,
+                            ]);
                         }
                     }
                     return;
@@ -917,6 +944,17 @@ class GameWebSocketHandler extends BaseGameHandler
                                 'sender' => '对方',
                             ]);
                             GameService::addSessionMessage($sessionId, 'Bot(AI)', $fallbackReply, $botSide);
+                            // 转发给旁观者（归一化 side）
+                            $spSide = $botSide;
+                            if ($needFlipSpectate) {
+                                $spSide = ($spSide === 'right') ? 'left' : 'right';
+                            }
+                            $this->sendToSpectators($server, $sessionId, [
+                                'type'   => 'spectate_message',
+                                'text'   => $fallbackReply,
+                                'sender' => 'Bot(AI)',
+                                'side'   => $spSide,
+                            ]);
                         }
                     }
                     return;
@@ -985,12 +1023,16 @@ class GameWebSocketHandler extends BaseGameHandler
                         // 记录到聊天历史
                         GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, $botSide);
 
-                        // 转发给旁观者
+                        // 转发给旁观者（归一化 side）
+                        $spBotSide = $botSide;
+                        if ($needFlipSpectate) {
+                            $spBotSide = ($spBotSide === 'right') ? 'left' : 'right';
+                        }
                         $this->sendToSpectators($server, $sessionId, [
                             'type'   => 'spectate_message',
                             'text'   => $seg,
                             'sender' => 'Bot(AI)',
-                            'side'   => $botSide,
+                            'side'   => $spBotSide,
                         ]);
 
                         // 段间延迟（模拟打字间隔）
@@ -1599,15 +1641,19 @@ class GameWebSocketHandler extends BaseGameHandler
             ]);
         }
 
-        // 转发给旁观者
+        // 转发给旁观者（归一化 side）
         $isP1 = $session['player1_fd'] === $fd;
         $roleLabel = $isP1 ? '玩家1' : '玩家2';
+        $spSide = $side;
+        if (self::shouldFlipSpectateSide($session)) {
+            $spSide = ($spSide === 'right') ? 'left' : 'right';
+        }
         $this->sendToSpectators($server, $sessionId, [
             'type' => 'spectate_sticker',
             'id' => $stickerId,
             'name' => $sticker['name'] ?? '',
             'sender' => $roleLabel,
-            'side' => $side,
+            'side' => $spSide,
         ]);
 
         Logger::debug('Player sent sticker', [
@@ -1983,6 +2029,7 @@ class GameWebSocketHandler extends BaseGameHandler
             }
 
             $botSide = ($session['player1_fd'] === $playerFd) ? 'right' : 'left';
+            $needFlipSpectate = self::shouldFlipSpectateSide($session);
 
             if (!$this->botService->shouldProactive()) {
                 $nextInterval = $this->botService->proactiveInterval();
@@ -1990,7 +2037,7 @@ class GameWebSocketHandler extends BaseGameHandler
                 return;
             }
 
-            Coroutine::create(function () use ($server, $sessionId, $playerFd, $botSide, &$scheduleNext) {
+            Coroutine::create(function () use ($server, $sessionId, $playerFd, $botSide, $needFlipSpectate, &$scheduleNext) {
                 // 二次状态检查：协程创建后 session 可能已结束（判定/超时/disconnect）
                 $currentSession = $this->gameService->getSession($sessionId);
                 if (!$currentSession || $currentSession['state'] !== 'chatting' || !empty($currentSession['closing'])) {
@@ -2098,15 +2145,19 @@ class GameWebSocketHandler extends BaseGameHandler
                         // 记录到聊天历史
                         GameService::addSessionMessage($sessionId, 'Bot(AI)', $seg, $botSide);
 
-                        // 转发给旁观者
+                        // 转发给旁观者（归一化 side）
+                        $spBotSide = $botSide;
+                        if ($needFlipSpectate) {
+                            $spBotSide = ($spBotSide === 'right') ? 'left' : 'right';
+                        }
                         $this->sendToSpectators($server, $sessionId, [
                             'type'   => 'spectate_message',
                             'text'   => $seg,
                             'sender' => 'Bot(AI)',
-                            'side'   => $botSide,
+                            'side'   => $spBotSide,
                         ]);
 
-                        // 段间延迟（模拟打字间隔）
+                        // 段间延迟（模拟打字间隔）（主动消息）
                         if ($i < count($segments) - 1 && isset($delays[$i]) && $delays[$i] > 0) {
                             Coroutine::sleep($delays[$i] / 1000);
                         }
