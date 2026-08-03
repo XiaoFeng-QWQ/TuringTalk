@@ -113,7 +113,7 @@ class Application
             // 启动异步 DB 写入队列（独立协程，500ms 消费一次）
             AsyncDbWriter::start();
 
-            // 启动表情包异步同步服务（Redis → SQLite）
+            // 启动表情包服务（MySQL 建表）
             StickerService::start();
 
             // 初始化在线人数 SQLite 存储

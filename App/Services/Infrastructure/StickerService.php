@@ -3,280 +3,257 @@
 namespace App\Services\Infrastructure;
 
 use App\Services\Repository\StickerRepository;
-use Swoole\Coroutine;
+use App\Config\Config;
 
 /**
- * 自定义表情服务 —— Redis 同步队列 + SQLite 持久化 + 异步写入
+ * 自定义表情服务 —— MySQL 持久化 + 图床代理上传
  *
  * 架构：
- *   Redis tg:sticker:sync (hash)  → 待同步队列（id → json），SQLite 写入成功后清除
- *   SQLite Storage/stickers.db    → 持久化存储，所有读写唯一数据源
- *
- * 添加流程：
- *   1. 写入 Redis tg:sticker:sync 标记
- *   2. 返回成功给客户端
- *   3. 协程异步写入 SQLite → 删除 sync 记录
- *      若锁等待超时 → 保留 sync 记录，下次操作时惰性重试
- *
- * 删除流程：
- *   1. 写入 Redis tg:sticker:sync 标记 delete
- *   2. 返回成功给客户端
- *   3. 协程异步从 SQLite 删除 → 删除 sync 记录
- *
- * 读取流程：
- *   1. 惰性消费 sync 队列（尝试补写上次失败的任务）
- *   2. 从 SQLite 读取
- *
- * 启动恢复：
- *   synchronizeFromSync() → 遍历 tg:sticker:sync → 写入 SQLite → 清除 sync
+ *   - MySQL 直接读写（连接池保证并发安全）
+ *   - 用户上传通过 Swoole 代理调用图床 API
+ *   - 管理员添加默认表情仍然保留
  */
 class StickerService
 {
-    // Redis key
-    private const KEY_SYNC = 'tg:sticker:sync';
-
-    // 异步写入：最大重试次数
-    private const MAX_RETRIES = 3;
-    // 每次重试间隔（ms）
-    private const RETRY_SLEEP_MS = 50;
-    // SQLite 忙等待超时（ms），超过则放弃本轮
-    private const SYNC_TIMEOUT_MS = 300;
-
     private static bool $started = false;
 
-    /**
-     * 启动恢复（WorkerStart 时调用一次）
-     */
     public static function start(): void
     {
         if (self::$started) return;
         self::$started = true;
 
-        // 0. 初始化数据库路径 + 建表
-        StickerRepository::initialize();
+        StickerRepository::ensureTable();
 
-        // 1. 启动恢复：将上次崩溃未写入的 sync 数据写入 SQLite
-        self::synchronizeFromSync();
-
-        Logger::info('StickerService started');
+        Logger::info('StickerService started (MySQL)');
     }
 
-    // ==================== 公共 API ====================
+    // ==================== 默认表情（管理员操作） ====================
 
-    /**
-     * 添加表情：
-     *   sync 标记 → 返回 → 协程异步 SQLite
-     */
     public static function add(string $name, string $url): array
     {
         $id = uniqid('st_', true);
-        $sticker = ['id' => $id, 'name' => $name, 'url' => $url];
-
-        // 1. 写入 sync 标记
-        $redis = RedisService::connect();
-        $syncData = json_encode(['type' => 'upsert', 'id' => $id, 'name' => $name, 'url' => $url], JSON_UNESCAPED_UNICODE);
-        $redis->hSet(self::KEY_SYNC, $id, $syncData);
-
-        // 2. 异步写入 SQLite（不阻塞返回）
-        self::asyncSync($id, 'upsert', $name, $url);
-
-        // 3. 递增版本号
+        StickerRepository::upsert($id, $name, $url);
         StickerRepository::incrementVersion();
 
-        return $sticker;
+        return ['id' => $id, 'name' => $name, 'url' => $url];
     }
 
-    /**
-     * 删除表情：
-     *   sync 标记 → 返回 → 协程异步 SQLite 删除
-     */
     public static function delete(string $id): bool
     {
-        $redis = RedisService::connect();
-
-        // 1. sync 标记
-        $syncData = json_encode(['type' => 'delete', 'id' => $id], JSON_UNESCAPED_UNICODE);
-        $redis->hSet(self::KEY_SYNC, $id, $syncData);
-
-        // 2. 异步从 SQLite 删除
-        self::asyncSync($id, 'delete', '', '');
-
-        // 3. 递增版本号
+        StickerRepository::delete($id);
         StickerRepository::incrementVersion();
-
         return true;
     }
 
-    /**
-     * 获取表情列表（惰性消费 sync 队列 → SQLite 读取）
-     */
     public static function list(): array
     {
-        // 惰性消费：先尝试完成上次未成功的 sync 任务
-        self::drainSyncQueueLazy();
-
-        // 从 SQLite 读取
         return StickerRepository::all();
     }
 
-    // ==================== 异步写入 ====================
+    // ==================== 用户表情 ====================
 
-    /**
-     * 在协程中尝试将 sync 任务写入 SQLite
-     * 若锁超时 → 保留 sync 记录，下次 list() 时惰性重试
-     */
-    private static function asyncSync(string $id, string $type, string $name, string $url): void
+    public static function listForUser(string $userId): array
     {
-        Coroutine::create(function () use ($id, $type, $name, $url) {
-            try {
-                $success = self::trySyncWithRetry($id, $type, $name, $url);
-                if ($success) {
-                    // 成功 → 删除 sync 记录
-                    $redis = RedisService::connect();
-                    $redis->hDel(self::KEY_SYNC, $id);
-                }
-                // 失败 → sync 记录保留，等待下次操作时惰性重试
-            } catch (\Throwable $e) {
-                Logger::error('StickerService asyncSync error', [
-                    'id' => $id,
-                    'type' => $type,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        });
+        return StickerRepository::allForUser($userId);
+    }
+
+    public static function deleteForUser(string $userId, string $id): void
+    {
+        StickerRepository::deleteUserSticker($userId, $id);
     }
 
     /**
-     * 带重试的同步写入，遇到锁等待则 sleep 重试
+     * 管理员上传默认表情：代理上传到图床 → 存入 stickers 表
      */
-    private static function trySyncWithRetry(string $id, string $type, string $name, string $url): bool
+    public static function uploadDefault(string $name, string $imageData, string $fileExt = 'png'): array
     {
-        for ($i = 0; $i < self::MAX_RETRIES; $i++) {
-            try {
-                switch ($type) {
-                    case 'upsert':
-                        StickerRepository::upsert($id, $name, $url);
-                        break;
-                    case 'delete':
-                        StickerRepository::delete($id);
-                        break;
-                }
-                return true;
-            } catch (\Throwable $e) {
-                $msg = $e->getMessage();
-                // SQLite 锁冲突 → 等待后重试
-                if (stripos($msg, 'locked') !== false || stripos($msg, 'busy') !== false) {
-                    if ($i < self::MAX_RETRIES - 1) {
-                        Coroutine::sleep(self::RETRY_SLEEP_MS / 1000);
-                        continue;
-                    }
-                }
-                Logger::error('StickerService sync attempt failed', [
-                    'id' => $id,
-                    'type' => $type,
-                    'attempt' => $i + 1,
-                    'error' => $msg,
-                ]);
-                return false;
-            }
+        $url = self::uploadToImageHosting($imageData, $fileExt);
+
+        if (empty($url) || !preg_match('#^https?://.+#i', $url)) {
+            throw new \RuntimeException('图床上传失败，未获取到有效URL');
         }
-        return false;
+
+        $id = uniqid('st_', true);
+        StickerRepository::upsert($id, $name, $url);
+        StickerRepository::incrementVersion();
+
+        Logger::info('StickerService: admin uploaded default sticker', ['id' => $id, 'name' => $name]);
+
+        return ['id' => $id, 'name' => $name, 'url' => $url];
     }
 
-    // ==================== 惰性消费 ====================
-
     /**
-     * 惰性消费 sync 队列（在 list() 时触发，单条处理，遇到锁立刻放弃）
+     * 用户上传表情：代理上传到图床 → 存入 MySQL
+     *
+     * @param string $userId    用户ID
+     * @param string $name      表情名称
+     * @param string $imageData base64 图片数据（不含 data:xxx;base64, 前缀）或二进制
+     * @param string $fileExt   文件扩展名（如 png、jpg、gif）
+     * @return array ['id' => xx, 'name' => xx, 'url' => xx]
      */
-    private static function drainSyncQueueLazy(): void
+    public static function uploadForUser(string $userId, string $name, string $imageData, string $fileExt = 'png'): array
     {
-        $redis = RedisService::connect();
-        $items = $redis->hGetAll(self::KEY_SYNC);
-        if (empty($items)) return;
-
-        $processed = 0;
-        $startMs = intval(microtime(true) * 1000);
-
-        foreach ($items as $id => $json) {
-            // 超时保护：消费超过 SYNC_TIMEOUT_MS 则停止
-            if ((intval(microtime(true) * 1000) - $startMs) > self::SYNC_TIMEOUT_MS) {
-                break;
-            }
-
-            $task = json_decode($json, true);
-            if (!$task || empty($task['type'])) {
-                $redis->hDel(self::KEY_SYNC, $id);
-                continue;
-            }
-
-            try {
-                switch ($task['type']) {
-                    case 'upsert':
-                        StickerRepository::upsert($id, $task['name'] ?? '', $task['url'] ?? '');
-                        break;
-                    case 'delete':
-                        StickerRepository::delete($id);
-                        break;
-                }
-                $redis->hDel(self::KEY_SYNC, $id);
-                $processed++;
-            } catch (\Throwable $e) {
-                $msg = $e->getMessage();
-                // SQLite 锁中 → 放弃本轮，保留 sync 下次再试
-                if (stripos($msg, 'locked') !== false || stripos($msg, 'busy') !== false) {
-                    break;
-                }
-                // 其他错误记录日志，保留记录下次重试
-                Logger::error('StickerService: drainSyncQueueLazy failed', ['id' => $id, 'type' => $task['type'] ?? 'unknown', 'error' => $msg]);
-            }
+        $uploadUrl = Config::get('ImageHosting.UploadUrl', '');
+        if (empty($uploadUrl)) {
+            throw new \RuntimeException('图床未配置');
         }
 
-        if ($processed > 0) {
-            Logger::debug('StickerService lazy drained', ['processed' => $processed]);
+        $url = self::uploadToImageHosting($imageData, $fileExt, 'sticker_');
+
+        if (empty($url) || !preg_match('#^https?://.+#i', $url)) {
+            throw new \RuntimeException('图床上传失败，未获取到有效URL');
         }
+
+        $id = uniqid('us_', true);
+        StickerRepository::addUserSticker($userId, $id, $name, $url);
+
+        Logger::info('StickerService: user uploaded sticker', ['user_id' => $userId, 'id' => $id, 'name' => $name]);
+
+        return ['id' => $id, 'name' => $name, 'url' => $url];
     }
 
-    // ==================== 启动恢复 ====================
+    // ==================== 图床上传代理 ====================
+
+    private static function uploadToImageHosting(string $imageData, string $fileExt, string $namePrefix = ''): string
+    {
+        $uploadUrl = Config::get('ImageHosting.UploadUrl', '');
+        $backstage  = Config::get('ImageHosting.Backstage', '');
+        $appId      = Config::get('ImageHosting.AppId', '');
+        $key        = Config::get('ImageHosting.Key', '');
+        $successField = Config::get('ImageHosting.SuccessField', 'code');
+        $successValue = Config::get('ImageHosting.SuccessValue', 1);
+        $urlField     = Config::get('ImageHosting.UrlField', 'url');
+        $errorField   = Config::get('ImageHosting.ErrorField', 'msg');
+
+        $ext = strtolower($fileExt);
+        if (!in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'], true)) {
+            $ext = 'png';
+        }
+        if ($ext === 'jpg') {
+            $ext = 'jpeg';
+        }
+
+        // 解码 base64
+        $binaryData = base64_decode($imageData, true);
+        if ($binaryData === false) {
+            // 可能传入的是原始二进制
+            $binaryData = $imageData;
+        }
+
+        // 校验图片内容：必须是有效图片
+        $imgInfo = @getimagesizefromstring($binaryData);
+        if ($imgInfo === false) {
+            throw new \RuntimeException('文件不是有效的图片');
+        }
+
+        // 校验图片尺寸：最大 4096x4096，最小 16x16
+        $width = $imgInfo[0];
+        $height = $imgInfo[1];
+        if ($width < 16 || $height < 16) {
+            throw new \RuntimeException('图片尺寸过小，最小 16x16');
+        }
+        if ($width > 4096 || $height > 4096) {
+            throw new \RuntimeException('图片尺寸过大，最大 4096x4096');
+        }
+
+        // 校验 MIME 类型与扩展名一致
+        $detectedMime = $imgInfo['mime'] ?? '';
+        $allowedMimes = [
+            'png'  => 'image/png',
+            'jpeg' => 'image/jpeg',
+            'gif'  => 'image/gif',
+            'webp' => 'image/webp',
+            'bmp'  => 'image/bmp',
+        ];
+        $expectedMime = $allowedMimes[$ext] ?? 'image/png';
+        if ($detectedMime !== '' && $detectedMime !== $expectedMime) {
+            throw new \RuntimeException('图片类型不匹配，声称 ' . $ext . ' 但检测为 ' . $detectedMime);
+        }
+
+        $mimeType = $expectedMime;
+
+        $boundary = '----FormBoundary' . bin2hex(random_bytes(16));
+
+        $body = '';
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Disposition: form-data; name=\"backstage\"\r\n\r\n{$backstage}\r\n";
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Disposition: form-data; name=\"appid\"\r\n\r\n{$appId}\r\n";
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Disposition: form-data; name=\"key\"\r\n\r\n{$key}\r\n";
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Disposition: form-data; name=\"file\"; filename=\"" . uniqid($namePrefix, true) . ".{$fileExt}\"\r\n";
+        $body .= "Content-Type: {$mimeType}\r\n\r\n";
+        $body .= $binaryData;
+        $body .= "\r\n--{$boundary}--\r\n";
+
+        $parsedUrl = parse_url($uploadUrl);
+        $host = $parsedUrl['host'] ?? '';
+        $port = $parsedUrl['port'] ?? ($parsedUrl['scheme'] === 'https' ? 443 : 80);
+        $path = ($parsedUrl['path'] ?? '/') . (isset($parsedUrl['query']) ? '?' . $parsedUrl['query'] : '');
+        $isHttps = ($parsedUrl['scheme'] ?? 'https') === 'https';
+
+        $client = new \Swoole\Coroutine\Http\Client($host, $port, $isHttps);
+        $client->set([
+            'timeout' => 30,
+            'ssl_verify_peer' => false,
+            'ssl_verify_host' => false,
+        ]);
+        $client->setHeaders([
+            'Content-Type' => 'multipart/form-data; boundary=' . $boundary,
+        ]);
+        $client->post($path, $body);
+        $statusCode = $client->statusCode;
+        $responseBody = $client->body;
+        $client->close();
+
+        if ($statusCode !== 200) {
+            Logger::error('StickerService: image hosting upload failed', [
+                'status' => $statusCode,
+                'response' => substr($responseBody, 0, 500),
+            ]);
+            throw new \RuntimeException("图床上传失败，HTTP {$statusCode}");
+        }
+
+        $response = json_decode($responseBody, true);
+        if (!$response) {
+            throw new \RuntimeException('图床返回数据解析失败');
+        }
+
+        // 解析嵌套字段（如 data.url）
+        $successValueActual = self::getNestedValue($response, $successField);
+        if ($successValueActual != $successValue) {
+            $errorMsg = self::getNestedValue($response, $errorField) ?? '未知错误';
+            Logger::error('StickerService: image hosting returned error', [
+                'success_field' => $successField,
+                'expected' => $successValue,
+                'actual' => $successValueActual,
+                'error' => $errorMsg,
+            ]);
+            throw new \RuntimeException("图床上传失败: {$errorMsg}");
+        }
+
+        $imageUrl = self::getNestedValue($response, $urlField);
+        if (empty($imageUrl)) {
+            throw new \RuntimeException('图床未返回图片URL');
+        }
+
+        return (string)$imageUrl;
+    }
 
     /**
-     * 启动恢复：遍历 sync 中未完成的任务，写入 SQLite
+     * 从数组中获取嵌套字段值（支持点号分隔，如 data.url）
      */
-    private static function synchronizeFromSync(): void
+    private static function getNestedValue(array $data, string $field): mixed
     {
-        $redis = RedisService::connect();
-        $items = $redis->hGetAll(self::KEY_SYNC);
-        if (empty($items)) return;
-
-        $recovered = 0;
-        foreach ($items as $id => $json) {
-            $task = json_decode($json, true);
-            if (!$task || empty($task['type'])) {
-                $redis->hDel(self::KEY_SYNC, $id);
-                continue;
+        $keys = explode('.', $field);
+        $current = $data;
+        foreach ($keys as $key) {
+            if (!is_array($current) || !array_key_exists($key, $current)) {
+                return null;
             }
-
-            try {
-                switch ($task['type']) {
-                    case 'upsert':
-                        StickerRepository::upsert($id, $task['name'] ?? '', $task['url'] ?? '');
-                        break;
-                    case 'delete':
-                        StickerRepository::delete($id);
-                        break;
-                }
-                $redis->hDel(self::KEY_SYNC, $id);
-                $recovered++;
-            } catch (\Throwable $e) {
-                Logger::error('StickerService recovery failed', [
-                    'id' => $id,
-                    'type' => $task['type'],
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            $current = $current[$key];
         }
-
-        if ($recovered > 0) {
-            Logger::info('StickerService recovered from sync', ['recovered' => $recovered]);
-        }
+        return $current;
     }
 }

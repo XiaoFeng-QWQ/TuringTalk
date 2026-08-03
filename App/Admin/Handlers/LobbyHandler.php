@@ -133,7 +133,7 @@ class LobbyHandler
         }
 
         $reason = Sanitizer::text($data['reason'] ?? '', 200);
-        BanRepository::ban($info['ip'] ?? '', $info['fingerprint'] ?? '', $reason);
+        BanRepository::ban($info['ip'] ?? '', $info['fingerprint'] ?? '', $reason, $info['player_id'] ?? '');
 
         $banText = '你已被管理员封禁';
         if ($reason) $banText .= '，原因：' . $reason;
@@ -272,7 +272,7 @@ class LobbyHandler
             $info = $this->lobbyHandler->getClientInfo($targetFd);
             if (!$info) continue;
 
-            BanRepository::ban($info['ip'] ?? '', $info['fingerprint'] ?? '', $reason);
+            BanRepository::ban($info['ip'] ?? '', $info['fingerprint'] ?? '', $reason, $info['player_id'] ?? '');
 
             $banText = '你已被管理员封禁';
             if ($reason) $banText .= '，原因：' . $reason;

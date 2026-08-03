@@ -18,13 +18,13 @@
     const $noIdentity = document.getElementById('lobby-no-identity');
     const $fillName = document.getElementById('lobby-fill-name');
     const $messages = document.getElementById('lobby-messages');
+    const BILI_SPINNER_SVG = '<svg class="bili-spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>';
     const $chatInput = document.getElementById('lobby-chat-input');
     const $btnSend = document.getElementById('lobby-btn-send');
     const $btnSticker = document.getElementById('lobby-btn-sticker');
     const $stickerPicker = document.getElementById('lobby-sticker-picker');
     const $stickerPickerBody = document.getElementById('lobby-sticker-picker-body');
     const $btnCloseStickerPicker = document.getElementById('lobby-btn-close-sticker-picker');
-    const $btnManageSticker = document.getElementById('lobby-btn-manage-sticker');
     const $stickerLightbox = document.getElementById('lobby-sticker-lightbox');
     const $stickerLightboxImg = document.getElementById('lobby-sticker-lightbox-img');
     const $stickerLightboxClose = document.getElementById('lobby-sticker-lightbox-close');
@@ -53,6 +53,7 @@
     const $songPlayingInfo = document.getElementById('lobby-song-playing-info');
     const $songSearchInput = document.getElementById('lobby-song-search-input');
     const $songSearchBtn = document.getElementById('lobby-song-search-btn');
+    const $songSearchClear = document.getElementById('lobby-song-search-clear');
     const $songSearchResults = document.getElementById('lobby-song-search-results');
     const $songListenToggle = document.getElementById('lobby-song-listen-toggle');
     const $songInfo = document.getElementById('lobby-song-info');
@@ -219,9 +220,9 @@
     // ==================== 身份检测与面板切换 ====================
     function showIdentityState() {
         var nickname = getUserNickname();
-        var code = getUserRecoveryCode();
+        var pid = getUserPlayerId();
 
-        if (nickname && code) {
+        if (nickname && pid) {
             // 有身份：建立连接，显示聊天界面
             myNickname = nickname;
             $hasIdentity.style.display = 'flex';
@@ -240,12 +241,16 @@
         send({
             type: 'lobby_join',
             nickname: myNickname,
+            player_id: getUserPlayerId() || '',
             recovery_code: getUserRecoveryCode() || ''
         });
     }
 
     function handleJoined(data) {
         // 保存服务端返回的恢复码
+        if (data.player_id) {
+            setUserPlayerId(data.player_id);
+        }
         if (data.recovery_code) {
             setUserRecoveryCode(data.recovery_code);
         }
@@ -277,21 +282,22 @@
 
     // 恢复码恢复
     function doRecover() {
-        var code = $recoverInput.value.trim();
-        if (!code) { showRecoverMsg('请输入恢复码'); return; }
+        var pid = $recoverInput.value.trim();
+        if (!pid) { showRecoverMsg('请输入恢复码'); return; }
         var nickname = $recoverNickname.value.trim();
         if (!nickname) { showRecoverMsg('请先填写昵称'); return; }
         $recoverMsg.style.display = 'none';
         $btnRecover.disabled = true;
         $btnRecover.textContent = '恢复中...';
-        fetch('/api/player-stats?code=' + encodeURIComponent(code) + '&nickname=' + encodeURIComponent(nickname))
+        fetch('/api/player-stats?recovery_code=' + encodeURIComponent(pid) + '&nickname=' + encodeURIComponent(nickname))
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 $btnRecover.disabled = false;
                 $btnRecover.textContent = '恢复';
                 if (data.error) { showRecoverMsg(data.error); return; }
                 setUserNickname(nickname);
-                setUserRecoveryCode(data.code);
+                setUserPlayerId(data.player_id);
+                if (data.code) setUserRecoveryCode(data.code);
                 $recoverInput.value = '';
                 $recoverNickname.value = '';
                 showIdentityState();
@@ -389,6 +395,10 @@
                     if (preview.length > 60) preview = preview.substring(0, 60) + '...';
                     sendNotification(data.sender_name, preview);
                 }
+                break;
+
+            case 'sticker':
+                appendStickerMessage(data);
                 break;
 
             case 'lobby_joined':
@@ -583,7 +593,6 @@
 
     function makeBubble(data, isMine) {
         var senderName = data.sender_name || '';
-        var isSticker = data.content && /^\[sticker:/.test(data.content);
 
         var wrapper = document.createElement('div');
         wrapper.className = 'lobby-msg-row';
@@ -669,60 +678,82 @@
             return wrapper;
         }
 
-        if (isSticker) {
-            var stickerUrl = '';
-            var stickerFallback = '';
-            // 表情贴纸：[sticker_url:直链URL]
-            if (/^\[sticker_url:/.test(data.content)) {
-                stickerUrl = data.content.replace(/^\[sticker_url:/, '').replace(/\]$/, '');
-            } else {
-                var stickerId = parseStickerId(data.content);
-                if (stickerMap[stickerId]) {
-                    stickerUrl = stickerMap[stickerId].url;
-                } else {
-                    stickerFallback = stickerId;
+        var replyHtml = '';
+        if (data.reply_to && data.reply_to.id) {
+            replyHtml = '<div class="lobby-msg-reply" data-reply-id="' + data.reply_to.id + '">' +
+                '<span class="reply-name">' + escapeHtml(data.reply_to.name) + '</span>: ' +
+                escapeHtml(data.reply_to.text) +
+                '</div>';
+        }
+
+        bubble.innerHTML =
+            replyHtml +
+            '<div class="lobby-msg-text">' + autoLink(parseBilibiliLinks(escapeHtml(data.content))) + '</div>';
+
+        var replyDiv = bubble.querySelector('.lobby-msg-reply');
+        if (replyDiv) {
+            replyDiv.addEventListener('click', function () {
+                var targetId = this.dataset.replyId;
+                var target = document.querySelector('[data-msg-id="' + targetId + '"]');
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    target.style.animation = 'none';
+                    target.offsetHeight;
+                    target.style.animation = 'lobby-highlight 2s ease';
                 }
-            }
-            bubble.innerHTML = (stickerUrl ? '<img class="sticker-img" src="' + escapeHtmlAttr(stickerUrl) + '" alt="表情">' :
-                '<span style="color:#999;font-style:italic;">[表情不存在: ' + escapeHtml(stickerFallback) + ']</span>');
-            if (stickerUrl) {
-                var img = bubble.querySelector('.sticker-img');
-                img.addEventListener('click', function () {
-                    showStickerLightbox(stickerUrl);
-                });
-            }
-        } else {
-            var replyHtml = '';
-            if (data.reply_to && data.reply_to.id) {
-                replyHtml = '<div class="lobby-msg-reply" data-reply-id="' + data.reply_to.id + '">' +
-                    '<span class="reply-name">' + escapeHtml(data.reply_to.name) + '</span>: ' +
-                    escapeHtml(data.reply_to.text) +
-                    '</div>';
-            }
-
-            bubble.innerHTML =
-                replyHtml +
-                '<div class="lobby-msg-text">' + autoLink(escapeHtml(data.content)) + '</div>';
-
-            var replyDiv = bubble.querySelector('.lobby-msg-reply');
-            if (replyDiv) {
-                replyDiv.addEventListener('click', function () {
-                    var targetId = this.dataset.replyId;
-                    var target = document.querySelector('[data-msg-id="' + targetId + '"]');
-                    if (target) {
-                        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        target.style.animation = 'none';
-                        target.offsetHeight;
-                        target.style.animation = 'lobby-highlight 2s ease';
-                    }
-                });
-            }
+            });
         }
 
         content.appendChild(bubble);
         wrapper.appendChild(avatar);
         wrapper.appendChild(content);
         return wrapper;
+    }
+
+    function appendStickerMessage(data) {
+        var senderName = data.sender || '';
+        var stickerId = data.id || '';
+        var stickerUrl = resolveStickerUrl(stickerId, data.url, stickerMap);
+        var isMine = data.sender_id ? String(data.sender_id) === myPlayerId : senderName === myNickname;
+
+        var wrapper = document.createElement('div');
+        wrapper.className = 'lobby-msg-row';
+        if (isMine) wrapper.classList.add('mine');
+
+        var avatar = document.createElement('div');
+        avatar.className = 'lobby-avatar';
+        avatar.textContent = getAvatarChar(senderName);
+        avatar.style.background = isMine ? 'var(--note-blue)' : getAvatarColor(senderName);
+
+        var content = document.createElement('div');
+        content.className = 'lobby-msg-content';
+
+        var meta = document.createElement('div');
+        meta.className = 'lobby-msg-meta';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'lobby-msg-sender';
+        nameSpan.textContent = senderName;
+        meta.appendChild(nameSpan);
+        content.appendChild(meta);
+
+        var bubble = document.createElement('div');
+        bubble.className = 'lobby-msg' + (isMine ? ' mine' : '');
+        bubble.innerHTML = stickerUrl
+            ? '<img class="sticker-img" src="' + escapeHtmlAttr(stickerUrl) + '" alt="表情">'
+            : '<span style="color:#999;font-style:italic;">[表情不存在: ' + escapeHtml(stickerId) + ']</span>';
+
+        if (stickerUrl) {
+            var img = bubble.querySelector('.sticker-img');
+            img.addEventListener('click', function () {
+                showStickerLightbox(stickerUrl);
+            });
+        }
+
+        content.appendChild(bubble);
+        wrapper.appendChild(avatar);
+        wrapper.appendChild(content);
+        $messages.appendChild(wrapper);
+        scrollToBottom();
     }
 
     function renderHistory(messages) {
@@ -733,7 +764,9 @@
         }
         appendSystem('── 以下是最近消息 ──', false);
         messages.forEach(function (m) {
-            $messages.appendChild(makeBubble(m, isMineMessage(m)));
+            var bubble = makeBubble(m, isMineMessage(m));
+            $messages.appendChild(bubble);
+            resolveBilibiliEmbeds(bubble);
         });
         scrollToBottom();
     }
@@ -741,12 +774,8 @@
     function appendMessage(data) {
         var bubble = makeBubble(data, isMineMessage(data));
         $messages.appendChild(bubble);
+        resolveBilibiliEmbeds(bubble);
         scrollToBottom();
-
-        var stickerImg = bubble.querySelector('.sticker-img');
-        if (stickerImg && !stickerImg.complete) {
-            stickerImg.addEventListener('load', function () { scrollToBottom(); }, { once: true });
-        }
 
         if (new Date().getDay() === 4 && data.content && /疯狂星期四|V我50|KFC|鸡腿|全家桶|原味鸡/.test(data.content)) {
             var rect = bubble.getBoundingClientRect();
@@ -1202,22 +1231,21 @@
 
     // ==================== 表情 ====================
     let stickerMap = loadStickerCache();
-    let stickerManageMode = false;
 
     function renderStickerPicker() {
         const fresh = loadStickerCache();
         if (Object.keys(fresh).length > 0) stickerMap = fresh;
 
         renderSharedStickerPicker($stickerPickerBody, stickerMap, function (id) {
-            send({ type: 'lobby_chat', nickname: myNickname, content: '[sticker:' + id + ']' });
+            send({ type: 'lobby_sticker', id: id });
             $stickerPicker.style.display = 'none';
-        }, stickerManageMode);
+        });
     }
 
-    bindStickerPickerTabs('lobby-sticker-picker', renderStickerPicker);
+    bindStickerPickerTabs('lobby-sticker-picker', renderStickerPicker, repositionStickerPicker);
 
     function requestStickers() {
-        send({ type: 'get_stickers', version: getStickerCacheVersion() });
+        send({ type: 'get_stickers', version: getStickerCacheVersion(), player_id: myPlayerId });
     }
 
     function showStickerLightbox(url) {
@@ -1225,45 +1253,32 @@
         $stickerLightbox.style.display = 'flex';
     }
 
-    $btnManageSticker.addEventListener('click', function () {
-        stickerManageMode = !stickerManageMode;
-        if (stickerManageMode) {
-            $btnManageSticker.textContent = '完成';
-            $btnManageSticker.classList.add('active');
-        } else {
-            $btnManageSticker.textContent = '管理';
-            $btnManageSticker.classList.remove('active');
-        }
-        renderStickerPicker();
-    });
-
     $btnSticker.addEventListener('click', function () {
         if ($stickerPicker.style.display === 'none' || !$stickerPicker.style.display) {
-            stickerManageMode = false;
-            $btnManageSticker.textContent = '管理';
-            $btnManageSticker.classList.remove('active');
             requestStickers();
             renderStickerPicker();
             $stickerPicker.style.visibility = 'hidden';
             $stickerPicker.style.display = 'flex';
-            const btnRect = $btnSticker.getBoundingClientRect();
-            const pickerWidth = $stickerPicker.offsetWidth || 260;
-            const pickerHeight = $stickerPicker.offsetHeight;
-            let left = btnRect.right - pickerWidth;
-            if (left + pickerWidth > window.innerWidth) left = window.innerWidth - pickerWidth - 10;
-            if (left < 10) left = 10;
-            $stickerPicker.style.left = left + 'px';
-            $stickerPicker.style.top = (btnRect.top - pickerHeight - 16) + 'px';
+            repositionStickerPicker();
             $stickerPicker.style.visibility = 'visible';
         } else {
             $stickerPicker.style.display = 'none';
         }
     });
 
+    function repositionStickerPicker() {
+        if ($stickerPicker.style.display !== 'flex') return;
+        const btnRect = $btnSticker.getBoundingClientRect();
+        const pickerWidth = $stickerPicker.offsetWidth || 260;
+        const pickerHeight = $stickerPicker.offsetHeight;
+        let left = btnRect.right - pickerWidth;
+        if (left + pickerWidth > window.innerWidth) left = window.innerWidth - pickerWidth - 10;
+        if (left < 10) left = 10;
+        $stickerPicker.style.left = left + 'px';
+        $stickerPicker.style.top = (btnRect.top - pickerHeight - 16) + 'px';
+    }
+
     $btnCloseStickerPicker.addEventListener('click', function () {
-        stickerManageMode = false;
-        $btnManageSticker.textContent = '管理';
-        $btnManageSticker.classList.remove('active');
         $stickerPicker.style.display = 'none';
     });
 
@@ -1314,6 +1329,72 @@
 
     function escapeHtmlAttr(text) {
         return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /**
+     * 解析已转义文本中的 B站视频链接，替换为占位元素
+     * 必须在 escapeHtml 之后、autoLink 之前调用。
+     * 异步解析由 resolveBilibiliEmbeds 完成。
+     */
+    function parseBilibiliLinks(text) {
+        var regex = /https?:\/\/(?:www\.)?bilibili\.com\/video\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/b23\.tv\/[^\s<>"'，。！？、；：》\)\]]+/gi;
+        return text.replace(regex, function (match) {
+            // 剥离 GET 参数
+            var cleanUrl = match.replace(/\?.*$/, '');
+            return '<div class="bili-embed" data-bili-url="' + encodeURIComponent(cleanUrl) + '">' +
+                   '<div class="bili-loading">' + BILI_SPINNER_SVG + '解析中...</div>' +
+                   '</div>';
+        });
+    }
+
+    /**
+     * 对容器内所有 B站占位元素发起 API 解析请求，替换为播放器
+     */
+    function resolveBilibiliEmbeds(container) {
+        var placeholders = container.querySelectorAll('.bili-embed[data-bili-url]');
+        for (var i = 0; i < placeholders.length; i++) {
+            biliObserver.observe(placeholders[i]);
+        }
+    }
+
+    var biliObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            var el = entry.target;
+            biliObserver.unobserve(el);
+            var url = decodeURIComponent(el.getAttribute('data-bili-url'));
+            if (!url) return;
+            var apiUrl = 'https://api.xiaofengqwq.com/api/v1/tools/video-parse?url=' + encodeURIComponent(url);
+            fetchBiliWithRetry(el, apiUrl, 0, function (json) {
+                if (json && json.code === 200 && json.data && json.data.video_url) {
+                    var data = json.data;
+                    var videoUrl = data.video_url;
+                    var title = data.title || '';
+                    var cover = data.cover || '';
+                    el.innerHTML =
+                        '<video class="bili-video" src="' + videoUrl + '"' + (cover ? ' poster="' + cover + '"' : '') + ' controls></video>' +
+                        '<div class="bili-title"><a href="' + url + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a></div>';
+                    try { new Plyr(el.querySelector('.bili-video')); } catch (e) {}
+                } else {
+                    el.innerHTML = '<div class="bili-error">⚠ 视频解析失败</div>';
+                }
+            });
+        });
+    }, { rootMargin: '200px' });
+
+    function fetchBiliWithRetry(el, apiUrl, attempt, onDone) {
+        fetch(apiUrl)
+            .then(function (res) { return res.json(); })
+            .then(function (json) { onDone(json); })
+            .catch(function () {
+                if (attempt < 2) {
+                    var loading = el.querySelector('.bili-loading');
+                    if (loading) loading.innerHTML = BILI_SPINNER_SVG + '解析中...(' + (attempt + 2) + '/3)';
+                    setTimeout(function () { fetchBiliWithRetry(el, apiUrl, attempt + 1, onDone); }, 1000);
+                } else {
+                    onDone(null);
+                }
+            });
     }
 
     /**
@@ -1588,7 +1669,7 @@
         stopSongProgress();
         // 清空歌词
         lyricsLines = [];
-        if ($lyrics) $lyrics.textContent = '';
+        if ($lyrics) $lyrics.innerHTML = '';
         if (songCurAudio) {
             try { songCurAudio.pause(); } catch (e) { }
             songCurAudio = null;
@@ -1610,7 +1691,7 @@
             .then(function (text) { handleLrcResponse(text); })
             .catch(function () {
                 lyricsLines = [];
-                if ($lyrics) $lyrics.textContent = '';
+                if ($lyrics) $lyrics.innerHTML = '';
             });
     }
 
@@ -1619,12 +1700,12 @@
      */
     function handleLrcResponse(text) {
         if (!text) {
-            if ($lyrics) $lyrics.textContent = '';
+            if ($lyrics) $lyrics.innerHTML = '';
             return;
         }
         lyricsLines = parseLrc(text);
         if ($lyrics && lyricsLines.length === 0) {
-            $lyrics.textContent = '';
+            $lyrics.innerHTML = '';
         }
     }
 
@@ -1660,8 +1741,23 @@
                 break;
             }
         }
-        if ($lyrics.textContent !== currentLine) {
-            $lyrics.textContent = currentLine;
+        // 拆分翻译括号：主歌词(翻译) → 两行
+        var html = '';
+        var transMatch = currentLine.match(/^(.+?)\s*[（(]([^)）]+)[）)]\s*$/);
+        if (transMatch) {
+            html = '<div class="lyric-line">' + escapeHtml(transMatch[1].trim()) + '</div>' +
+                   '<div class="lyric-sub">' + escapeHtml(transMatch[2].trim()) + '</div>';
+        } else {
+            html = '<div class="lyric-line">' + escapeHtml(currentLine) + '</div>';
+        }
+        $lyrics.innerHTML = html;
+        // 检测溢出，启用滚动动画
+        var lines = $lyrics.querySelectorAll('.lyric-line, .lyric-sub');
+        for (var j = 0; j < lines.length; j++) {
+            if (lines[j].scrollWidth > lines[j].clientWidth) {
+                lines[j].style.setProperty('--scroll-distance', (lines[j].scrollWidth - lines[j].clientWidth) + 'px');
+                lines[j].classList.add('scrolling');
+            }
         }
     }
 
@@ -1828,6 +1924,7 @@
         if (!$songSearchResults) return;
         if (!results || results.length === 0) {
             $songSearchResults.innerHTML = '<div style="font-size:11px;color:var(--text-subtle);text-align:center;padding:8px 0;">未找到歌曲</div>';
+            if ($songSearchClear) $songSearchClear.style.display = 'inline-block';
             return;
         }
         var html = '';
@@ -1849,6 +1946,7 @@
                 if (id) requestSong(id, name, artist);
             });
         }
+        if ($songSearchClear) $songSearchClear.style.display = 'inline-block';
     }
 
     function searchSong() {
@@ -1860,6 +1958,13 @@
         }
         send({ type: 'lobby_song_search', keyword: keyword });
         $songSearchResults.innerHTML = '<div style="font-size:11px;color:var(--text-subtle);text-align:center;padding:8px 0;">搜索中...</div>';
+        if ($songSearchClear) $songSearchClear.style.display = 'none';
+    }
+
+    function clearSongSearch() {
+        if ($songSearchInput) $songSearchInput.value = '';
+        $songSearchResults.innerHTML = '';
+        if ($songSearchClear) $songSearchClear.style.display = 'none';
     }
 
     function requestSong(songId, songName, artist) {
@@ -1915,6 +2020,9 @@
     }
     if ($songSearchBtn) {
         $songSearchBtn.addEventListener('click', searchSong);
+    }
+    if ($songSearchClear) {
+        $songSearchClear.addEventListener('click', clearSongSearch);
     }
     if ($songSearchInput) {
         $songSearchInput.addEventListener('keydown', function (e) {

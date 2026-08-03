@@ -57,11 +57,11 @@ class AsyncDbWriter
     /**
      * 推送统计数据写入任务
      */
-    public static function pushStats(string $code, array $data): void
+    public static function pushStats(string $playerId, array $data): void
     {
         self::push([
             'type' => 'stats',
-            'data' => array_merge(['code' => $code], $data),
+            'data' => array_merge(['player_id' => $playerId], $data),
         ]);
     }
 
@@ -85,12 +85,12 @@ class AsyncDbWriter
     /**
      * 推送 WhoisAI 战绩写入任务
      */
-    public static function pushWhoisAIStats(string $code, bool $win, ?int $activeHour = null): void
+    public static function pushWhoisAIStats(string $playerId, bool $win, ?int $activeHour = null): void
     {
         self::push([
             'type' => 'whoisai_stats',
             'data' => [
-                'code'        => $code,
+                'player_id'   => $playerId,
                 'win'         => $win,
                 'active_hour' => $activeHour ?? (int)date('G'),
             ],
@@ -100,14 +100,14 @@ class AsyncDbWriter
     /**
      * 推送对手标签记录任务
      */
-    public static function pushTag(string $code, string $tag): void
+    public static function pushTag(string $playerId, string $tag): void
     {
-        if (empty($code) || empty($tag)) return;
+        if (empty($playerId) || empty($tag)) return;
         self::push([
             'type' => 'tag',
             'data' => [
-                'code' => $code,
-                'tag'  => $tag,
+                'player_id' => $playerId,
+                'tag'       => $tag,
             ],
         ]);
     }
@@ -175,7 +175,7 @@ class AsyncDbWriter
                 break;
 
             case 'tag':
-                PlayerStatsRepository::recordTag($task['data']['code'], $task['data']['tag']);
+                PlayerStatsRepository::recordTag($task['data']['player_id'], $task['data']['tag']);
                 break;
         }
     }
@@ -198,7 +198,7 @@ class AsyncDbWriter
 
     private static function processWhoisAIStats(array $data): void
     {
-        PlayerStatsRepository::recordWhoisAIGame($data['code'], (bool)$data['win'], (int)($data['active_hour'] ?? 0));
+        PlayerStatsRepository::recordWhoisAIGame($data['player_id'], (bool)$data['win'], (int)($data['active_hour'] ?? 0));
     }
 
     // ==================== 聊天室消息队列 ====================

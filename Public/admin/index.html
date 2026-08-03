@@ -98,10 +98,13 @@
                     <button class="doodle-btn report-filter-btn" data-filter="0">未审</button>
                     <button class="doodle-btn report-filter-btn" data-filter="1">已审</button>
                 </div>
-                <div id="reports-list">
+                <div id="reports-list"
+                    style="max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;padding:8px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border);">
                     <div style="text-align:center;color:var(--text-muted);padding:10px;">加载中...</div>
                 </div>
-                <div id="reports-pagination"></div>
+                <div id="reports-pagination"
+                    style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:8px;font-size:12px;color:var(--text-muted);">
+                </div>
             </div>
 
             
@@ -170,6 +173,31 @@
                     <div class="text-sm text-muted" style="text-align:center;" id="sticker-list-empty">
                         暂无自定义表情</div>
                 </div>
+
+                <h4 style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
+                    用户表情审核
+                </h4>
+                <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+                    <input type="text" id="sticker-review-search" placeholder="按玩家昵称搜索" maxlength="64"
+                        style="flex:1;padding:6px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);min-width:0;">
+                    <button class="doodle-btn sticker-review-filter-btn active" data-filter="">全部</button>
+                    <button class="doodle-btn sticker-review-filter-btn" data-filter="pending">待审核</button>
+                    <button class="doodle-btn sticker-review-filter-btn" data-filter="approved">已通过</button>
+                    <button class="doodle-btn sticker-review-filter-btn" data-filter="rejected">已拒绝</button>
+                </div>
+                <div id="sticker-review-list"
+                    style="max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;padding:8px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border);">
+                    <div class="text-sm text-muted" style="text-align:center;" id="sticker-review-list-empty">
+                        暂无待审核的用户表情</div>
+                </div>
+                <div id="sticker-review-actions" style="display:none;gap:6px;margin-top:6px;">
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                        <input type="checkbox" id="sticker-review-select-all"> 全选
+                    </label>
+                    <button class="doodle-btn" id="btn-sticker-review-batch-approve" style="font-size:12px;padding:2px 10px;color:#4caf50;border-color:#4caf50;">批量通过</button>
+                    <button class="doodle-btn" id="btn-sticker-review-batch-reject" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量拒绝</button>
+                </div>
+                <div id="sticker-review-pagination" style="margin-top:8px;display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;"></div>
             </div>
 
             

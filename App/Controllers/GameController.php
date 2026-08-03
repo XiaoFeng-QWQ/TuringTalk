@@ -9,6 +9,7 @@ use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
 use App\Admin\Repository\AdminRepository;
 use App\Config\Config;
+use App\Services\Infrastructure\StickerService;
 
 /**
  * 游戏控制器
@@ -146,24 +147,33 @@ class GameController
         return false;
     }
 
-    // ==================== 恢复码 ====================
+    // ==================== 玩家 ID ====================
 
     /**
-     * 生成恢复码（同一设备IP+指纹不重复生成）
+     * 获取或查找玩家 ID（支持 player_id / 恢复码 / ip+fp 三种方式）
      */
-    public function generateCode(Request $request, Response $response): void
+    public function generatePlayerId(Request $request, Response $response): void
     {
+        $playerId = Sanitizer::identifier($request->get('player_id', ''));
+        $recoveryCode = Sanitizer::identifier($request->get('recovery_code', ''));
         $fp = Sanitizer::identifier($request->get('fp', ''));
         $nickname = Sanitizer::text($request->get('nickname', ''));
         $ip = $request->getClientIp();
         $response->setHeader('Content-Type', 'application/json');
 
-        if (!empty($fp)) {
-            $existing = PlayerStatsRepository::findByIpFingerprint($ip, $fp);
+        // 1. 通过 player_id 查找（找不到则回退尝试恢复码）
+        if (!empty($playerId)) {
+            $existing = PlayerStatsRepository::findById($playerId);
+            if (!$existing) {
+                // 可能传的是恢复码（如 how-jay-hop-hat），尝试通过恢复码查找
+                $existing = PlayerStatsRepository::findByCode($playerId);
+            }
             if ($existing) {
-                $stats = PlayerStatsRepository::getPlayerStats($existing['code']);
+                $playerId = $existing['id'];
+                $stats = PlayerStatsRepository::getPlayerStats($playerId);
                 $response->setContent(json_encode([
-                    'code' => $existing['code'],
+                    'player_id' => $existing['id'] ?? $playerId,
+                    'code' => $existing['code'] ?? null,
                     'stats' => $stats,
                 ]));
                 $response->send();
@@ -171,28 +181,50 @@ class GameController
             }
         }
 
-        $code = PlayerStatsRepository::generateCode();
-        if (!empty($nickname) && !empty($fp)) {
-            PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
+        // 2. 通过恢复码查找
+        if (!empty($recoveryCode)) {
+            $existing = PlayerStatsRepository::findByCode($recoveryCode);
+            if ($existing) {
+                $stats = PlayerStatsRepository::getPlayerStats($existing['id']);
+                $response->setContent(json_encode([
+                    'player_id' => $existing['id'],
+                    'code' => $existing['code'] ?? null,
+                    'stats' => $stats,
+                ]));
+                $response->send();
+                return;
+            }
         }
-        $stats = PlayerStatsRepository::getPlayerStats($code);
-        $response->setContent(json_encode([
-            'code' => $code,
-            'stats' => $stats,
-        ]));
+
+        // 3. 通过 IP + 指纹查找
+        if (!empty($fp)) {
+            $existing = PlayerStatsRepository::findByIpFingerprint($ip, $fp);
+            if ($existing) {
+                $stats = PlayerStatsRepository::getPlayerStats($existing['id']);
+                $response->setContent(json_encode([
+                    'player_id' => $existing['id'],
+                    'code' => $existing['code'] ?? null,
+                    'stats' => $stats,
+                ]));
+                $response->send();
+                return;
+            }
+        }
+
+        $response->setContent(json_encode(['error' => '未找到玩家'], JSON_UNESCAPED_UNICODE));
         $response->send();
     }
 
     /**
-     * 查询战绩（通过恢复码）
+     * 查询战绩（通过恢复码 + 昵称）
      */
     public function playerStats(Request $request, Response $response): void
     {
-        $code = Sanitizer::identifier($request->get('code', ''));
+        $recoveryCode = Sanitizer::identifier($request->get('recovery_code', ''));
         $nickname = Sanitizer::text($request->get('nickname', ''), 16);
         $response->setHeader('Content-Type', 'application/json');
 
-        if (empty($code)) {
+        if (empty($recoveryCode)) {
             $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
@@ -203,21 +235,25 @@ class GameController
             return;
         }
 
-        // 昵称 + 恢复码双重校验
-        $byCode = PlayerStatsRepository::findByCode($code);
-        if (!$byCode) {
-            $response->setContent(json_encode(['error' => '恢复码不存在'], JSON_UNESCAPED_UNICODE));
+        // 恢复码 + 昵称双重校验
+        $player = PlayerStatsRepository::findByCode($recoveryCode);
+        if (!$player) {
+            $response->setContent(json_encode(['error' => '玩家不存在'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
-        if ($byCode['nickname'] !== $nickname) {
+        if ($player['nickname'] !== $nickname) {
             $response->setContent(json_encode(['error' => '昵称与恢复码不匹配'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $stats = PlayerStatsRepository::getPlayerStats($code);
-        $response->setContent(json_encode($stats));
+        $stats = PlayerStatsRepository::getPlayerStats($player['id']);
+        $response->setContent(json_encode([
+            'player_id' => $player['id'],
+            'code' => $player['code'] ?? null,
+            'stats' => $stats,
+        ], JSON_UNESCAPED_UNICODE));
         $response->send();
     }
 
@@ -258,9 +294,9 @@ class GameController
         $body = $request->getJsonBody();
         $response->setHeader('Content-Type', 'application/json');
 
-        $code = Sanitizer::identifier($body['recovery_code'] ?? '');
-        if (empty($code)) {
-            $response->setContent(json_encode(['error' => '恢复码不能为空，请先在首页创建或恢复'], JSON_UNESCAPED_UNICODE));
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
+        if (empty($playerId)) {
+            $response->setContent(json_encode(['error' => '玩家 ID 不能为空，请先在首页创建或恢复'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
@@ -273,7 +309,7 @@ class GameController
         if (!is_array($stats)) $stats = [];
 
         try {
-            PlayerStatsRepository::syncUserData($code, $nickname, $ip, $fp, $stats);
+            PlayerStatsRepository::syncUserData($playerId, $nickname, $ip, $fp, $stats);
             $response->setContent(json_encode(['success' => true, 'message' => '数据上传成功'], JSON_UNESCAPED_UNICODE));
         } catch (\Throwable $e) {
             $response->setContent(json_encode(['error' => '上传失败: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE));
@@ -282,22 +318,22 @@ class GameController
     }
 
     /**
-     * GET /api/chat-history?code=xxx&page=1
+     * GET /api/chat-history?player_id=xxx&page=1
      * 获取玩家保存的聊天记录列表
      */
     public function chatHistoryList(Request $request, Response $response): void
     {
-        $code = Sanitizer::identifier($request->get('code', ''));
+        $playerId = Sanitizer::identifier($request->get('player_id', ''));
         $response->setHeader('Content-Type', 'application/json');
 
-        if (empty($code)) {
-            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
+        if (empty($playerId)) {
+            $response->setContent(json_encode(['error' => '玩家 ID 不能为空'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
         $page = max(1, (int)($request->get('page', '1')));
-        $data = ChatHistoryRepository::getList($code, $page);
+        $data = ChatHistoryRepository::getList($playerId, $page);
 
         // 转换时间格式
         foreach ($data['list'] as &$item) {
@@ -310,22 +346,22 @@ class GameController
     }
 
     /**
-     * GET /api/chat-history/detail?id=xxx&code=xxx
+     * GET /api/chat-history/detail?id=xxx&player_id=xxx
      * 获取单条聊天记录详情
      */
     public function chatHistoryDetail(Request $request, Response $response): void
     {
         $id = (int)($request->get('id', '0'));
-        $code = Sanitizer::identifier($request->get('code', ''));
+        $playerId = Sanitizer::identifier($request->get('player_id', ''));
         $response->setHeader('Content-Type', 'application/json');
 
-        if ($id <= 0 || empty($code)) {
+        if ($id <= 0 || empty($playerId)) {
             $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $detail = ChatHistoryRepository::getDetail($id, $code);
+        $detail = ChatHistoryRepository::getDetail($id, $playerId);
         if (!$detail) {
             $response->setContent(json_encode(['error' => '未找到该记录'], JSON_UNESCAPED_UNICODE));
             $response->send();
@@ -363,28 +399,29 @@ class GameController
     }
 
     /**
-     * GET /api/player-messages?code=xxx
+     * GET /api/player-messages?player_id=xxx
      * 获取自己的留言列表（含隐藏状态，用于管理）
      */
     public function getMyMessages(Request $request, Response $response): void
     {
-        $code = Sanitizer::identifier($request->get('code') ?? '');
+        $playerId = Sanitizer::identifier($request->get('player_id') ?? '');
         $response->setHeader('Content-Type', 'application/json');
 
-        if (empty($code)) {
-            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
+        if (empty($playerId)) {
+            $response->setContent(json_encode(['error' => '玩家 ID 不能为空'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $player = PlayerStatsRepository::findByCode($code);
+        $player = PlayerStatsRepository::findById($playerId);
         if (!$player) {
             $response->setContent(json_encode(['error' => '玩家不存在'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $msgData = PlayerStatsRepository::getMessageDataForOwner($code);
+        $msgData = PlayerStatsRepository::getMessageDataForOwner($playerId);
+        $msgData['code'] = $player['code'] ?? null;
         $response->setContent(json_encode($msgData, JSON_UNESCAPED_UNICODE));
         $response->send();
     }
@@ -396,18 +433,18 @@ class GameController
     public function hideMessage(Request $request, Response $response): void
     {
         $body = $request->getJsonBody();
-        $code = Sanitizer::identifier($body['code'] ?? '');
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
         $messageId = Sanitizer::identifier($body['message_id'] ?? '');
         $hidden = !empty($body['hidden']);
         $response->setHeader('Content-Type', 'application/json');
 
-        if (empty($code) || empty($messageId)) {
+        if (empty($playerId) || empty($messageId)) {
             $response->setContent(json_encode(['error' => '参数不完整'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $result = PlayerStatsRepository::hideMessage($code, $messageId, $hidden);
+        $result = PlayerStatsRepository::hideMessage($playerId, $messageId, $hidden);
         $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
         $response->send();
     }
@@ -419,17 +456,17 @@ class GameController
     public function updateMessageSettings(Request $request, Response $response): void
     {
         $body = $request->getJsonBody();
-        $code = Sanitizer::identifier($body['code'] ?? '');
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
         $allow = ($body['allow_messages'] ?? true) ? true : false;
         $response->setHeader('Content-Type', 'application/json');
 
-        if (empty($code)) {
-            $response->setContent(json_encode(['error' => '恢复码不能为空'], JSON_UNESCAPED_UNICODE));
+        if (empty($playerId)) {
+            $response->setContent(json_encode(['error' => '玩家 ID 不能为空'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        PlayerStatsRepository::updateMessageSettings($code, $allow);
+        PlayerStatsRepository::updateMessageSettings($playerId, $allow);
         $response->setContent(json_encode(['success' => true, 'message' => '设置已更新'], JSON_UNESCAPED_UNICODE));
         $response->send();
     }
@@ -444,18 +481,18 @@ class GameController
     {
         $body = $request->getJsonBody();
         $id = (int)($body['id'] ?? 0);
-        $code = Sanitizer::identifier($body['code'] ?? '');
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
         $title = isset($body['title']) ? Sanitizer::text($body['title'], 100) : null;
         $isPublic = isset($body['is_public']) ? (bool)$body['is_public'] : null;
         $response->setHeader('Content-Type', 'application/json');
 
-        if ($id <= 0 || empty($code)) {
+        if ($id <= 0 || empty($playerId)) {
             $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $result = ChatHistoryRepository::setCollection($id, $code, $title, $isPublic);
+        $result = ChatHistoryRepository::setCollection($id, $playerId, $title, $isPublic);
         $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
         $response->send();
     }
@@ -483,7 +520,7 @@ class GameController
             return;
         }
 
-        $data = ChatHistoryRepository::getPlayerCollections($player['code'], $page);
+        $data = ChatHistoryRepository::getPlayerCollections($player['id'], $page);
         $response->setContent(json_encode($data, JSON_UNESCAPED_UNICODE));
         $response->send();
     }
@@ -522,16 +559,16 @@ class GameController
     {
         $body = $request->getJsonBody();
         $id = (int)($body['id'] ?? 0);
-        $code = Sanitizer::identifier($body['code'] ?? '');
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
         $response->setHeader('Content-Type', 'application/json');
 
-        if ($id <= 0 || empty($code)) {
+        if ($id <= 0 || empty($playerId)) {
             $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
 
-        $result = ChatHistoryRepository::likeCollection($id, $code);
+        $result = ChatHistoryRepository::likeCollection($id, $playerId);
         $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
         $response->send();
     }
@@ -540,6 +577,104 @@ class GameController
      * GET /collection/{token}
      * 公开收藏查看页（无需登录）
      */
+    // ==================== 表情包管理 ====================
+
+    /**
+     * GET /api/sticker/list?player_id=xxx
+     * 获取用户表情列表（默认表情 + 用户自定义）
+     */
+    public function listStickers(Request $request, Response $response): void
+    {
+        $playerId = Sanitizer::identifier($request->get('player_id', ''));
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($playerId)) {
+            $response->setContent(json_encode(['error' => '玩家 ID 不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $stickers = StickerService::listForUser($playerId);
+        $response->setContent(json_encode(['stickers' => $stickers], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/sticker/upload
+     * Body: { player_id, image_data (base64), file_ext }
+     */
+    public function uploadSticker(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
+        $imageData = $body['image_data'] ?? '';
+        $fileExt = Sanitizer::identifier($body['file_ext'] ?? 'png');
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($playerId)) {
+            $response->setContent(json_encode(['error' => '玩家 ID 不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if (empty($imageData)) {
+            $response->setContent(json_encode(['error' => '图片数据不能为空'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 图片大小限制：base64 解码前约 2MB
+        if (strlen($imageData) > 3 * 1024 * 1024) {
+            $response->setContent(json_encode(['error' => '图片大小不能超过 2MB'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 用户自定义表情上限 50 个
+        $userStickers = \App\Services\Repository\StickerRepository::getUserStickers($playerId);
+        if (count($userStickers) >= 50) {
+            $response->setContent(json_encode(['error' => '自定义表情已达上限（50个），请先删除旧表情'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 从 base64 中提取纯数据（去除 data:xxx;base64, 前缀）
+        if (preg_match('#^data:image/[^;]+;base64,#i', $imageData)) {
+            $imageData = preg_replace('#^data:image/[^;]+;base64,#i', '', $imageData);
+        }
+
+        try {
+            $sticker = StickerService::uploadForUser($playerId, '', $imageData, $fileExt);
+            $response->setContent(json_encode(['success' => true, 'sticker' => $sticker], JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) {
+            $response->setContent(json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE));
+        }
+        $response->send();
+    }
+
+    /**
+     * POST /api/sticker/delete
+     * Body: { player_id, sticker_id }
+     */
+    public function deleteSticker(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $playerId = Sanitizer::identifier($body['player_id'] ?? '');
+        $stickerId = Sanitizer::identifier($body['sticker_id'] ?? '');
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($playerId) || empty($stickerId)) {
+            $response->setContent(json_encode(['error' => '参数不完整'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        StickerService::deleteForUser($playerId, $stickerId);
+        $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    // ==================== 公开收藏 ====================
+
     public function viewPublicCollection(Request $request, Response $response): void
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');

@@ -39,9 +39,10 @@ class BanHandler
 
         $targetIp = $playerInfo['ip'];
         $targetFingerprint = $playerInfo['fingerprint'];
+        $targetPlayerId = $playerInfo['player_id'] ?? '';
         $reason = Sanitizer::text($data['reason'] ?? '', 200);
 
-        BanRepository::ban($targetIp, $targetFingerprint, $reason);
+        BanRepository::ban($targetIp, $targetFingerprint, $reason, $targetPlayerId);
 
         $banSession = $this->game->getGameService()->getSessionByPlayerFd($playerFd);
         $opponentFd = 0;
@@ -107,14 +108,16 @@ class BanHandler
     {
         $ip = Sanitizer::identifier($data['ip'] ?? '');
         $fingerprint = Sanitizer::identifier($data['fingerprint'] ?? '');
+        $playerId = Sanitizer::identifier($data['player_id'] ?? '');
         $reason = Sanitizer::text($data['reason'] ?? '', 200);
+        $banLabel = $data['label'] ?? '';
 
-        if (empty($ip) && empty($fingerprint)) {
-            $this->game->sendError($server, $fd, 'IP 和指纹不能同时为空');
+        if (empty($ip) && empty($fingerprint) && empty($playerId)) {
+            $this->game->sendError($server, $fd, 'IP / 指纹 / 玩家ID 不能同时为空');
             return;
         }
 
-        BanRepository::ban($ip, $fingerprint, $reason);
+        BanRepository::ban($ip, $fingerprint, $reason, $playerId);
 
         $banText = '你已被管理员封禁';
         if ($reason) $banText .= '，原因：' . $reason;

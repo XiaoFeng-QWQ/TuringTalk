@@ -206,17 +206,12 @@
     <div id="whoisai-sticker-picker" class="sticker-picker" style="display:none;">
         <div class="sticker-picker-header">
             <span>选择表情</span>
-            <button class="doodle-btn"
-                onclick="if(confirm('投稿表情时需要选择\'表情包投稿\'板块\n并附带表情包图片然后@logarh\n随后便等待审核\n审核通过并上传后会在评论区进行提醒\n为了防止表情包太多导致比较早期投稿表情包的用户找不到自己的表情包\n只有多人点赞或被多次重复投稿的表情包才会被上传\n\n《投稿内容规范》\n1.禁止带有辱骂、人身攻击、骚扰或发表任何侮辱性内容\n2. \n· 禁止带有广告、垃圾信息、大量色情、暴力、恐怖及其他违法违规内容。\n· 不涉政、不键政，禁止传播反动言论、极端思想及邪教内容。\n· 未经他人允许，不得公开带有他人隐私信息的内容。确认之后跳转到QQ频道加入地址')){window.open('https://pd.qq.com/s/exuuxhyi9')}"
-                style="padding:2px 8px;font-size:12px;">投稿</button>
-            <button class="doodle-btn" id="whoisai-btn-manage-sticker"
-                style="padding:2px 8px;font-size:12px;">管理</button>
             <button class="doodle-btn" id="whoisai-btn-close-sticker-picker"
                 style="padding:2px 8px;font-size:14px;">&times;</button>
         </div>
         <div class="sticker-picker-tabs">
-            <span class="sticker-picker-tab active" data-tab="all">全部</span>
-            <span class="sticker-picker-tab" data-tab="favs">收藏</span>
+            <span class="sticker-picker-tab active" data-tab="mine">我的表情</span>
+            <span class="sticker-picker-tab" data-tab="default">默认表情</span>
         </div>
         <div class="sticker-picker-body" id="whoisai-sticker-picker-body">
             <div style="text-align:center;color:#999;padding:20px;font-size:13px;">暂无可用表情</div>

@@ -186,6 +186,10 @@ class AdminWebSocketHandler
                 $this->withOp($server, $fd, "正在审核举报", fn() =>
                 $this->reportHandler->handleMarkReviewed($server, $fd, $data));
                 break;
+            case 'admin_sticker_upload':
+                $this->withOp($server, $fd, "正在上传表情", fn() =>
+                $this->stickerHandler->handleUpload($server, $fd, $data));
+                break;
             case 'admin_sticker_add':
                 $this->withOp($server, $fd, "正在添加表情", fn() =>
                 $this->stickerHandler->handleAdd($server, $fd, $data));
@@ -197,8 +201,16 @@ class AdminWebSocketHandler
             case 'admin_sticker_list':
                 $this->stickerHandler->handleList($server, $fd);
                 break;
-            case 'admin_get_upload_config':
-                $this->manageHandler->handleGetUploadConfig($server, $fd);
+            case 'admin_sticker_review_list':
+                $this->stickerHandler->handleReviewList($server, $fd, $data);
+                break;
+            case 'admin_sticker_approve':
+                $this->withOp($server, $fd, "正在审核表情", fn() =>
+                $this->stickerHandler->handleApprove($server, $fd, $data));
+                break;
+            case 'admin_sticker_reject':
+                $this->withOp($server, $fd, "正在审核表情", fn() =>
+                $this->stickerHandler->handleReject($server, $fd, $data));
                 break;
             case 'admin_list':
                 $this->manageHandler->handleList($server, $fd);

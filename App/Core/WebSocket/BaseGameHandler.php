@@ -21,7 +21,7 @@ use Swoole\Timer;
  *   - IP 提取 / 连接去重 / 封禁检查 / 全服公告
  *   - 统一推送 (sendToPlayer / sendError)
  *   - 旁观管理 (add / remove / find / send)
- *   - 恢复码生成 (getOrCreatePlayerCode)
+ *   - 玩家 ID 生成 (getOrCreatePlayerId)
  *   - 心跳检测 (子类按需调用 startHeartbeat)
  *   - online_count 广播跳过 (子类实现 isPlayerInGame)
  */
@@ -395,49 +395,55 @@ abstract class BaseGameHandler
     // ==================== 玩家身份验证 ====================
 
     /**
-     * 统一玩家身份验证（昵称 + 恢复码）。
+     * 统一玩家身份验证（昵称 + 玩家 ID + 恢复码）。
      * 所有游戏模式共用，确保跨模式昵称唯一性和设备绑定。
      *
      * 逻辑：
-     *   1. 有恢复码 → 按码查找，返回已绑定的昵称（码无效返回失败）
-     *   2. 无恢复码 → 查昵称唯一性，若同昵称存在：
-     *      a. 同设备（IP+FP匹配）→ 允许，返回已有恢复码
+     *   1. 有恢复码（无玩家 ID）→ 恢复码找回身份，返回对应 player_id
+     *   2. 有玩家 ID → 按 ID 查找，返回已绑定的昵称（ID 无效返回失败）
+     *   3. 无玩家 ID 无恢复码 → 查昵称唯一性，若同昵称存在：
+     *      a. 同设备（IP+FP匹配）→ 允许，返回已有玩家 ID
      *      b. 不同设备 → 拒绝
      *
      * @param int    $fd           客户端 fd
      * @param string $nickname     玩家输入昵称
-     * @param string $recoveryCode 可选恢复码（空字符串表示无）
-     * @return array{success: bool, error: ?string, nickname: string, recovery_code: ?string}
+     * @param string $playerId     可选玩家 ID（player_data.id，空字符串表示无）
+     * @param string $recoveryCode 可选恢复码（用于找回身份，空字符串表示无）
+     * @return array{success: bool, error: ?string, nickname: string, player_id: ?string}
      */
-    protected function validatePlayerIdentity(int $fd, string $nickname, string $recoveryCode): array
+    protected function validatePlayerIdentity(int $fd, string $nickname, string $playerId, string $recoveryCode = ''): array
     {
         $row = $this->clientInfo[(string)$fd] ?? [];
         $fp = Sanitizer::identifier($row['fingerprint'] ?? '');
         $ip = $row['ip'] ?? '';
 
-        if (!empty($recoveryCode)) {
-            // 通过恢复码查找玩家
+        // 恢复码找回身份
+        if (!empty($recoveryCode) && empty($playerId)) {
             $existing = PlayerStatsRepository::findByCode($recoveryCode);
             if (!$existing) {
-                return ['success' => false, 'error' => '恢复码无效', 'nickname' => $nickname, 'recovery_code' => null, 'player_id' => null];
+                return ['success' => false, 'error' => '恢复码无效', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
             }
-            // 使用数据库中已有的昵称
-            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'recovery_code' => $recoveryCode, 'player_id' => $existing['id']];
+            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'recovery_code' => $recoveryCode];
         }
 
-        // 无恢复码，检查昵称唯一性
+        if (!empty($playerId)) {
+            $existing = PlayerStatsRepository::findById($playerId);
+            if (!$existing) {
+                return ['success' => false, 'error' => '玩家 ID 无效', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
+            }
+            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'recovery_code' => null];
+        }
+
+        // 无玩家 ID 无恢复码，检查昵称唯一性
         $existing = PlayerStatsRepository::findByNickname($nickname);
         if ($existing) {
-            // 检查是否是同一设备（IP + 指纹匹配）
             if ($existing['fp'] !== $fp || $existing['ip'] !== $ip) {
-                return ['success' => false, 'error' => '该昵称已被占用，请换一个', 'nickname' => $nickname, 'recovery_code' => null, 'player_id' => null];
+                return ['success' => false, 'error' => '该昵称已被占用，请换一个', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
             }
-            // 同一设备 → 允许，返回已有恢复码
-            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => $existing['code'], 'player_id' => $existing['id']];
+            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => $existing['id'], 'recovery_code' => null];
         }
 
-        // 全新玩家
-        return ['success' => true, 'error' => null, 'nickname' => $nickname, 'recovery_code' => null, 'player_id' => null];
+        return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
     }
 
     // ==================== 表情 ====================
@@ -448,7 +454,8 @@ abstract class BaseGameHandler
     protected function handleGetStickers(Server $server, int $fd, array $data): void
     {
         $sinceVersion = (int)($data['version'] ?? 0);
-        $diff = \App\Services\Repository\StickerRepository::getDiff($sinceVersion);
+        $userId = $data['player_id'] ?? '';
+        $diff = \App\Services\Repository\StickerRepository::getDiff($sinceVersion, $userId);
 
         if (!empty($diff['unchanged'])) {
             $this->sendToPlayer($server, $fd, ['type' => 'stickers_unchanged']);
@@ -458,9 +465,11 @@ abstract class BaseGameHandler
         $result = [];
         foreach ($diff['stickers'] as $s) {
             $result[] = [
-                'id'   => $s['id'],
-                'name' => $s['name'] ?? '',
-                'url'  => $s['url'] ?? '',
+                'id'     => $s['id'],
+                'name'   => $s['name'] ?? '',
+                'url'    => $s['url'] ?? '',
+                'source' => $s['source'] ?? 'default',
+                'status' => $s['status'] ?? 'approved',
             ];
         }
         $this->sendToPlayer($server, $fd, [
@@ -470,12 +479,26 @@ abstract class BaseGameHandler
         ]);
     }
 
-    // ==================== 恢复码 ====================
     /**
-     * 获取或创建玩家的恢复码（与昵称绑定）。
+     * 校验表情 ID 并从数据库查询表情数据。
+     * 三个模式通用的 sticker 校验 + 查库逻辑。
+     *
+     * @return array|null sticker 数据 ['id','name','url'] 或 null（无效/不存在）
+     */
+    protected function resolveSticker(array $data, string $playerId): ?array
+    {
+        $stickerId = Sanitizer::identifier($data['id'] ?? '');
+        if (empty($stickerId)) return null;
+
+        return \App\Services\Repository\StickerRepository::getById($stickerId, $playerId) ?: null;
+    }
+
+    // ==================== 玩家 ID ====================
+    /**
+     * 获取或创建玩家的 ID（与昵称绑定）。
      * 首次对局结束后自动生成，后续对局直接复用。
      */
-    public function getOrCreatePlayerCode(int $fd, string $nickname): ?string
+    public function getOrCreatePlayerId(int $fd, string $nickname): ?string
     {
         if (empty($nickname)) return null;
 
@@ -485,14 +508,15 @@ abstract class BaseGameHandler
 
         $existing = PlayerStatsRepository::findByNickname($nickname);
         if ($existing) {
-            GameService::setPlayerCode($fd, $existing['code']);
-            return $existing['code'];
+            $playerId = $existing['id'];
+            GameService::setPlayerId($fd, $playerId);
+            return $playerId;
         }
 
-        $code = PlayerStatsRepository::generateCode();
-        PlayerStatsRepository::createPlayer($code, $nickname, $ip, $fp);
-        GameService::setPlayerCode($fd, $code);
-        Logger::info(static::class . ' recovery code created', ['fd' => $fd, 'code' => $code, 'nickname' => $nickname]);
-        return $code;
+        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp);
+        $playerId = $result['id'];
+        GameService::setPlayerId($fd, $playerId);
+        Logger::info(static::class . ' player ID created', ['fd' => $fd, 'player_id' => $playerId, 'code' => $result['code'], 'nickname' => $nickname]);
+        return $playerId;
     }
 }

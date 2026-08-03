@@ -13,7 +13,7 @@ use PDO;
  * - turing_test   TEXT  图灵测试战绩（PHP 序列化数组）
  * - WhoisAI    TEXT  人类 vs AI 战绩（PHP 序列化数组）
  *
- * 玩家身份由 12 位恢复码（4 组 3 位单词，如 cat-dog-sun-sky）标识。
+ * 玩家身份由 player_data.id 标识。
  */
 class PlayerStatsRepository
 {
@@ -221,11 +221,11 @@ class PlayerStatsRepository
 
         // 对手标签累计表
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_tags (
-            code VARCHAR(32) NOT NULL,
+            player_id VARCHAR(64) NOT NULL,
             tag VARCHAR(50) NOT NULL,
             count INT NOT NULL DEFAULT 1,
-            PRIMARY KEY (code, tag),
-            INDEX idx_player_tags_code (code)
+            PRIMARY KEY (player_id, tag),
+            INDEX idx_player_tags_id (player_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
     }
 
@@ -261,53 +261,49 @@ class PlayerStatsRepository
         };
     }
 
-    private static function getGameStats(string $code, string $gameMode): array
+    private static function getGameStats(string $playerId, string $gameMode): array
     {
         $col = $gameMode === 'WhoisAI' ? 'WhoisAI' : 'turing_test';
         $pdo = Database::connect();
-        $stmt = $pdo->prepare("SELECT {$col} FROM player_data WHERE code = ? LIMIT 1");
-        $stmt->execute([$code]);
+        $stmt = $pdo->prepare("SELECT {$col} FROM player_data WHERE id = ? LIMIT 1");
+        $stmt->execute([$playerId]);
         $raw = $stmt->fetchColumn();
         if (empty($raw)) return self::getEmptyStats($gameMode);
         try {
             $data = @unserialize($raw);
             return is_array($data) ? $data : self::getEmptyStats($gameMode);
         } catch (\Throwable $e) {
-            Logger::warning('PlayerStatsRepository: unserialize game stats failed', ['code' => $code, 'gameMode' => $gameMode, 'error' => $e->getMessage()]);
+            Logger::warning('PlayerStatsRepository: unserialize game stats failed', ['player_id' => $playerId, 'gameMode' => $gameMode, 'error' => $e->getMessage()]);
             return self::getEmptyStats($gameMode);
         }
     }
 
-    private static function saveGameStats(string $code, string $gameMode, array $stats): void
+    private static function saveGameStats(string $playerId, string $gameMode, array $stats): void
     {
         $col = $gameMode === 'WhoisAI' ? 'WhoisAI' : 'turing_test';
         $pdo = Database::connect();
-        $stmt = $pdo->prepare("UPDATE player_data SET {$col} = ? WHERE code = ?");
-        $stmt->execute([serialize($stats), $code]);
+        $stmt = $pdo->prepare("UPDATE player_data SET {$col} = ? WHERE id = ?");
+        $stmt->execute([serialize($stats), $playerId]);
     }
 
     // ================================================================
-    //  恢复码
+    //  玩家查找
     // ================================================================
 
     /**
-     * 生成恢复码（纯随机，4 组 3 字母单词，如 cat-dog-sun-sky）
-     * 词库 1000+ 单词，1000^4 ≈ 1万亿 组合，碰撞概率可忽略。
-     * 即使生成 1亿 个码，碰撞概率也仅为 1/10000
-     * UNIQUE 索引兜底。
+     * 通过 ID 查找玩家
      */
-    public static function generateCode(): string
+    public static function findById(string $id): ?array
     {
-        $poolSize = count(self::WORD_POOL);
-        $parts = [];
-        for ($j = 0; $j < 4; $j++) {
-            $parts[] = self::WORD_POOL[random_int(0, $poolSize - 1)];
-        }
-        return implode('-', $parts);
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT * FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
+        return $row ?: null;
     }
 
     /**
-     * 通过恢复码查找玩家
+     * 通过恢复码查找玩家（仅用于找回身份）
      */
     public static function findByCode(string $code): ?array
     {
@@ -316,6 +312,16 @@ class PlayerStatsRepository
         $stmt->execute([$code]);
         $row = $stmt->fetch();
         return $row ?: null;
+    }
+
+    /**
+     * 生成 12 位恢复码（cat-dog-sun-sky 格式）
+     */
+    public static function generateCode(): string
+    {
+        $pool = self::WORD_POOL;
+        $keys = array_rand($pool, 4);
+        return $pool[$keys[0]] . '-' . $pool[$keys[1]] . '-' . $pool[$keys[2]] . '-' . $pool[$keys[3]];
     }
 
     /**
@@ -337,47 +343,29 @@ class PlayerStatsRepository
      * 同步客户端 UserData 到服务端（设置页上传按钮触发）
      * 将本地 localStorage 的 camelCase 战绩映射到服务端 snake_case 格式
      */
-    public static function syncUserData(string $code, string $nickname, string $ip, string $fp, array $localStats): bool
+    public static function syncUserData(string $playerId, string $nickname, string $ip, string $fp, array $localStats): bool
     {
-        $player = self::findByCode($code);
+        $player = self::findById($playerId);
 
         if (!$player) {
-            // 新玩家：创建记录并写入战绩
-            $id = bin2hex(random_bytes(16));
-            $discriminator = random_int(1000, 9999);
-            $now = time();
-
-            $serverStats = self::mapLocalStatsToServer($localStats);
-
-            $pdo = Database::connect();
-            $stmt = $pdo->prepare(
-                'INSERT INTO player_data (id, code, nickname, discriminator, ip, fp, turing_test, sticker_favorites, created_at, last_played_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-            );
-            $stmt->execute([
-                $id, $code, $nickname, $discriminator, $ip, $fp,
-                serialize($serverStats),
-                json_encode($localStats['stickerFavorites'] ?? [], JSON_UNESCAPED_UNICODE),
-                $now, $now,
-            ]);
-
-            Logger::info('UserData synced (new player)', ['code' => $code]);
-        } else {
-            // 已有玩家：更新昵称/IP/指纹，合并战绩（取最大值）
-            self::updateNickname($code, $nickname, $ip, $fp);
-
-            $existing = self::getGameStats($code, 'turing_test');
-            $incoming = self::mapLocalStatsToServer($localStats);
-            $merged = self::mergeStats($existing, $incoming);
-
-            self::saveGameStats($code, 'turing_test', $merged);
-
-            $pdo = Database::connect();
-            $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ?, sticker_favorites = ? WHERE code = ?');
-            $stmt->execute([time(), json_encode($localStats['stickerFavorites'] ?? [], JSON_UNESCAPED_UNICODE), $code]);
-
-            Logger::info('UserData synced (existing player)', ['code' => $code]);
+            Logger::warning('UserData sync: player not found', ['player_id' => $playerId]);
+            return false;
         }
+
+        // 已有玩家：更新昵称/IP/指纹，合并战绩（取最大值）
+        self::updateNickname($playerId, $nickname, $ip, $fp);
+
+        $existing = self::getGameStats($playerId, 'turing_test');
+        $incoming = self::mapLocalStatsToServer($localStats);
+        $merged = self::mergeStats($existing, $incoming);
+
+        self::saveGameStats($playerId, 'turing_test', $merged);
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ?, sticker_favorites = ? WHERE id = ?');
+        $stmt->execute([time(), json_encode($localStats['stickerFavorites'] ?? [], JSON_UNESCAPED_UNICODE), $playerId]);
+
+        Logger::info('UserData synced', ['player_id' => $playerId]);
 
         return true;
     }
@@ -436,11 +424,12 @@ class PlayerStatsRepository
     // ================================================================
 
     /**
-     * 创建新玩家（首次上榜）
+     * 创建新玩家，同时生成恢复码
      */
-    public static function createPlayer(string $code, string $nickname, string $ip, string $fp): string
+    public static function createPlayer(string $nickname, string $ip, string $fp): array
     {
         $id = bin2hex(random_bytes(16));
+        $code = self::generateCode();
         $discriminator = random_int(1000, 9999);
         $now = time();
 
@@ -459,19 +448,19 @@ class PlayerStatsRepository
             'id' => $id, 'code' => $code, 'nickname' => $nickname,
         ]);
 
-        return $id;
+        return ['id' => $id, 'code' => $code];
     }
 
     /**
      * 更新玩家昵称（每次游戏时更新）
      */
-    public static function updateNickname(string $code, string $nickname, string $ip, string $fp): void
+    public static function updateNickname(string $playerId, string $nickname, string $ip, string $fp): void
     {
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'UPDATE player_data SET nickname = ?, ip = ?, fp = ? WHERE code = ?'
+            'UPDATE player_data SET nickname = ?, ip = ?, fp = ? WHERE id = ?'
         );
-        $stmt->execute([$nickname, $ip, $fp, $code]);
+        $stmt->execute([$nickname, $ip, $fp, $playerId]);
     }
 
     // ================================================================
@@ -483,17 +472,17 @@ class PlayerStatsRepository
      */
     public static function recordGame(array $params): void
     {
-        $code = $params['code'];
-        $player = self::findByCode($code);
+        $playerId = $params['player_id'];
+        $player = self::findById($playerId);
 
         if (!$player) {
-            Logger::warning('recordGame: code not found', ['code' => $code]);
+            Logger::warning('recordGame: player not found', ['player_id' => $playerId]);
             return;
         }
 
-        self::updateNickname($code, $params['nickname'], $params['ip'], $params['fp']);
+        self::updateNickname($playerId, $params['nickname'], $params['ip'], $params['fp']);
 
-        $stats = self::getGameStats($code, 'turing_test');
+        $stats = self::getGameStats($playerId, 'turing_test');
 
         // 兼容旧数据，补齐新增字段默认值
         $stats += [
@@ -585,14 +574,14 @@ class PlayerStatsRepository
             $stats['best_win_streak'] = max((int)($stats['best_win_streak'] ?? 0), $stats['current_streak']);
         }
 
-        self::saveGameStats($code, 'turing_test', $stats);
+        self::saveGameStats($playerId, 'turing_test', $stats);
 
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE code = ?');
-        $stmt->execute([time(), $code]);
+        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE id = ?');
+        $stmt->execute([time(), $playerId]);
 
         Logger::debug('Game recorded', [
-            'code' => $code, 'guess' => $userGuess,
+            'player_id' => $playerId, 'guess' => $userGuess,
             'truth' => $opponentTruth, 'timeout' => $timeoutReason,
         ]);
     }
@@ -600,12 +589,12 @@ class PlayerStatsRepository
     /**
      * 记录一局谁是AI结果
      */
-    public static function recordWhoisAIGame(string $code, bool $win, int $activeHour = 0): void
+    public static function recordWhoisAIGame(string $playerId, bool $win, int $activeHour = 0): void
     {
-        $player = self::findByCode($code);
+        $player = self::findById($playerId);
         if (!$player) return;
 
-        $stats = self::getGameStats($code, 'WhoisAI');
+        $stats = self::getGameStats($playerId, 'WhoisAI');
         $stats['total_games']++;
         if ($win) $stats['wins']++;
         else $stats['losses']++;
@@ -615,11 +604,11 @@ class PlayerStatsRepository
             $stats['active_hours'][$h] = ($stats['active_hours'][$h] ?? 0) + 1;
         }
 
-        self::saveGameStats($code, 'WhoisAI', $stats);
+        self::saveGameStats($playerId, 'WhoisAI', $stats);
 
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE code = ?');
-        $stmt->execute([time(), $code]);
+        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE id = ?');
+        $stmt->execute([time(), $playerId]);
     }
 
     /**
@@ -634,29 +623,29 @@ class PlayerStatsRepository
      * 记录对手标签（由 AsyncDbWriter 异步调用）
      * 使用 INSERT ... ON DUPLICATE KEY UPDATE 原子累加
      */
-    public static function recordTag(string $code, string $tag): void
+    public static function recordTag(string $playerId, string $tag): void
     {
-        if (empty($code) || empty($tag)) return;
+        if (empty($playerId) || empty($tag)) return;
         $tag = mb_substr($tag, 0, 50);
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'INSERT INTO player_tags (code, tag, count) VALUES (?, ?, 1)
+            'INSERT INTO player_tags (player_id, tag, count) VALUES (?, ?, 1)
              ON DUPLICATE KEY UPDATE count = count + 1'
         );
-        $stmt->execute([$code, $tag]);
+        $stmt->execute([$playerId, $tag]);
     }
 
     /**
      * 获取玩家标签统计（按出现次数降序）
      * @return array<int, array{tag: string, count: int}>
      */
-    public static function getPlayerTags(string $code): array
+    public static function getPlayerTags(string $playerId): array
     {
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'SELECT tag, count FROM player_tags WHERE code = ? ORDER BY count DESC LIMIT 20'
+            'SELECT tag, count FROM player_tags WHERE player_id = ? ORDER BY count DESC LIMIT 20'
         );
-        $stmt->execute([$code]);
+        $stmt->execute([$playerId]);
         return $stmt->fetchAll();
     }
 
@@ -667,18 +656,18 @@ class PlayerStatsRepository
     /**
      * 获取单个玩家的完整统计（前端恢复显示用，不暴露 id/ip/fp）
      */
-    public static function getPlayerStats(string $code): ?array
+    public static function getPlayerStats(string $playerId): ?array
     {
-        $player = self::findByCode($code);
+        $player = self::findById($playerId);
         if (!$player) return null;
 
-        $turingStats = self::getGameStats($code, 'turing_test');
-        $WhoisAIStats = self::getGameStats($code, 'WhoisAI');
+        $turingStats = self::getGameStats($playerId, 'turing_test');
+        $WhoisAIStats = self::getGameStats($playerId, 'WhoisAI');
         $allGames = $turingStats['total_games'] + $WhoisAIStats['total_games'];
         $allWins  = $turingStats['wins'] + $WhoisAIStats['wins'];
 
         $result = [
-            'code'          => $player['code'],
+            'id'            => $player['id'],
             'nickname'      => $player['nickname'],
             'discriminator' => (int)$player['discriminator'],
             'created_at'    => (int)$player['created_at'],
@@ -703,9 +692,9 @@ class PlayerStatsRepository
         $player = self::findByNickname($nickname);
         if (!$player) return null;
 
-        $code = $player['code'];
-        $turing = self::getGameStats($code, 'turing_test');
-        $WhoisAI = self::getGameStats($code, 'WhoisAI');
+        $playerId = $player['id'];
+        $turing = self::getGameStats($playerId, 'turing_test');
+        $WhoisAI = self::getGameStats($playerId, 'WhoisAI');
         $allGames = $turing['total_games'] + $WhoisAI['total_games'];
         $allWins  = $turing['wins'] + $WhoisAI['wins'];
 
@@ -785,12 +774,12 @@ class PlayerStatsRepository
             $profile['peak_hours'] = array_map('intval', array_slice(array_keys($activeHours), 0, 3));
         }
 
-        $tags = self::getPlayerTags($code);
+        $tags = self::getPlayerTags($playerId);
         $profile['tags'] = $tags;
         $profile['title'] = !empty($tags) ? $tags[0]['tag'] : '';
 
         // 留言墙
-        $msgData = self::getMessageData($code);
+        $msgData = self::getMessageData($playerId);
         $profile['messages'] = self::visibleMessages($msgData);
         $profile['allow_messages'] = $msgData['allow_messages'];
 
@@ -806,16 +795,16 @@ class PlayerStatsRepository
     /**
      * 获取玩家留言数据（含隐藏状态，仅用于本人管理）
      */
-    public static function getMessageDataForOwner(string $code): array
+    public static function getMessageDataForOwner(string $playerId): array
     {
-        return self::getMessageData($code);
+        return self::getMessageData($playerId);
     }
 
-    private static function getMessageData(string $code): array
+    private static function getMessageData(string $playerId): array
     {
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('SELECT messages FROM player_data WHERE code = ? LIMIT 1');
-        $stmt->execute([$code]);
+        $stmt = $pdo->prepare('SELECT messages FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
         $raw = $stmt->fetchColumn();
         if (empty($raw)) {
             return ['messages' => [], 'allow_messages' => true];
@@ -828,16 +817,16 @@ class PlayerStatsRepository
                 'allow_messages' => $data['allow_messages'] ?? true,
             ];
         } catch (\Throwable $e) {
-            Logger::warning('PlayerStatsRepository: unserialize message data failed', ['code' => $code, 'error' => $e->getMessage()]);
+            Logger::warning('PlayerStatsRepository: unserialize message data failed', ['player_id' => $playerId, 'error' => $e->getMessage()]);
             return ['messages' => [], 'allow_messages' => true];
         }
     }
 
-    private static function saveMessageData(string $code, array $data): void
+    private static function saveMessageData(string $playerId, array $data): void
     {
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('UPDATE player_data SET messages = ? WHERE code = ?');
-        $stmt->execute([serialize($data), $code]);
+        $stmt = $pdo->prepare('UPDATE player_data SET messages = ? WHERE id = ?');
+        $stmt->execute([serialize($data), $playerId]);
     }
 
     /**
@@ -858,14 +847,14 @@ class PlayerStatsRepository
      * 给玩家留言
      * @return array{success: bool, message: string}
      */
-    public static function leaveMessage(string $targetCode, string $fromNickname, string $text, bool $checkPermission = true): array
+    public static function leaveMessage(string $targetId, string $fromNickname, string $text, bool $checkPermission = true): array
     {
-        $player = self::findByCode($targetCode);
+        $player = self::findById($targetId);
         if (!$player) {
             return ['success' => false, 'message' => '目标玩家不存在'];
         }
 
-        $msgData = self::getMessageData($targetCode);
+        $msgData = self::getMessageData($targetId);
         if ($checkPermission && empty($msgData['allow_messages'])) {
             return ['success' => false, 'message' => '该玩家已关闭留言功能'];
         }
@@ -892,16 +881,16 @@ class PlayerStatsRepository
             'hidden' => false,
         ];
 
-        self::saveMessageData($targetCode, $msgData);
+        self::saveMessageData($targetId, $msgData);
         return ['success' => true, 'message' => '留言已保存'];
     }
 
     /**
      * 隐藏/显示某条留言
      */
-    public static function hideMessage(string $code, string $messageId, bool $hidden): array
+    public static function hideMessage(string $playerId, string $messageId, bool $hidden): array
     {
-        $msgData = self::getMessageData($code);
+        $msgData = self::getMessageData($playerId);
         $found = false;
         foreach ($msgData['messages'] as &$msg) {
             if (($msg['id'] ?? '') === $messageId) {
@@ -914,17 +903,17 @@ class PlayerStatsRepository
             return ['success' => false, 'message' => '留言不存在'];
         }
 
-        self::saveMessageData($code, $msgData);
+        self::saveMessageData($playerId, $msgData);
         return ['success' => true, 'message' => $hidden ? '留言已隐藏' : '留言已显示'];
     }
 
     /**
      * 更新留言设置（是否接收留言）
      */
-    public static function updateMessageSettings(string $code, bool $allow): void
+    public static function updateMessageSettings(string $playerId, bool $allow): void
     {
-        $msgData = self::getMessageData($code);
+        $msgData = self::getMessageData($playerId);
         $msgData['allow_messages'] = $allow;
-        self::saveMessageData($code, $msgData);
+        self::saveMessageData($playerId, $msgData);
     }
 }

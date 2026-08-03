@@ -9,10 +9,10 @@ use App\Services\Game\GameService;
 /**
  * 玩家自行保存的聊天记录存储（MySQL）
  *
- * 通过恢复码关联玩家，玩家在对局结束后可选择保存聊天记录。
+ * 通过 player_id 关联玩家，玩家在对局结束后可选择保存聊天记录。
  * 每条消息最多存 500 字符，单个对局最多存 150 条消息，
  * 总 JSON 超过 200KB 则拒绝保存。
- * 每个恢复码最多保留 50 条记录，超出时自动删除最旧记录。
+ * 每个玩家最多保留 50 条记录，超出时自动删除最旧记录。
  */
 class ChatHistoryRepository
 {
@@ -30,7 +30,7 @@ class ChatHistoryRepository
         $pdo = Database::connect();
         $pdo->exec('CREATE TABLE IF NOT EXISTS saved_chat_history (
             id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            code            VARCHAR(32)   NOT NULL COMMENT "玩家恢复码",
+            player_id       VARCHAR(64)   NOT NULL COMMENT "玩家ID",
             session_id      VARCHAR(64)   NOT NULL DEFAULT "" COMMENT "对局 ID（去重用）",
             messages        MEDIUMTEXT    NOT NULL COMMENT "聊天记录 JSON",
             player_name     VARCHAR(32)   NOT NULL DEFAULT "" COMMENT "玩家昵称",
@@ -44,17 +44,17 @@ class ChatHistoryRepository
             public_token    VARCHAR(64)   NOT NULL DEFAULT "" COMMENT "公开访问令牌",
             likes           INT           NOT NULL DEFAULT 0 COMMENT "点赞数",
             created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_code (code),
+            INDEX idx_player_id (player_id),
             INDEX idx_created (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         COMMENT="玩家保存的聊天记录"');
 
         $pdo->exec('CREATE TABLE IF NOT EXISTS collection_likes (
             collection_id BIGINT UNSIGNED NOT NULL,
-            code          VARCHAR(32)     NOT NULL DEFAULT "",
+            player_id     VARCHAR(64)     NOT NULL DEFAULT "",
             created_at    DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (collection_id, code),
-            INDEX idx_collection (collection_id)
+            PRIMARY KEY (collection_id, player_id),
+            INDEX idx_player_id (player_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         COMMENT="收藏点赞记录"');
     }
@@ -66,20 +66,20 @@ class ChatHistoryRepository
      */
     public static function save(array $params): array
     {
-        $code      = $params['code']      ?? '';
+        $playerId  = $params['player_id'] ?? '';
         $sessionId = $params['session_id'] ?? '';
 
-        if (empty($code)) {
-            return ['success' => false, 'message' => '恢复码不能为空'];
+        if (empty($playerId)) {
+            return ['success' => false, 'message' => '玩家 ID 不能为空'];
         }
         if (empty($sessionId)) {
             return ['success' => false, 'message' => '对局标识不能为空'];
         }
 
-        // 校验恢复码是否存在
-        $player = PlayerStatsRepository::findByCode($code);
+        // 校验玩家 ID 是否存在
+        $player = PlayerStatsRepository::findById($playerId);
         if (!$player) {
-            return ['success' => false, 'message' => '无效的恢复码'];
+            return ['success' => false, 'message' => '无效的玩家 ID'];
         }
 
         // 从服务端内存读取聊天消息
@@ -157,9 +157,9 @@ class ChatHistoryRepository
 
             // 检查是否已有相同 session_id 的记录
             $checkStmt = $pdo->prepare(
-                'SELECT id FROM saved_chat_history WHERE code = ? AND session_id = ? LIMIT 1'
+                'SELECT id FROM saved_chat_history WHERE player_id = ? AND session_id = ? LIMIT 1'
             );
-            $checkStmt->execute([$code, $sessionId]);
+            $checkStmt->execute([$playerId, $sessionId]);
             if ($checkStmt->fetch()) {
                 $pdo->rollBack();
                 return ['success' => false, 'message' => '该对局聊天记录已保存过'];
@@ -167,32 +167,32 @@ class ChatHistoryRepository
 
             // 插入新记录
             $insertStmt = $pdo->prepare(
-                'INSERT INTO saved_chat_history (code, session_id, messages, player_name, opponent_name, player_guess, opponent_truth, result, message_count)
+                'INSERT INTO saved_chat_history (player_id, session_id, messages, player_name, opponent_name, player_guess, opponent_truth, result, message_count)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $insertStmt->execute([
-                $code, $sessionId, $json, $playerName, $opponentName,
+                $playerId, $sessionId, $json, $playerName, $opponentName,
                 $playerGuess, $opponentTruth, $result, $count,
             ]);
             $newId = (int)$pdo->lastInsertId();
 
             // 超出上限则删最旧记录
             $countStmt = $pdo->prepare(
-                'SELECT COUNT(*) FROM saved_chat_history WHERE code = ?'
+                'SELECT COUNT(*) FROM saved_chat_history WHERE player_id = ?'
             );
-            $countStmt->execute([$code]);
+            $countStmt->execute([$playerId]);
             $total = (int)$countStmt->fetchColumn();
             if ($total > self::MAX_RECORDS_PER_PLAYER) {
                 $deleteCount = $total - self::MAX_RECORDS_PER_PLAYER;
                 $pdo->prepare(
-                    'DELETE FROM saved_chat_history WHERE code = ? ORDER BY created_at ASC LIMIT ' . $deleteCount
-                )->execute([$code]);
+                    'DELETE FROM saved_chat_history WHERE player_id = ? ORDER BY created_at ASC LIMIT ' . $deleteCount
+                )->execute([$playerId]);
             }
 
             $pdo->commit();
 
             Logger::debug('Chat history saved', [
-                'code'       => $code,
+                'player_id'  => $playerId,
                 'session_id' => $sessionId,
                 'msg_count'  => $count,
             ]);
@@ -210,27 +210,27 @@ class ChatHistoryRepository
      *
      * @return array{list: array, total: int, page: int, page_size: int}
      */
-    public static function getList(string $code, int $page = 1, int $pageSize = 10): array
+    public static function getList(string $playerId, int $page = 1, int $pageSize = 10): array
     {
         if ($page < 1) $page = 1;
         if ($pageSize < 1 || $pageSize > 50) $pageSize = self::PAGE_SIZE;
 
         $pdo = Database::connect();
 
-        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM saved_chat_history WHERE code = ?');
-        $countStmt->execute([$code]);
+        $countStmt = $pdo->prepare('SELECT COUNT(*) FROM saved_chat_history WHERE player_id = ?');
+        $countStmt->execute([$playerId]);
         $total = (int)$countStmt->fetchColumn();
 
         $offset = ($page - 1) * $pageSize;
         $stmt = $pdo->prepare(
-            'SELECT id, code, session_id, player_name, opponent_name, player_guess, opponent_truth, result, message_count, title, is_public, likes, created_at
+            'SELECT id, player_id, session_id, player_name, opponent_name, player_guess, opponent_truth, result, message_count, title, is_public, likes, created_at
              FROM saved_chat_history
-             WHERE code = ?
+             WHERE player_id = ?
              ORDER BY created_at DESC
              LIMIT ? OFFSET ?'
         );
         // LIMIT/OFFSET 是整数参数，用 intval 确保类型
-        $stmt->execute([$code, (int)$pageSize, (int)$offset]);
+        $stmt->execute([$playerId, (int)$pageSize, (int)$offset]);
         $list = $stmt->fetchAll();
 
         return [
@@ -244,13 +244,13 @@ class ChatHistoryRepository
     /**
      * 获取单条聊天记录详情（含完整 messages JSON）
      */
-    public static function getDetail(int $id, string $code): ?array
+    public static function getDetail(int $id, string $playerId): ?array
     {
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'SELECT * FROM saved_chat_history WHERE id = ? AND code = ? LIMIT 1'
+            'SELECT * FROM saved_chat_history WHERE id = ? AND player_id = ? LIMIT 1'
         );
-        $stmt->execute([$id, $code]);
+        $stmt->execute([$id, $playerId]);
         $row = $stmt->fetch();
 
         if (!$row) return null;
@@ -267,9 +267,9 @@ class ChatHistoryRepository
      * 设置收藏信息：标题 + 公开状态
      * isPublic=true 时生成/返回 public_token，isPublic=false 时清除 token
      */
-    public static function setCollection(int $id, string $code, ?string $title = null, ?bool $isPublic = null): array
+    public static function setCollection(int $id, string $playerId, ?string $title = null, ?bool $isPublic = null): array
     {
-        $detail = self::getDetail($id, $code);
+        $detail = self::getDetail($id, $playerId);
         if (!$detail) {
             return ['success' => false, 'message' => '该对局记录不存在'];
         }
@@ -303,11 +303,11 @@ class ChatHistoryRepository
         }
 
         $params[] = $id;
-        $params[] = $code;
+        $params[] = $playerId;
 
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'UPDATE saved_chat_history SET ' . implode(', ', $updates) . ' WHERE id = ? AND code = ?'
+            'UPDATE saved_chat_history SET ' . implode(', ', $updates) . ' WHERE id = ? AND player_id = ?'
         );
         $stmt->execute($params);
 
@@ -322,7 +322,7 @@ class ChatHistoryRepository
     /**
      * 获取玩家公开收藏列表（用于个人资料页）
      */
-    public static function getPlayerCollections(string $code, int $page = 1, int $pageSize = 10): array
+    public static function getPlayerCollections(string $playerId, int $page = 1, int $pageSize = 10): array
     {
         if ($page < 1) $page = 1;
         if ($pageSize < 1 || $pageSize > 50) $pageSize = self::PAGE_SIZE;
@@ -330,20 +330,20 @@ class ChatHistoryRepository
         $pdo = Database::connect();
 
         $countStmt = $pdo->prepare(
-            'SELECT COUNT(*) FROM saved_chat_history WHERE code = ? AND is_public = 1'
+            'SELECT COUNT(*) FROM saved_chat_history WHERE player_id = ? AND is_public = 1'
         );
-        $countStmt->execute([$code]);
+        $countStmt->execute([$playerId]);
         $total = (int)$countStmt->fetchColumn();
 
         $offset = ($page - 1) * $pageSize;
         $stmt = $pdo->prepare(
             'SELECT id, player_name, opponent_name, player_guess, opponent_truth, result, message_count, title, likes, created_at
              FROM saved_chat_history
-             WHERE code = ? AND is_public = 1
+             WHERE player_id = ? AND is_public = 1
              ORDER BY created_at DESC
              LIMIT ? OFFSET ?'
         );
-        $stmt->execute([$code, (int)$pageSize, (int)$offset]);
+        $stmt->execute([$playerId, (int)$pageSize, (int)$offset]);
         $list = $stmt->fetchAll();
 
         return [
@@ -375,7 +375,7 @@ class ChatHistoryRepository
     /**
      * 点赞收藏（同一玩家对同一收藏只能点赞一次）
      */
-    public static function likeCollection(int $id, string $code): array
+    public static function likeCollection(int $id, string $playerId): array
     {
         $pdo = Database::connect();
 
@@ -391,9 +391,9 @@ class ChatHistoryRepository
             $pdo->beginTransaction();
 
             $likeStmt = $pdo->prepare(
-                'INSERT INTO collection_likes (collection_id, code) VALUES (?, ?)'
+                'INSERT INTO collection_likes (collection_id, player_id) VALUES (?, ?)'
             );
-            $likeStmt->execute([$id, $code]);
+            $likeStmt->execute([$id, $playerId]);
 
             $updateStmt = $pdo->prepare(
                 'UPDATE saved_chat_history SET likes = likes + 1 WHERE id = ?'

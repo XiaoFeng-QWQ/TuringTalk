@@ -112,8 +112,6 @@ let _reportsPage = 1;
 let _currentDetailReportId = null;
 let _currentDetailReason = '';
 
-// 上传配置
-let uploadConfig = {};
 
 // ==================== DOM 引用（所有引用在 DOMContentLoaded 初始化）====================
 // 管理面板
@@ -146,6 +144,12 @@ let btnStickerUpload, stickerFileInput, stickerUploadStatus, stickerBatchProgres
 let stickerLightbox, stickerLightboxImg, stickerLightboxClose;
 let stickerBatchToolbar, stickerSelectAll, stickerSelectCount, btnStickerBatchDelete;
 let btnStickerSync, stickerSyncStatus;
+// 用户表情审核
+let stickerReviewList, stickerReviewListEmpty, stickerReviewSearch, stickerReviewPagination;
+let stickerReviewActions, stickerReviewSelectAll, btnStickerReviewBatchApprove, btnStickerReviewBatchReject;
+let _stickerReviewFilter = '';
+let _stickerReviewPage = 1, _stickerReviewTotal = 0, _stickerReviewPageSize = 20;
+
 // 批量上传状态
 let _batchUploadActive = false;
 let _batchUploadPending = 0;
@@ -499,7 +503,6 @@ function handleAdminMessage(data) {
             if (btnAdminPanel) btnAdminPanel.style.display = 'inline-flex';
             updateAdminTabs();
             updateOnlineStatusBar();
-            adminSend('admin_get_upload_config');
             loadStickers();
             break;
 
@@ -740,8 +743,13 @@ function handleAdminMessage(data) {
             renderStickerList(data.stickers || []);
             break;
 
-        case 'admin_upload_config':
-            uploadConfig = data.config || {};
+        case 'admin_sticker_review_list':
+            renderStickerReviewList(data.stickers || [], data.total || 0, data.page || 1, data.page_size || 20);
+            break;
+
+        case 'admin_sticker_approved':
+        case 'admin_sticker_rejected':
+            loadStickerReviewList();
             break;
 
         case 'admin_list':
@@ -777,6 +785,12 @@ function handleAdminMessage(data) {
             break;
 
         case 'error':
+            if (_batchUploadActive) {
+                _batchUploadPending--;
+                if (_batchUploadPending <= 0) {
+                    finishBatchUpload();
+                }
+            }
             showAdminToast(data.message || '管理操作出错');
             break;
 
@@ -858,6 +872,7 @@ function switchAdminTab(tab) {
     }
     if (tab === 'stickers') {
         loadStickers();
+        loadStickerReviewList();
     }
     if (tab === 'admin' && _isSuperAdmin) {
         loadAdminList();
@@ -1509,23 +1524,54 @@ function renderReportsList(reports, total, page, pageSize) {
         });
     });
 
-    const totalPages = Math.ceil(total / pageSize);
+    var totalPages = Math.ceil(total / pageSize);
     if (totalPages <= 1) {
         reportsPagination.innerHTML = '';
         return;
     }
-    let pageHtml = '';
-    for (let i = 1; i <= totalPages; i++) {
-        if (i === page) {
-            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;">' + i + '</span>';
-        } else {
-            pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;" data-pg="' + i + '">' + i + '</span>';
+    var pageHtml = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + total + ' 条</span>';
+
+    var WINDOW = 2;
+    if (totalPages <= 9) {
+        for (var i = 1; i <= totalPages; i++) {
+            pageHtml += _reportPageBtn(i, page);
         }
+    } else {
+        pageHtml += _reportPageBtn(1, page);
+
+        var left = Math.max(2, page - WINDOW);
+        var right = Math.min(totalPages - 1, page + WINDOW);
+
+        if (left > 2) {
+            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        } else if (left === 2) {
+            pageHtml += _reportPageBtn(2, page === 2);
+        }
+
+        for (var j = left; j <= right; j++) {
+            if (j === 1 || j === totalPages) continue;
+            if (j === 2 && left <= 2) continue;
+            pageHtml += _reportPageBtn(j, page === j);
+        }
+
+        if (right < totalPages - 1) {
+            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        }
+
+        pageHtml += _reportPageBtn(totalPages, page === totalPages);
     }
+
     reportsPagination.innerHTML = pageHtml;
-    reportsPagination.querySelectorAll('[data-pg]').forEach(el => {
-        el.addEventListener('click', () => loadReports(parseInt(el.dataset.pg)));
+    reportsPagination.querySelectorAll('[data-pg]').forEach(function (el) {
+        el.addEventListener('click', function () { loadReports(parseInt(this.getAttribute('data-pg'))); });
     });
+}
+
+function _reportPageBtn(pg, current) {
+    if (pg === current) {
+        return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+    }
+    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
 }
 
 /**
@@ -1553,22 +1599,22 @@ function renderReportDetail(report) {
     _currentDetailReason = report.reason || '';
     _currentDetailReportId = report.id;
 
-    const banBtn = (ip, fp, label) => {
+    const banBtn = (ip, fp, pid, label) => {
         const fpShort = fp ? fp.substring(0, 12) + '...' : '(空)';
         return `
             <span>${label}</span>
             <span style="font-size:10px;color:#888;margin:0 4px;">IP: ${escapeHtml(ip)} · FP: ${fpShort}</span>
-            <button class="doodle-btn ban-info-btn" data-ip="${escapeHtml(ip)}" data-fp="${escapeHtml(fp)}" data-label="${escapeHtml(label)}"
+            <button class="doodle-btn ban-info-btn" data-ip="${escapeHtml(ip)}" data-fp="${escapeHtml(fp)}" data-pid="${escapeHtml(pid || '')}" data-label="${escapeHtml(label)}"
                 style="font-size:10px;padding:2px 8px;border-color:var(--danger);color:var(--danger);">封禁</button>
         `;
     };
 
     reportDetailContent.innerHTML = `
         <div style="margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-            ${banBtn(report.reporter_ip, report.reporter_fingerprint || '', '举报者: ' + escapeHtml(report.reporter_name || '?'))}
+            ${banBtn(report.reporter_ip, report.reporter_fingerprint || '', report.reporter_player_id || '', '举报者: ' + escapeHtml(report.reporter_name || '?'))}
         </div>
         <div style="margin-bottom:6px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;">
-            ${banBtn(report.target_ip, report.target_fingerprint || '', '被举报者: ' + escapeHtml(report.target_name || '?'))}
+            ${banBtn(report.target_ip, report.target_fingerprint || '', report.target_player_id || '', '被举报者: ' + escapeHtml(report.target_name || '?'))}
         </div>
         <p><b>原因：</b>${escapeHtml(report.reason || '无')}</p>
         <p><b>时间：</b>${escapeHtml(report.created_at)}</p>
@@ -1581,12 +1627,13 @@ function renderReportDetail(report) {
         btn.addEventListener('click', () => {
             const ip = btn.dataset.ip;
             const fp = btn.dataset.fp;
+            const pid = btn.dataset.pid || '';
             const label = btn.dataset.label || '该用户';
             reportDetailOverlay.style.display = 'none';
             if (typeof showBanReasonDialog === 'function') {
                 showBanReasonDialog(label, (reason) => {
                     const finalReason = reason || _currentDetailReason || '';
-                    adminSend('admin_ban_by_info', { ip: ip, fingerprint: fp, reason: finalReason });
+                    adminSend('admin_ban_by_info', { ip: ip, fingerprint: fp, player_id: pid, reason: finalReason, label: label });
                 }, _currentDetailReason, () => {
                     reportDetailOverlay.style.display = 'flex';
                 });
@@ -1698,7 +1745,20 @@ function fetchAndSyncStickers() {
                 loadStickers();
                 return;
             }
-            const list = result.list;
+            const list = result.list.filter(function(item) {
+                // 只同步无 sticker_ 前缀的表情（即管理员上传的默认表情）
+                return !((item.title || '').startsWith('sticker_'));
+            });
+            if (!list.length) {
+                stickerSyncStatus.textContent = '同步完成：无需同步';
+                stickerSyncStatus.style.color = '#4caf50';
+                btnStickerSync.disabled = false;
+                btnStickerSync.style.opacity = '';
+                setTimeout(function() { stickerSyncStatus.style.display = 'none'; }, 5000);
+                _syncState = null;
+                loadStickers();
+                return;
+            }
             _syncState.pending = list.length;
             _syncState.total = list.length;
             updateSyncStatus();
@@ -1754,6 +1814,207 @@ function updateSyncStatus() {
         stickerSyncStatus.textContent = '正在添加表情... (' + (_syncState.total - _syncState.pending) + '/' + _syncState.total + ')';
         stickerSyncStatus.style.color = '#888';
     }
+}
+
+// ==================== 用户表情审核 ====================
+
+function loadStickerReviewList() {
+    var searchNickname = stickerReviewSearch ? stickerReviewSearch.value.trim() : '';
+    adminSend('admin_sticker_review_list', {
+        page: _stickerReviewPage,
+        page_size: _stickerReviewPageSize,
+        status: _stickerReviewFilter,
+        nickname: searchNickname
+    });
+}
+
+function renderStickerReviewList(stickers, total, page, pageSize) {
+    if (!stickerReviewList || !stickerReviewListEmpty) return;
+
+    _stickerReviewTotal = total || 0;
+    _stickerReviewPage = page || 1;
+    _stickerReviewPageSize = pageSize || 20;
+
+    stickerReviewList.innerHTML = '';
+    if (!stickers || stickers.length === 0) {
+        var emptyText = _stickerReviewFilter === 'pending' ? '暂无待审核的用户表情'
+            : (_stickerReviewFilter === 'approved' ? '暂无已通过的用户表情'
+            : (_stickerReviewFilter === 'rejected' ? '暂无已拒绝的用户表情'
+            : '暂无用户上传的表情'));
+        stickerReviewListEmpty.textContent = emptyText;
+        stickerReviewList.appendChild(stickerReviewListEmpty);
+        stickerReviewListEmpty.style.display = 'block';
+        if (stickerReviewActions) stickerReviewActions.style.display = 'none';
+        _renderStickerReviewPagination();
+        return;
+    }
+    stickerReviewListEmpty.style.display = 'none';
+
+    const statusLabel = { pending: '⏳待审核', approved: '✓已通过', rejected: '✕已拒绝' };
+    const statusColor = { pending: '#ff9800', approved: '#4caf50', rejected: '#f44336' };
+
+    stickers.forEach(s => {
+        const item = document.createElement('div');
+        item.className = 'sticker-item';
+        item.setAttribute('data-user-id', escapeHtmlAttr(s.user_id));
+        item.setAttribute('data-sticker-id', escapeHtmlAttr(s.id));
+
+        const checkbox = '<label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;">'
+            + '<input type="checkbox" class="sticker-review-check" data-user-id="' + escapeHtmlAttr(s.user_id)
+            + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" style="width:14px;height:14px;accent-color:var(--ink-blue);">'
+            + '</label>';
+
+        const statusBadge = '<span style="font-size:11px;color:' + (statusColor[s.status] || '#999') + ';font-weight:600;">'
+            + (statusLabel[s.status] || s.status) + '</span>';
+
+        const buttons = s.status === 'pending'
+            ? '<div style="display:flex;gap:4px;margin-top:4px;">'
+                + '<button class="sticker-review-approve" data-user-id="' + escapeHtmlAttr(s.user_id)
+                    + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" '
+                    + 'style="font-size:11px;padding:2px 8px;background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;">通过</button>'
+                + '<button class="sticker-review-reject" data-user-id="' + escapeHtmlAttr(s.user_id)
+                    + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" '
+                    + 'style="font-size:11px;padding:2px 8px;background:#f44336;color:#fff;border:none;border-radius:4px;cursor:pointer;">拒绝</button>'
+                + '</div>'
+            : '';
+
+        item.innerHTML = checkbox +
+            '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy" class="sticker-review-thumb">'
+            + '<div style="display:flex;flex-direction:column;gap:2px;font-size:12px;margin-left:8px;flex:1;min-width:0;">'
+                + '<span style="color:var(--text-muted);">用户: ' + escapeHtml(s.nickname || s.user_id || '未知') + '</span>'
+                + statusBadge
+                + buttons
+            + '</div>';
+
+        stickerReviewList.appendChild(item);
+    });
+
+    // 绑定审核按钮事件
+    stickerReviewList.querySelectorAll('.sticker-review-approve').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const uid = this.getAttribute('data-user-id');
+            const sid = this.getAttribute('data-sticker-id');
+            if (uid && sid) {
+                this.disabled = true;
+                this.textContent = '...';
+                adminSend('admin_sticker_approve', { user_id: uid, id: sid });
+            }
+        });
+    });
+    stickerReviewList.querySelectorAll('.sticker-review-reject').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const uid = this.getAttribute('data-user-id');
+            const sid = this.getAttribute('data-sticker-id');
+            if (uid && sid) {
+                this.disabled = true;
+                this.textContent = '...';
+                adminSend('admin_sticker_reject', { user_id: uid, id: sid });
+            }
+        });
+    });
+
+    // 点击图片查看大图
+    stickerReviewList.querySelectorAll('img').forEach(function (img) {
+        img.style.cursor = 'pointer';
+        img.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (stickerLightbox && stickerLightboxImg) {
+                stickerLightboxImg.src = this.src;
+                stickerLightbox.style.display = 'flex';
+            }
+        });
+    });
+
+    // 显示批量操作栏 + 全选逻辑
+    if (stickerReviewActions) {
+        stickerReviewActions.style.display = stickers.length > 0 ? 'flex' : 'none';
+    }
+    if (stickerReviewSelectAll) {
+        stickerReviewSelectAll.checked = false;
+    }
+
+    _renderStickerReviewPagination();
+}
+
+function _renderStickerReviewPagination() {
+    if (!stickerReviewPagination) return;
+    stickerReviewPagination.innerHTML = '';
+
+    var totalPages = Math.ceil(_stickerReviewTotal / _stickerReviewPageSize);
+    if (totalPages <= 1) return;
+
+    var html = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + _stickerReviewTotal + ' 条</span>';
+
+    var WINDOW = 2;
+    if (totalPages <= 9) {
+        for (var i = 1; i <= totalPages; i++) {
+            html += _reviewPageBtn(i, i === _stickerReviewPage);
+        }
+    } else {
+        html += _reviewPageBtn(1, _stickerReviewPage === 1);
+
+        var left = Math.max(2, _stickerReviewPage - WINDOW);
+        var right = Math.min(totalPages - 1, _stickerReviewPage + WINDOW);
+
+        if (left > 2) {
+            html += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        } else if (left === 2) {
+            html += _reviewPageBtn(2, _stickerReviewPage === 2);
+        }
+
+        for (var j = left; j <= right; j++) {
+            if (j === 1 || j === totalPages) continue;
+            if (j === 2 && left <= 2) continue;
+            html += _reviewPageBtn(j, j === _stickerReviewPage);
+        }
+
+        if (right < totalPages - 1) {
+            html += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        }
+
+        html += _reviewPageBtn(totalPages, _stickerReviewPage === totalPages);
+    }
+
+    stickerReviewPagination.innerHTML = html;
+
+    stickerReviewPagination.querySelectorAll('[data-review-pg]').forEach(function (el) {
+        el.addEventListener('click', function () {
+            _stickerReviewPage = parseInt(this.getAttribute('data-review-pg'));
+            loadStickerReviewList();
+            stickerReviewList.scrollTop = 0;
+        });
+    });
+}
+
+function _reviewPageBtn(pg, current) {
+    if (pg === current) {
+        return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+    }
+    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-review-pg="' + pg + '">' + pg + '</span>';
+}
+
+function _getSelectedStickersForReview() {
+    var selected = [];
+    if (!stickerReviewList) return selected;
+    stickerReviewList.querySelectorAll('.sticker-review-check:checked').forEach(function (cb) {
+        selected.push({ user_id: cb.getAttribute('data-user-id'), id: cb.getAttribute('data-sticker-id') });
+    });
+    return selected;
+}
+
+function _batchReviewStickers(list, action) {
+    var idx = 0;
+    function next() {
+        if (idx >= list.length) {
+            showAdminToast('批量操作完成，共 ' + list.length + ' 个表情', 'info');
+            loadStickerReviewList();
+            return;
+        }
+        var item = list[idx++];
+        adminSend(action, { user_id: item.user_id, id: item.id });
+        setTimeout(next, 200);
+    }
+    next();
 }
 
 // ==================== 管理员管理（仅 super_admin）====================
@@ -1814,7 +2075,7 @@ function createAdminLogsPanel() {
             <button class="doodle-btn log-filter-btn" data-filter="all"
                 style="flex:1;font-size:11px;padding:4px 0;justify-content:center;">全部日志</button>
         </div>
-        <div id="admin-log-list" style="max-height:300px;overflow-y:auto;font-size:13px;">
+        <div id="admin-log-list" style="max-height:400px;overflow-y:auto;font-size:13px;">
             <div style="text-align:center;color:#999;padding:10px;">点击上方按钮查看</div>
         </div>
         <div id="admin-log-pagination"
@@ -1948,23 +2209,54 @@ function renderLogList(logs, total, page, pageSize, logType) {
     });
     adminLogListEl.innerHTML = html;
 
-    const totalPages = Math.ceil(total / pageSize);
+    var totalPages = Math.ceil(total / pageSize);
     if (totalPages <= 1) {
         adminLogPaginationEl.innerHTML = '';
         return;
     }
-    let pageHtml = '';
-    for (let i = 1; i <= totalPages; i++) {
-        if (i === page) {
-            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;">' + i + '</span>';
-        } else {
-            pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;" data-pg="' + i + '">' + i + '</span>';
+    var pageHtml = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + total + ' 条</span>';
+
+    var WINDOW = 2;
+    if (totalPages <= 9) {
+        for (var i = 1; i <= totalPages; i++) {
+            pageHtml += _logPageBtn(i, page);
         }
+    } else {
+        pageHtml += _logPageBtn(1, page);
+
+        var left = Math.max(2, page - WINDOW);
+        var right = Math.min(totalPages - 1, page + WINDOW);
+
+        if (left > 2) {
+            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        } else if (left === 2) {
+            pageHtml += _logPageBtn(2, page === 2);
+        }
+
+        for (var j = left; j <= right; j++) {
+            if (j === 1 || j === totalPages) continue;
+            if (j === 2 && left <= 2) continue;
+            pageHtml += _logPageBtn(j, page === j);
+        }
+
+        if (right < totalPages - 1) {
+            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+        }
+
+        pageHtml += _logPageBtn(totalPages, page === totalPages);
     }
+
     adminLogPaginationEl.innerHTML = pageHtml;
-    adminLogPaginationEl.querySelectorAll('[data-pg]').forEach(el => {
-        el.addEventListener('click', () => loadLogs(parseInt(el.dataset.pg)));
+    adminLogPaginationEl.querySelectorAll('[data-pg]').forEach(function (el) {
+        el.addEventListener('click', function () { loadLogs(parseInt(this.getAttribute('data-pg'))); });
     });
+}
+
+function _logPageBtn(pg, current) {
+    if (pg === current) {
+        return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+    }
+    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
 }
 
 // ==================== 在线状态 ====================
@@ -2824,6 +3116,14 @@ function initAdminDOMRefs() {
     btnStickerBatchDelete = document.getElementById('btn-sticker-batch-delete');
     btnStickerSync = document.getElementById('btn-sticker-sync');
     stickerSyncStatus = document.getElementById('sticker-sync-status');
+    stickerReviewList = document.getElementById('sticker-review-list');
+    stickerReviewListEmpty = document.getElementById('sticker-review-list-empty');
+    stickerReviewSearch = document.getElementById('sticker-review-search');
+    stickerReviewPagination = document.getElementById('sticker-review-pagination');
+    stickerReviewActions = document.getElementById('sticker-review-actions');
+    stickerReviewSelectAll = document.getElementById('sticker-review-select-all');
+    btnStickerReviewBatchApprove = document.getElementById('btn-sticker-review-batch-approve');
+    btnStickerReviewBatchReject = document.getElementById('btn-sticker-review-batch-reject');
 }
 
 /**
@@ -2922,6 +3222,55 @@ function initAdminEvents() {
             loadReports(1);
         });
     });
+
+    // 用户表情审核筛选按钮
+    document.querySelectorAll('.sticker-review-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.sticker-review-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _stickerReviewFilter = btn.dataset.filter;
+            _stickerReviewPage = 1;
+            loadStickerReviewList();
+        });
+    });
+
+    // 用户表情审核搜索框
+    if (stickerReviewSearch) {
+        stickerReviewSearch.addEventListener('input', function () {
+            _stickerReviewPage = 1;
+            loadStickerReviewList();
+        });
+    }
+
+    // 用户表情审核全选
+    if (stickerReviewSelectAll) {
+        stickerReviewSelectAll.addEventListener('change', function () {
+            var checked = this.checked;
+            stickerReviewList.querySelectorAll('.sticker-review-check').forEach(function (cb) {
+                cb.checked = checked;
+            });
+        });
+    }
+
+    // 用户表情审核批量通过
+    if (btnStickerReviewBatchApprove) {
+        btnStickerReviewBatchApprove.addEventListener('click', function () {
+            var selected = _getSelectedStickersForReview();
+            if (selected.length === 0) { showAdminToast('请先选择表情', 'warn'); return; }
+            if (!confirm('确认批量通过 ' + selected.length + ' 个表情？')) return;
+            _batchReviewStickers(selected, 'admin_sticker_approve');
+        });
+    }
+
+    // 用户表情审核批量拒绝
+    if (btnStickerReviewBatchReject) {
+        btnStickerReviewBatchReject.addEventListener('click', function () {
+            var selected = _getSelectedStickersForReview();
+            if (selected.length === 0) { showAdminToast('请先选择表情', 'warn'); return; }
+            if (!confirm('确认批量拒绝 ' + selected.length + ' 个表情？')) return;
+            _batchReviewStickers(selected, 'admin_sticker_reject');
+        });
+    }
 
     // 举报详情关闭
     if (btnReportDetailClose) {
@@ -3068,16 +3417,6 @@ function initAdminEvents() {
                 }
             }
 
-            if (!uploadConfig || !uploadConfig.upload_url) {
-                if (stickerUploadStatus) {
-                    stickerUploadStatus.style.display = 'block';
-                    stickerUploadStatus.textContent = '上传配置未加载';
-                    stickerUploadStatus.style.color = '#f44336';
-                }
-                stickerFileInput.value = '';
-                return;
-            }
-
             // 显示批量进度区域
             if (stickerBatchProgress) {
                 stickerBatchProgress.style.display = 'block';
@@ -3094,7 +3433,7 @@ function initAdminEvents() {
             _batchSuccessCount = 0;
             _batchTotalCount = files.length;
 
-            // 逐个上传并添加
+            // 逐个读取文件 base64 并发送到服务端代理上传
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
                 const itemEl = document.getElementById('batch-item-' + i);
@@ -3105,72 +3444,41 @@ function initAdminEvents() {
                 }
 
                 try {
-                    const formData = new FormData();
-                    formData.append('backstage', uploadConfig.backstage);
-                    formData.append('appid', uploadConfig.appid);
-                    formData.append('key', uploadConfig.key);
-                    formData.append('file', file);
-
-                    const headers = {};
-                    if (uploadConfig.request_script) {
-                        try {
-                            const fn = new Function('cfg', uploadConfig.request_script);
-                            fn({ upload_url: uploadConfig.upload_url, headers: headers, formData: formData });
-                        } catch (e) {
-                            if (itemEl) {
-                                itemEl.innerHTML = '<span style="color:#f44336;">❌</span> ' + escapeHtml(file.name) +
-                                    ' <span style="color:#f44336;font-size:11px;">鉴权脚本失败</span>';
+                    const base64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const result = reader.result;
+                            if (typeof result === 'string') {
+                                const comma = result.indexOf(',');
+                                resolve(comma >= 0 ? result.substring(comma + 1) : result);
+                            } else {
+                                reject(new Error('读取文件失败'));
                             }
-                            _batchUploadPending--;
-                            continue;
-                        }
-                    }
-
-                    const resp = await fetch(uploadConfig.upload_url, {
-                        method: 'POST',
-                        headers: headers,
-                        body: formData,
+                        };
+                        reader.onerror = () => reject(new Error('读取文件失败'));
+                        reader.readAsDataURL(file);
                     });
-                    const result = await resp.json();
 
-                    const success = (typeof resolvePath === 'function')
-                        ? resolvePath(result, uploadConfig.success_field || 'code')
-                        : result[uploadConfig.success_field || 'code'];
-                    const successValue = uploadConfig.success_value !== undefined ? uploadConfig.success_value : 1;
-                    const url = (typeof resolvePath === 'function')
-                        ? resolvePath(result, uploadConfig.url_field || 'url')
-                        : result[uploadConfig.url_field || 'url'];
+                    const extMatch = file.name.match(/\.(\w+)$/);
+                    const fileExt = extMatch ? extMatch[1].toLowerCase() : 'png';
+                    const name = file.name.replace(/\.[^.]+$/, '').substring(0, 20);
 
-                    if (success === successValue && url) {
-                        // 自动调用后端接口添加表情，文件名作为表情名称
-                        const name = file.name.replace(/\.[^.]+$/, '').substring(0, 20);
-                        adminSend('admin_sticker_add', { name: name, url: url });
-                        _batchSuccessCount++;
-
-                        if (itemEl) {
-                            itemEl.innerHTML = '<span style="color:#4caf50;">✅</span> ' + escapeHtml(file.name) +
-                                ' <span style="color:#4caf50;font-size:11px;">上传成功</span>';
-                        }
-                    } else {
-                        const errMsg = (typeof resolvePath === 'function')
-                            ? resolvePath(result, uploadConfig.error_field || 'msg')
-                            : result[uploadConfig.error_field || 'msg'];
-                        if (itemEl) {
-                            itemEl.innerHTML = '<span style="color:#f44336;">❌</span> ' + escapeHtml(file.name) +
-                                ' <span style="color:#f44336;font-size:11px;">上传失败: ' + escapeHtml(errMsg || '未知错误') + '</span>';
-                        }
-                        _batchUploadPending--;
-                    }
+                    adminSend('admin_sticker_upload', {
+                        name: name,
+                        file_data: base64,
+                        file_ext: fileExt
+                    });
+                    _batchSuccessCount++;
                 } catch (e) {
                     if (itemEl) {
                         itemEl.innerHTML = '<span style="color:#f44336;">❌</span> ' + escapeHtml(file.name) +
-                            ' <span style="color:#f44336;font-size:11px;">上传出错: ' + escapeHtml(e.message) + '</span>';
+                            ' <span style="color:#f44336;font-size:11px;">读取失败: ' + escapeHtml(e.message) + '</span>';
                     }
                     _batchUploadPending--;
                 }
             }
 
-            // 如果全部上传失败（没有发出 admin_sticker_add），直接结束批量模式
+            // 如果全部读取失败，直接结束批量模式
             if (_batchUploadPending <= 0) {
                 finishBatchUpload();
             }

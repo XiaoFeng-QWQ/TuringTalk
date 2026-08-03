@@ -26,7 +26,7 @@ class Router
                 '/' => [GameController::class, 'index'],
                 '/WhoisAI' => [GameController::class, 'WhoisAIIndex'],
                 '/lobby' => [GameController::class, 'lobbyIndex'],
-                '/api/generate-code' => [GameController::class, 'generateCode'],
+                '/api/generate-player-id' => [GameController::class, 'generatePlayerId'],
                 '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
                 '/api/chat-history/detail' => [GameController::class, 'chatHistoryDetail'],
@@ -35,6 +35,7 @@ class Router
                 '/api/collection/detail' => [GameController::class, 'collectionDetail'],
                 '/api/collection/by-token' => [GameController::class, 'collectionByToken'],
                 '/api/player-messages' => [GameController::class, 'getMyMessages'],
+                '/api/sticker/list' => [GameController::class, 'listStickers'],
                 '/player/{nickname}' => [GameController::class, 'index'],
                 '/collection/{token}' => [GameController::class, 'viewPublicCollection'],
             ],
@@ -44,6 +45,8 @@ class Router
                 '/api/player-message/settings' => [GameController::class, 'updateMessageSettings'],
                 '/api/chat-history/collect' => [GameController::class, 'setCollection'],
                 '/api/collection/like' => [GameController::class, 'likeCollection'],
+                '/api/sticker/upload' => [GameController::class, 'uploadSticker'],
+                '/api/sticker/delete' => [GameController::class, 'deleteSticker'],
             ],
         ];
 

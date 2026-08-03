@@ -150,6 +150,11 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                     $this->handleChat($server, $fd, $data);
                     break;
 
+                case 'WhoisAI_sticker':
+                    if ($this->isPlayerEliminated($fd)) break;
+                    $this->handleSticker($server, $fd, $data);
+                    break;
+
                 case 'WhoisAI_vote':
                     if ($this->isPlayerEliminated($fd)) break;
                     $this->handleVote($server, $fd, $data);
@@ -178,14 +183,14 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 统一身份验证（昵称唯一性 + 恢复码校验，跨模式共用）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['recovery_code'] ?? ''));
+        // 统一身份验证（昵称唯一性 + 玩家ID校验，跨模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
         if (!$valid['success']) {
             $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => $valid['error']]);
             return;
         }
         $nickname = $valid['nickname'];
-        $recoveryCode = $valid['recovery_code'];
+        $playerId = $valid['player_id'] ?? null;
 
         // 封禁检查（IP + 指纹）
         $fingerprint = Sanitizer::identifier($data['fp'] ?? '');
@@ -228,7 +233,8 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'type'          => 'WhoisAI_matched',
             'pool_count'    => $poolCount,
             'nickname'      => $nickname,
-            'recovery_code' => $recoveryCode ?: null,
+            'player_id'     => $playerId ?: null,
+            'recovery_code' => $valid['recovery_code'] ?? null,
         ]);
 
         // 广播匹配池人数
@@ -453,6 +459,33 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         ]);
     }
 
+    // ==================== 表情 ====================
+
+    /**
+     * 发送表情：校验 sticker ID，广播专用类型（避免文本伪造）
+     */
+    private function handleSticker(Server $server, int $fd, array $data): void
+    {
+        $pr = $this->WhoisAIService->getPlayerRoom($fd);
+        if (!$pr || !$pr['alive']) return;
+
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        $sticker = $this->resolveSticker($data, $playerId);
+        if (!$sticker) return;
+
+        $displayName = '玩家' . $pr['seat'];
+        $roomId = $pr['room_id'];
+
+        $this->broadcastToRoom($server, $roomId, [
+            'type'        => 'WhoisAI_sticker',
+            'id'          => $sticker['id'],
+            'name'        => $sticker['name'] ?? '',
+            'url'         => $sticker['url'] ?? '',
+            'sender_seat' => $pr['seat'],
+            'sender_name' => $displayName,
+        ]);
+    }
+
     // ==================== 投票阶段 ====================
 
     private function startVotingPhase(Server $server, string $roomId): void
@@ -635,9 +668,9 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         foreach ($players as $p) {
             $fd = (int)$p['fd'];
             if ($fd > 0 && $server->isEstablished($fd)) {
-                // 对局结束后自动为无恢复码的玩家生成恢复码
+                // 对局结束后自动为无玩家ID的玩家创建记录
                 $rp = $resolvedPlayers[$p['seat']] ?? $p;
-                $playerCode = $this->getOrCreatePlayerCode($fd, $rp['name'] ?? $rp['nickname'] ?? '');
+                $playerId = $this->getOrCreatePlayerId($fd, $rp['name'] ?? $rp['nickname'] ?? '');
                 $this->sendToPlayer($server, $fd, [
                     'type'          => 'WhoisAI_game_over',
                     'room_id'       => $roomId,
@@ -646,15 +679,15 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
                     'reason'        => $reason,
                     'players'       => WhoisAIService::getFullPlayers($resolvedPlayers),
                     'my_seat'       => $p['seat'],
-                    'recovery_code' => $playerCode,
+                    'player_id'     => $playerId,
                     'messages'      => $messages,
                 ]);
 
                 // 异步写入战绩（WhoisAI 所有玩家都是真人）
-                if ($playerCode) {
+                if ($playerId) {
                     $identity = $p['identity'] ?? '';
                     $win = ($identity === WhoisAIService::IDENTITY_HUMAN) ? ($winner === 'human') : ($winner === 'ai');
-                    AsyncDbWriter::pushWhoisAIStats($playerCode, $win, (int)date('G'));
+                    AsyncDbWriter::pushWhoisAIStats($playerId, $win, (int)date('G'));
                 }
             }
         }
@@ -772,50 +805,43 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
 
         $reporterInfo = $this->clientInfo[(string)$fd] ?? [];
         $reporterName = Sanitizer::nickname($reporterInfo['nickname'] ?? '') ?: ('玩家' . $pr['seat']);
+        $reporterPlayerId = $this->getOrCreatePlayerId($fd, $reporterName) ?: '';
+
         $targetName = Sanitizer::text($data['target_name'] ?? '', 50) ?: '玩家?';
         $messageText = Sanitizer::text($data['message_text'] ?? '', 500);
         $reason = Sanitizer::text($data['reason'] ?? '', 255);
 
-        // 防止重复举报同一房间（按 reporter IP + roomId 去重）
+        // 防止重复举报同一房间（按 reporter_player_id + roomId 去重）
         $redis = RedisService::connect();
-        $dedupKey = $roomId . ':' . $fd;
+        $dedupKey = $roomId . ':' . $reporterPlayerId;
         if ($redis->sIsMember(RedisService::KP_WHOIS_AI_REPORTED, $dedupKey)) {
             $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => '您已举报过该房间的消息']);
             return;
         }
 
-        // 查找被举报玩家的 info
+        // 查找被举报玩家的 player_id
         $players = $this->WhoisAIService->getRoomPlayers($roomId);
-        $targetFd = 0;
-        $targetIp = '';
-        $targetFp = '';
+        $targetPlayerId = '';
         foreach ($players as $p) {
             $pName = $p['nickname'] ?? ('玩家' . $p['seat']);
             if ($pName === $targetName) {
-                $targetFd = (int)($p['fd'] ?? 0);
-                if ($targetFd > 0) {
-                    $tInfo = $this->clientInfo[(string)$targetFd] ?? [];
-                    $targetIp = $tInfo['ip'] ?? '';
-                    $targetFp = $tInfo['fingerprint'] ?? '';
+                $pFd = (int)($p['fd'] ?? 0);
+                if ($pFd > 0) {
+                    $targetPlayerId = $this->getOrCreatePlayerId($pFd, $pName) ?: '';
                 }
                 break;
             }
         }
 
-        $reporterIp = $reporterInfo['ip'] ?? '';
-        $reporterFp = $reporterInfo['fingerprint'] ?? '';
-
         $result = ReportRepository::report(
-            'whoisai:' . $roomId,
-            $fd,
-            $reporterIp,
-            $reporterFp,
-            $targetFd,
-            $targetIp,
-            $targetFp,
-            $reason . ($messageText ? ' | 内容: ' . $messageText : ''),
+            'whoisai',
+            $roomId,
+            $reporterPlayerId,
+            $targetPlayerId,
             $reporterName,
-            $targetName
+            $targetName,
+            $reason,
+            $messageText
         );
 
         if ($result['success']) {

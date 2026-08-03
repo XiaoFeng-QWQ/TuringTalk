@@ -177,25 +177,4 @@ class ManageHandler
 
         Logger::info('Admin changed own password', ['username' => $username]);
     }
-
-    /**
-     * 获取图床上传配置
-     */
-    public function handleGetUploadConfig(Server $server, int $fd): void
-    {
-        $this->game->sendToPlayer($server, $fd, [
-            'type'   => 'admin_upload_config',
-            'config' => [
-                'upload_url'    => Config::get('ImageHosting.UploadUrl', ''),
-                'backstage'     => Config::get('ImageHosting.Backstage', ''),
-                'appid'         => Config::get('ImageHosting.AppId', ''),
-                'key'           => Config::get('ImageHosting.Key', ''),
-                'success_field' => Config::get('ImageHosting.SuccessField', 'code'),
-                'success_value' => Config::get('ImageHosting.SuccessValue', 1),
-                'url_field'     => Config::get('ImageHosting.UrlField', 'url'),
-                'error_field'   => Config::get('ImageHosting.ErrorField', 'msg'),
-                'request_script' => Config::get('ImageHosting.RequestScript', ''),
-            ],
-        ]);
-    }
 }

@@ -57,13 +57,13 @@ class CleanupInactivePlayers extends Command
 
             // 列出待删除玩家（用于审计追溯）
             $selectStmt = $pdo->prepare(
-                'SELECT code, nickname, FROM_UNIXTIME(last_played_at) AS last_played_str
+                'SELECT id, nickname, FROM_UNIXTIME(last_played_at) AS last_played_str
                  FROM player_data
                  WHERE last_played_at < ? AND last_played_at > 0'
             );
             $selectStmt->execute([$cutoffTime]);
             foreach ($selectStmt->fetchAll() as $player) {
-                Logger::info("  待删除: code={$player['code']} nickname=\"{$player['nickname']}\" last_played={$player['last_played_str']}");
+                Logger::info("  待删除: id={$player['id']} nickname=\"{$player['nickname']}\" last_played={$player['last_played_str']}");
             }
 
             // 事务内删除 + 验证

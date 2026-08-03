@@ -14,7 +14,7 @@ use App\Config\Config;
  *   tg:sess:{id}          → hash  会话数据
  *   tg:player:{fd}        → hash  玩家 fd → session_id + state
  *   tg:msg:{sessId}       → list  聊天消息（JSON per item）
- *   tg:code:{fd}          → string 恢复码，TTL 300s
+ *   tg:pid:{fd}          → string 玩家 ID（player_data.id），TTL 300s
  *   tg:msg:seq            → string 全局消息序号
  *
  * 单 Worker 下无需跨进程锁，协程级 Channel 锁够用。
@@ -349,30 +349,30 @@ class GameService
         RedisService::connect()->del(RedisService::KP_MSG . $sessionId);
     }
 
-    // ==================== 恢复码 ====================
+    // ==================== 玩家 ID ====================
 
-    public static function setPlayerCode(int $fd, string $code): void
+    public static function setPlayerId(int $fd, string $playerId): void
     {
         $redis = RedisService::connect();
-        $redis->setEx(RedisService::KP_CODE . $fd, 300, $code);
+        $redis->setEx(RedisService::KP_CODE . $fd, 300, $playerId);
     }
 
-    public static function getPlayerCode(int $fd): ?string
+    public static function getPlayerId(int $fd): ?string
     {
         $redis = RedisService::connect();
-        $code = $redis->get(RedisService::KP_CODE . $fd);
-        return $code ?: null;
+        $id = $redis->get(RedisService::KP_CODE . $fd);
+        return $id ?: null;
     }
 
-    public static function sessionHasPlayerCode(array $session): bool
+    public static function sessionHasPlayerId(array $session): bool
     {
         $p1 = (int)($session['player1_fd'] ?? 0);
         $p2 = (int)($session['player2_fd'] ?? 0);
-        return ($p1 > 0 && self::getPlayerCode($p1) !== null)
-            || ($p2 > 0 && self::getPlayerCode($p2) !== null);
+        return ($p1 > 0 && self::getPlayerId($p1) !== null)
+            || ($p2 > 0 && self::getPlayerId($p2) !== null);
     }
 
-    public static function removePlayerCode(int $fd): void
+    public static function removePlayerId(int $fd): void
     {
         RedisService::connect()->del(RedisService::KP_CODE . $fd);
     }

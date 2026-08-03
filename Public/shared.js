@@ -187,6 +187,8 @@ function saveUserdata(d) {
 
 function getUserNickname() { return getUserdata().nickname || ''; }
 function setUserNickname(name) { const d = getUserdata(); d.nickname = name; saveUserdata(d); }
+function getUserPlayerId() { return getUserdata().player_id || ''; }
+function setUserPlayerId(pid) { const d = getUserdata(); d.player_id = pid; saveUserdata(d); }
 function getUserRecoveryCode() { return getUserdata().recovery_code || ''; }
 function setUserRecoveryCode(code) { const d = getUserdata(); d.recovery_code = code; saveUserdata(d); }
 
@@ -241,7 +243,7 @@ function handleStickersList(data) {
     var map = {};
     if (data.stickers) {
         data.stickers.forEach(function (s) {
-            map[s.id] = { name: s.name, url: s.url };
+            map[s.id] = { name: s.name, url: s.url, source: s.source || 'default', status: s.status || 'approved' };
         });
     }
     saveStickerCache(map, data.version || 0);
@@ -259,8 +261,7 @@ function handleStickersList(data) {
     return map;
 }
 
-function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker, manageMode) {
-    // 如果传入的 stickerMap 为空，尝试从缓存加载，避免缓存有数据但内存 stickerMap 为空导致收藏列表显示为空
+function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
     var keys = stickerMap ? Object.keys(stickerMap) : [];
     if (keys.length === 0) {
         var cached = loadStickerCache();
@@ -268,26 +269,22 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker, manageMod
     }
 
     var favs = getStickerFavorites();
-    // 防御性：确保 favs 始终为数组
     if (!Array.isArray(favs)) favs = [];
 
-    var activeTab = bodyEl.dataset.tab || 'all';
+    var activeTab = bodyEl.dataset.tab || 'mine';
     var ids = Object.keys(stickerMap || {});
 
-    if (activeTab === 'favs') {
-        ids = ids.filter(function (id) { return favs.indexOf(id) !== -1; });
+    if (activeTab === 'mine') {
+        ids = ids.filter(function (id) { return stickerMap[id].source === 'mine' && stickerMap[id].status === 'approved'; });
+    } else if (activeTab === 'default') {
+        ids = ids.filter(function (id) { return stickerMap[id].source === 'default'; });
     }
 
     bodyEl.innerHTML = '';
-    if (manageMode) {
-        bodyEl.classList.add('manage-mode');
-    } else {
-        bodyEl.classList.remove('manage-mode');
-    }
 
     if (ids.length === 0) {
         bodyEl.innerHTML = '<div style="text-align:center;color:#999;padding:20px;font-size:13px;">' +
-            (activeTab === 'favs' ? '暂无收藏表情' : '暂无可用表情') + '</div>';
+            (activeTab === 'mine' ? '你还没有上传表情' : '暂无默认表情') + '</div>';
         return;
     }
 
@@ -299,7 +296,6 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker, manageMod
         item.title = s.name;
         item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
 
-        // 阻止浏览器右键菜单和选中
         item.addEventListener('contextmenu', function (e) {
             e.preventDefault();
         });
@@ -307,35 +303,21 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker, manageMod
             e.preventDefault();
         });
 
-        if (manageMode) {
-            // 管理模式：点击收藏/取消收藏
-            item.addEventListener('click', function () {
-                if (activeTab === 'all') {
-                    if (favs.indexOf(id) === -1) {
-                        toggleStickerFavorite(id);
-                        item.classList.add('favorited');
-                        favs = getStickerFavorites();
-                    }
-                } else {
-                    toggleStickerFavorite(id);
-                    item.classList.remove('favorited');
-                    item.style.display = 'none';
-                    favs = getStickerFavorites();
-                }
-            });
-        } else {
-            // 正常模式：点击发送表情
-            item.addEventListener('click', function () {
-                onClickSticker(id);
-            });
-        }
+        item.addEventListener('click', function () {
+            onClickSticker(id);
+        });
 
         bodyEl.appendChild(item);
     });
 }
 
+// 统一解析表情 URL：优先用服务端下发的 url，回退查本地 stickerMap
+function resolveStickerUrl(stickerId, serverUrl, stickerMap) {
+    return serverUrl || (stickerMap && stickerMap[stickerId] ? stickerMap[stickerId].url : '');
+}
+
 // 表情面板 tab 切换（由各页面绑定）
-function bindStickerPickerTabs(pickerId, renderFn) {
+function bindStickerPickerTabs(pickerId, renderFn, repositionFn) {
     var picker = document.getElementById(pickerId);
     if (!picker) return;
     var tabs = picker.querySelectorAll('.sticker-picker-tab');
@@ -346,6 +328,7 @@ function bindStickerPickerTabs(pickerId, renderFn) {
             this.classList.add('active');
             body.dataset.tab = this.dataset.tab;
             if (renderFn) renderFn();
+            if (repositionFn) repositionFn();
         });
     });
 }

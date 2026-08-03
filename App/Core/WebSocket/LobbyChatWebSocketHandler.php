@@ -8,7 +8,6 @@ use App\Services\Chat\LobbyChatService;
 use App\Services\Chat\SongService;
 use App\Services\Repository\ReportRepository;
 use App\Services\Repository\BanRepository;
-use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use Swoole\WebSocket\Server;
@@ -180,6 +179,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->handleGetStickers($server, $fd, $data);
                     break;
 
+                case 'lobby_sticker':
+                    $this->handleSticker($server, $fd, $data);
+                    break;
+
                 case 'lobby_song_search':
                     $this->handleSongSearch($server, $fd, $data);
                     break;
@@ -225,24 +228,18 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 统一身份验证（昵称唯一性 + 恢复码校验，与谁是AI模式共用）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['recovery_code'] ?? ''));
+        // 统一身份验证（昵称唯一性 + 玩家ID校验，与谁是AI模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
         if (!$valid['success']) {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $valid['error']]);
             return;
         }
         $nickname = $valid['nickname'];
-        $recoveryCode = $valid['recovery_code'];
         $playerId = $valid['player_id'] ?? null;
 
         // 新玩家：立即创建 player_data 记录（聊天室没有"对局结束"时机）
-        if (!$recoveryCode) {
-            $recoveryCode = $this->getOrCreatePlayerCode($fd, $nickname);
-            // 新建记录后查回 player_data.id
-            if ($recoveryCode && !$playerId) {
-                $player = PlayerStatsRepository::findByCode($recoveryCode);
-                $playerId = $player['id'] ?? null;
-            }
+        if (!$playerId) {
+            $playerId = $this->getOrCreatePlayerId($fd, $nickname);
         }
 
         // 封禁检查（IP + 指纹）
@@ -268,7 +265,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
             'player_id'     => $playerId ?: null,
-            'recovery_code' => $recoveryCode ?: null,
+            'recovery_code' => $valid['recovery_code'] ?? null,
         ]);
 
         // 广播更新后的在线列表（去重：仅列表变化时发送）
@@ -280,7 +277,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'text' => $nickname . ' 进入了聊天室',
         ]);
 
-        Logger::info('[Lobby] Player joined with identity', ['fd' => $fd, 'nickname' => $nickname, 'has_code' => (bool)$recoveryCode]);
+        Logger::info('[Lobby] Player joined with identity', ['fd' => $fd, 'nickname' => $nickname, 'has_id' => (bool)$playerId]);
     }
 
     private function handleChat(Server $server, int $fd, array $data): void
@@ -386,6 +383,30 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
     }
 
+    // ==================== 表情 ====================
+
+    /**
+     * 发送表情：校验 sticker ID，广播专用类型（非文本嵌入）
+     */
+    private function handleSticker(Server $server, int $fd, array $data): void
+    {
+        $info = $this->clientInfo[(string)$fd] ?? null;
+        if (!$info || empty($info['nickname'])) return;
+
+        $playerId = $info['player_id'] ?? '';
+        $sticker = $this->resolveSticker($data, $playerId);
+        if (!$sticker) return;
+
+        $this->broadcastLobby($server, 0, [
+            'type'        => 'sticker',
+            'id'          => $sticker['id'],
+            'name'        => $sticker['name'] ?? '',
+            'url'         => $sticker['url'] ?? '',
+            'sender'      => $info['nickname'],
+            'sender_id'   => $playerId,
+        ]);
+    }
+
     // ==================== 举报 ====================
 
     /**
@@ -400,8 +421,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
 
         $clientInfo = $this->getClientInfo($fd);
+        $reporterPlayerId = $clientInfo['player_id'] ?? '';
         $reporterName = Sanitizer::nickname($clientInfo['nickname'] ?? '');
-        if ($reporterName === '') {
+        if ($reporterName === '' || $reporterPlayerId === '') {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先设置昵称']);
             return;
         }
@@ -413,50 +435,33 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 防止重复举报
+        // 防止重复举报（同一玩家对同一消息）
         $redis = RedisService::connect();
-        if ($redis->sIsMember(RedisService::KP_LOBBY_REPORTED, (string)$messageId)) {
+        $dedupKey = 'lobby:' . $messageId . ':' . $reporterPlayerId;
+        if ($redis->sIsMember(RedisService::KP_LOBBY_REPORTED, $dedupKey)) {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '该消息已被举报，请等待管理处理']);
             return;
         }
 
-        $targetName   = Sanitizer::nickname($msg['sender_name'] ?? '');
+        $targetName = Sanitizer::nickname($msg['sender_name'] ?? '');
         $messageContent = Sanitizer::text($msg['content'] ?? '', 500);
-        $msgSenderIp    = Sanitizer::identifier($msg['sender_ip'] ?? '');
-        $msgSenderFp    = Sanitizer::identifier($msg['sender_fp'] ?? '');
 
-        // 拼装原因
-        $reasonCategory = Sanitizer::text($data['reason'] ?? '', 255) ?: '违规消息';
-        $reason = $reasonCategory;
-        if ($messageContent !== '') {
-            $reason .= ' | 内容: ' . $messageContent;
-        }
+        // 从消息中获取被举报者的 player_id
+        $targetPlayerId = $msg['sender_id'] ?? '';
 
-        $reporterIp = $clientInfo['ip'] ?? '';
-        $reporterFp = $clientInfo['fingerprint'] ?? '';
-
-        // 从 player_data 查询被举报者的指纹（优先最新入库的 fp）
-        $targetFp = $msgSenderFp;
-        $targetIp = $msgSenderIp;
-        if ($targetName !== '') {
-            $targetPlayer = PlayerStatsRepository::findByNickname($targetName);
-            if ($targetPlayer) {
-                $targetFp = $targetPlayer['fp'] ?: $targetFp;
-                $targetIp = $targetPlayer['ip'] ?: $targetIp;
-            }
-        }
+        // 原因与证据分离
+        $reason = Sanitizer::text($data['reason'] ?? '', 255) ?: '违规消息';
+        $evidence = $messageContent;
 
         $result = ReportRepository::report(
-            'lobby:' . $messageId,
-            $fd,
-            $reporterIp,
-            $reporterFp,
-            0,
-            $targetIp,
-            $targetFp,
-            $reason,
+            'lobby',
+            (string)$messageId,
+            $reporterPlayerId,
+            $targetPlayerId,
             $reporterName,
-            $targetName
+            $targetName,
+            $reason,
+            $evidence
         );
 
         $this->sendToPlayer($server, $fd, [
@@ -465,7 +470,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         ]);
 
         if ($result['success']) {
-            $redis->sAdd(RedisService::KP_LOBBY_REPORTED, (string)$messageId);
+            $redis->sAdd(RedisService::KP_LOBBY_REPORTED, $dedupKey);
         }
 
         Logger::info('Lobby message reported', [
@@ -574,7 +579,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         BanRepository::ban(
             $targetInfo['ip'] ?? '',
             $targetInfo['fingerprint'] ?? '',
-            Sanitizer::text($data['reason'] ?? '', 200)
+            Sanitizer::text($data['reason'] ?? '', 200),
+            $targetInfo['player_id'] ?? ''
         );
 
         if ($server->isEstablished($targetFd)) {

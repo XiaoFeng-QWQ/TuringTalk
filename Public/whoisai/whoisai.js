@@ -48,8 +48,7 @@
     const $stickerPicker = document.getElementById('whoisai-sticker-picker');
     const $stickerPickerBody = document.getElementById('whoisai-sticker-picker-body');
     const $btnCloseStickerPicker = document.getElementById('whoisai-btn-close-sticker-picker');
-    const $btnManageSticker = document.getElementById('whoisai-btn-manage-sticker');
-    bindStickerPickerTabs('whoisai-sticker-picker', renderWhoisAIStickerPicker);
+    bindStickerPickerTabs('whoisai-sticker-picker', renderWhoisAIStickerPicker, repositionStickerPicker);
     const $stickerLightbox = document.getElementById('whoisai-sticker-lightbox');
     const $stickerLightboxImg = document.getElementById('whoisai-sticker-lightbox-img');
     const $stickerLightboxClose = document.getElementById('whoisai-sticker-lightbox-close');
@@ -239,9 +238,10 @@
                 prefetchStickersFromGameWS(true);
                 onMatched(data);
                 // 服务器返回了恢复码则保存
-                if (data.recovery_code && myNickname) {
+                if (data.player_id && myNickname) {
                     setUserNickname(myNickname);
-                    setUserRecoveryCode(data.recovery_code);
+                    setUserPlayerId(data.player_id);
+                    if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
                     showIdentityState();
                 }
                 break;
@@ -268,6 +268,10 @@
 
             case 'WhoisAI_message':
                 onChatMessage(data);
+                break;
+
+            case 'WhoisAI_sticker':
+                onStickerMessage(data);
                 break;
 
             case 'WhoisAI_vote_ok':
@@ -309,7 +313,6 @@
 
     // ==================== 表情 ====================
     var whoisaiStickerMap = loadStickerCache();
-    var whoisaiStickerManageMode = false;
 
     /** 通过游戏 WS 端点拉取表情列表（不需要加入对局，handleGetStickers 无状态） */
     function prefetchStickersFromGameWS(force) {
@@ -364,43 +367,51 @@
         refreshStickerCache();
         renderSharedStickerPicker($stickerPickerBody, whoisaiStickerMap, function (id) {
             sendWhoisAISticker(id);
-        }, whoisaiStickerManageMode);
+        });
     }
 
     function sendWhoisAISticker(stickerId) {
-        send({ type: 'WhoisAI_chat', text: '[sticker:' + stickerId + ']' });
+        send({ type: 'WhoisAI_sticker', id: stickerId });
         $stickerPicker.style.display = 'none';
     }
 
-    function appendWhoisAISticker(stickerId, stickerName, isMine, senderSeat) {
-        var url = whoisaiStickerMap[stickerId] ? whoisaiStickerMap[stickerId].url : '';
+    function appendWhoisAISticker(stickerId, stickerUrlFromServer, stickerName, isMine, senderSeat) {
+        var url = resolveStickerUrl(stickerId, stickerUrlFromServer, whoisaiStickerMap);
 
         var wrapper = document.createElement('div');
-        wrapper.className = 'whoisai-chat-msg';
+        wrapper.className = 'whoisai-chat-msg sticker-msg';
         if (isMine) wrapper.classList.add('mine');
 
         var sender = document.createElement('div');
         sender.className = 'whoisai-chat-sender';
         sender.textContent = isMine ? ('玩家' + mySeat) : (stickerName || '玩家' + senderSeat);
 
-        if (!url) {
-            var placeholder = document.createElement('div');
-            placeholder.style.cssText = 'color:#999;font-style:italic;padding:8px 12px;margin-top:4px;';
-            placeholder.textContent = '[表情不存在: ' + (stickerName || stickerId) + ']';
-            wrapper.appendChild(sender);
-            wrapper.appendChild(placeholder);
-        } else {
+        if (url) {
             var img = document.createElement('img');
+            img.className = 'whoisai-sticker-img';
             img.src = url;
             img.alt = stickerName;
             img.style.cssText = 'max-width:120px;max-height:120px;border-radius:8px;margin-top:4px;';
             img.onerror = function () { this.style.display = 'none'; };
             wrapper.appendChild(sender);
             wrapper.appendChild(img);
+        } else {
+            var placeholder = document.createElement('div');
+            placeholder.style.cssText = 'color:#999;font-style:italic;padding:8px 12px;margin-top:4px;';
+            placeholder.textContent = '[表情不存在: ' + (stickerName || stickerId) + ']';
+            wrapper.appendChild(sender);
+            wrapper.appendChild(placeholder);
         }
 
         $messages.appendChild(wrapper);
         $messages.scrollTop = $messages.scrollHeight;
+    }
+
+    function onStickerMessage(data) {
+        var stickerId = data.id || '';
+        if (!stickerId) return;
+        var isMine = data.sender_seat === mySeat;
+        appendWhoisAISticker(stickerId, data.url || '', data.sender_name || '玩家' + data.sender_seat, isMine, data.sender_seat);
     }
 
     function isStickerText(text) {
@@ -412,50 +423,34 @@
         return m ? m[1] : null;
     }
 
-    // 表情按钮事件
-    $btnManageSticker.addEventListener('click', function () {
-        whoisaiStickerManageMode = !whoisaiStickerManageMode;
-        if (whoisaiStickerManageMode) {
-            $btnManageSticker.textContent = '完成';
-            $btnManageSticker.classList.add('active');
-        } else {
-            $btnManageSticker.textContent = '管理';
-            $btnManageSticker.classList.remove('active');
-        }
-        renderWhoisAIStickerPicker();
-    });
-
     $btnSticker.addEventListener('click', function () {
         refreshStickerCache();
         if ($stickerPicker.style.display === 'none' || !$stickerPicker.style.display) {
-            whoisaiStickerManageMode = false;
-            $btnManageSticker.textContent = '管理';
-            $btnManageSticker.classList.remove('active');
             renderWhoisAIStickerPicker();
-            // 先显示再测量尺寸（visibility hidden 避免闪烁）
             $stickerPicker.style.visibility = 'hidden';
             $stickerPicker.style.display = 'flex';
-            // 根据按钮位置动态定位
-            var btnRect = $btnSticker.getBoundingClientRect();
-            var pickerWidth = $stickerPicker.offsetWidth || 260;
-            var pickerHeight = $stickerPicker.offsetHeight;
-            var left = btnRect.left;
-            if (left + pickerWidth > window.innerWidth) {
-                left = window.innerWidth - pickerWidth - 10;
-            }
-            if (left < 10) left = 10;
-            $stickerPicker.style.left = left + 'px';
-            $stickerPicker.style.top = (btnRect.top - pickerHeight - 16) + 'px';
+            repositionStickerPicker();
             $stickerPicker.style.visibility = 'visible';
         } else {
             $stickerPicker.style.display = 'none';
         }
     });
 
+    function repositionStickerPicker() {
+        if ($stickerPicker.style.display !== 'flex') return;
+        var btnRect = $btnSticker.getBoundingClientRect();
+        var pickerWidth = $stickerPicker.offsetWidth || 260;
+        var pickerHeight = $stickerPicker.offsetHeight;
+        var left = btnRect.left;
+        if (left + pickerWidth > window.innerWidth) {
+            left = window.innerWidth - pickerWidth - 10;
+        }
+        if (left < 10) left = 10;
+        $stickerPicker.style.left = left + 'px';
+        $stickerPicker.style.top = (btnRect.top - pickerHeight - 16) + 'px';
+    }
+
     $btnCloseStickerPicker.addEventListener('click', function () {
-        whoisaiStickerManageMode = false;
-        $btnManageSticker.textContent = '管理';
-        $btnManageSticker.classList.remove('active');
         $stickerPicker.style.display = 'none';
     });
 
@@ -482,9 +477,9 @@
     // ==================== 身份检测与面板切换 ====================
     function showIdentityState() {
         var nickname = getUserNickname();
-        var code = getUserRecoveryCode();
+        var pid = getUserPlayerId();
 
-        if (nickname && code) {
+        if (nickname && pid) {
             // 有身份：直接显示匹配入口
             myNickname = nickname;
             $hasIdentity.style.display = 'block';
@@ -506,21 +501,22 @@
 
     // 本页恢复码恢复
     function doRecover() {
-        const code = $recoverInput.value.trim();
-        if (!code) { showRecoverMsg('请输入恢复码'); return; }
+        const pid = $recoverInput.value.trim();
+        if (!pid) { showRecoverMsg('请输入恢复码'); return; }
         const nickname = getUserNickname() || $recoverNickname.value.trim() || '';
         if (!nickname) { showRecoverMsg('请先填写昵称'); return; }
         $recoverMsg.style.display = 'none';
         $btnRecover.disabled = true;
         $btnRecover.textContent = '恢复中...';
-        fetch('/api/player-stats?code=' + encodeURIComponent(code) + '&nickname=' + encodeURIComponent(nickname))
+        fetch('/api/player-stats?recovery_code=' + encodeURIComponent(pid) + '&nickname=' + encodeURIComponent(nickname))
             .then(r => r.json())
             .then(data => {
                 $btnRecover.disabled = false;
                 $btnRecover.textContent = '恢复';
                 if (data.error) { showRecoverMsg(data.error); return; }
                 setUserNickname(nickname);
-                setUserRecoveryCode(data.code);
+                setUserPlayerId(data.player_id);
+                if (data.code) setUserRecoveryCode(data.code);
                 $recoverInput.value = '';
                 showIdentityState();
             })
@@ -621,7 +617,9 @@
         }
         $nickname.disabled = true;
         var msg = { type: 'WhoisAI_match', nickname: name, fp: getFingerprint() };
-        if (recoveryCode) msg.recovery_code = recoveryCode;
+        if (recoveryCode) msg.player_id = recoveryCode;
+        var rc = getUserRecoveryCode();
+        if (rc) msg.recovery_code = rc;
 
         if (ws && ws.readyState === WebSocket.OPEN) {
             send(msg);
@@ -643,8 +641,8 @@
     // 有身份时点击匹配
     if ($matchBtnAuthed) {
         $matchBtnAuthed.addEventListener('click', function () {
-            var code = getUserRecoveryCode();
-            doMatchRequest(myNickname, code);
+            var pid = getUserPlayerId();
+            doMatchRequest(myNickname, pid);
         });
     }
 
@@ -834,16 +832,6 @@
     }
 
     function onChatMessage(data) {
-        // 检测是否为表情消息
-        if (isStickerText(data.text)) {
-            var stickerId = parseStickerId(data.text);
-            if (stickerId) {
-                var isMine = data.sender_seat === mySeat;
-                appendWhoisAISticker(stickerId, data.sender_name || '玩家' + data.sender_seat, isMine, data.sender_seat);
-                return;
-            }
-        }
-
         var div = document.createElement('div');
         div.className = 'whoisai-chat-msg';
         if (data.sender_seat === mySeat) div.classList.add('mine');
@@ -962,9 +950,10 @@
         $votePanel.style.display = 'none';
 
         // 保存服务器返回的恢复码
-        if (data.recovery_code && myNickname) {
+        if (data.player_id && myNickname) {
             setUserNickname(myNickname);
-            setUserRecoveryCode(data.recovery_code);
+            setUserPlayerId(data.player_id);
+            if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
             showIdentityState();
         }
 
@@ -1066,8 +1055,8 @@
             myIdentity = '';
 
             // 重新匹配
-            var code = getUserRecoveryCode();
-            doMatchRequest(myNickname, code);
+            var pid = getUserPlayerId();
+            doMatchRequest(myNickname, pid);
         });
         btnGroup.appendChild(againBtn);
 

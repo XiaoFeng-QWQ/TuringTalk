@@ -57,7 +57,7 @@ class GameWebSocketHandler extends BaseGameHandler
     private array $cleaning = [];
     private array $mutualChatTimers = [];
 
-    /** @var array<string, bool> 防重复留言: "senderCode:targetCode" => true */
+    /** @var array<string, bool> 防重复留言: "senderId:targetId" => true */
     private array $leaveMessagedPairs = [];
 
     /** Bot LLM 调用并发信号量（10 槽位 + 5s 超时防死锁，超时 fallback 模板） */
@@ -194,7 +194,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
         try {
             // 清理上榜追踪
-            GameService::removePlayerCode($fd);
+            GameService::removePlayerId($fd);
 
             $this->matchService->dequeue($fd);
 
@@ -384,30 +384,22 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 获取举报者和被举报者的 IP、指纹和昵称
-        $reporterInfo = $this->clientInfo[(string)$fd] ?? null;
-        $targetInfo   = $this->clientInfo[(string)$opponentFd] ?? null;
-        $reporterIp           = $reporterInfo['ip'] ?? 'unknown';
-        $reporterFingerprint  = $reporterInfo['fingerprint'] ?? '';
-        $targetIp             = $targetInfo['ip'] ?? 'unknown';
-        $targetFingerprint    = $targetInfo['fingerprint'] ?? '';
-
         // 昵称：从 session 中取
         $isReporterP1 = ($session['player1_fd'] === $fd);
         $reporterName = $isReporterP1 ? $session['player1_nickname'] : $session['player2_nickname'];
         $targetName   = $isReporterP1 ? $session['player2_nickname'] : $session['player1_nickname'];
 
+        // player_id：从 player_data 获取
+        $reporterPlayerId = $this->getOrCreatePlayerId($fd, $reporterName) ?: '';
+
         $result = ReportRepository::report(
+            'game',
             $session['id'],
-            $fd,
-            $reporterIp,
-            $reporterFingerprint,
-            $opponentFd,
-            $targetIp,
-            $targetFingerprint,
-            $reason,
+            $reporterPlayerId,
+            '',
             $reporterName,
-            $targetName
+            $targetName,
+            $reason
         );
 
         // 举报提交时立即保存聊天记录，避免管理员审阅时聊天记录还未写入
@@ -438,8 +430,8 @@ class GameWebSocketHandler extends BaseGameHandler
      */
     private function handleSaveHistory(Server $server, int $fd, array $data): void
     {
-        $code = GameService::getPlayerCode($fd);
-        if ($code === null) {
+        $playerId = GameService::getPlayerId($fd);
+        if ($playerId === null) {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'save_history_status',
                 'success' => false,
@@ -458,9 +450,9 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        Coroutine::create(function () use ($server, $fd, $code, $sessionId) {
+        Coroutine::create(function () use ($server, $fd, $playerId, $sessionId) {
             $result = ChatHistoryRepository::save([
-                'code'       => $code,
+                'player_id'  => $playerId,
                 'session_id' => $sessionId,
             ]);
 
@@ -477,8 +469,8 @@ class GameWebSocketHandler extends BaseGameHandler
 
     private function handleLeaveMessage(Server $server, int $fd, array $data): void
     {
-        $code = GameService::getPlayerCode($fd);
-        if ($code === null) {
+        $playerId = GameService::getPlayerId($fd);
+        if ($playerId === null) {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'leave_message_status',
                 'success' => false,
@@ -487,7 +479,7 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $player = PlayerStatsRepository::findByCode($code);
+        $player = PlayerStatsRepository::findById($playerId);
         if (!$player) {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'leave_message_status',
@@ -518,8 +510,8 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $targetCode = GameService::getPlayerCode($opponentFd);
-        if ($targetCode === null) {
+        $targetId = GameService::getPlayerId($opponentFd);
+        if ($targetId === null) {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'leave_message_status',
                 'success' => true,
@@ -528,7 +520,7 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $pairKey = $code . ':' . $targetCode;
+        $pairKey = $playerId . ':' . $targetId;
         if (!empty($this->leaveMessagedPairs[$pairKey])) {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'leave_message_status',
@@ -539,7 +531,7 @@ class GameWebSocketHandler extends BaseGameHandler
         }
         $this->leaveMessagedPairs[$pairKey] = true;
 
-        $result = PlayerStatsRepository::leaveMessage($targetCode, $player['nickname'], $text, false);
+        $result = PlayerStatsRepository::leaveMessage($targetId, $player['nickname'], $text, false);
         $this->sendToPlayer($server, $fd, [
             'type' => 'leave_message_status',
             'success' => $result['success'],
@@ -562,8 +554,8 @@ class GameWebSocketHandler extends BaseGameHandler
         $playerIndex = $this->gameService->getPlayerIndex($playerFd);
         $nickname = $session['player' . $playerIndex . '_nickname'] ?? '';
 
-        $code = $nickname ? $this->getOrCreatePlayerCode($playerFd, $nickname) : null;
-        if (!$code) return;
+        $playerId = $nickname ? $this->getOrCreatePlayerId($playerFd, $nickname) : null;
+        if (!$playerId) return;
 
         $duration = max(0, time() - ($session['chat_started_at'] ?? $session['created_at'] ?? time()));
         $msgCounts = GameService::getPlayerMessageCounts($sessionId);
@@ -580,8 +572,8 @@ class GameWebSocketHandler extends BaseGameHandler
             $wasExposed = null;
         }
 
-        AsyncDbWriter::pushStats($code, [
-            'code'              => $code,
+        AsyncDbWriter::pushStats($playerId, [
+            'player_id'         => $playerId,
             'nickname'          => $nickname,
             'ip'                => $this->clientInfo[(string)$playerFd]['ip'] ?? '',
             'fp'                => $this->clientInfo[(string)$playerFd]['fingerprint'] ?? '',
@@ -599,7 +591,7 @@ class GameWebSocketHandler extends BaseGameHandler
         $opponentTagKey = 'player' . $opponentIndex . '_tag';
         $opponentTag = $session[$opponentTagKey] ?? '';
         if ($opponentTag !== '') {
-            AsyncDbWriter::pushTag($code, $opponentTag);
+            AsyncDbWriter::pushTag($playerId, $opponentTag);
         }
     }
 
@@ -673,9 +665,9 @@ class GameWebSocketHandler extends BaseGameHandler
         // 无举报，检查是否有玩家拥有恢复码，若有则延长清理时间
         if (!$hasReports) {
             $session = $this->gameService->getSession($sessionId);
-            $hasRecoveryCode = GameService::sessionHasPlayerCode($session);
+            $hasPlayerId = GameService::sessionHasPlayerId($session);
 
-            if ($hasRecoveryCode) {
+            if ($hasPlayerId) {
                 // 玩家有恢复码，延长 180s 后再清理，给前端留时间调用保存 API
                 \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
                     $this->gameService->cleanupSession($sessionId);
@@ -791,7 +783,7 @@ class GameWebSocketHandler extends BaseGameHandler
         }
 
         // 统一身份验证（昵称唯一性 + 恢复码校验，跨模式共用）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['recovery_code'] ?? ''));
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
         if (!$valid['success']) {
             $this->sendError($server, $fd, $valid['error']);
             return;
@@ -1183,7 +1175,7 @@ class GameWebSocketHandler extends BaseGameHandler
                             'opponent_tag' => $updated[$myTagKey] ?? '',
                             'session_id' => $sessionId,
                             'opponent_name' => $myName,
-                            'recovery_code' => $opponentName ? $this->getOrCreatePlayerCode($opponentFd, $opponentName) : null,
+                            'player_id' => $opponentName ? $this->getOrCreatePlayerId($opponentFd, $opponentName) : null,
                         ]);
                     }
 
@@ -1196,7 +1188,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         'opponent_tag' => $updated[$opponentTagKey],
                         'session_id' => $sessionId,
                         'opponent_name' => $opponentName,
-                        'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
+                        'player_id' => $myName ? $this->getOrCreatePlayerId($fd, $myName) : null,
                     ]);
 
                     // 通知旁观者结果
@@ -1271,7 +1263,7 @@ class GameWebSocketHandler extends BaseGameHandler
                             'truth' => $opponentTruth,
                             'opponent_guess' => $botGuess,
                             'session_id' => $sessionId,
-                            'recovery_code' => $myName ? $this->getOrCreatePlayerCode($fd, $myName) : null,
+                            'player_id' => $myName ? $this->getOrCreatePlayerId($fd, $myName) : null,
                         ]);
 
                         // 通知旁观者
@@ -1372,7 +1364,7 @@ class GameWebSocketHandler extends BaseGameHandler
             'opponent_guess' => $session[$myGuessKey],
             'opponent_tag' => $session[$myTagKey] ?? '',
             'session_id' => $sessionId,
-            'recovery_code' => $session['player' . $opponentIndex . '_nickname'] ? $this->getOrCreatePlayerCode($opponentFd, $session['player' . $opponentIndex . '_nickname']) : null,
+            'player_id' => $session['player' . $opponentIndex . '_nickname'] ? $this->getOrCreatePlayerId($opponentFd, $session['player' . $opponentIndex . '_nickname']) : null,
             'opponent_name' => $session['player' . $myIndex . '_nickname'] ?? '',
         ]);
 
@@ -1382,7 +1374,7 @@ class GameWebSocketHandler extends BaseGameHandler
             'opponent_guess' => $session[$opponentGuessKey],
             'opponent_tag' => $session[$opponentTagKey],
             'session_id' => $sessionId,
-            'recovery_code' => $session['player' . $myIndex . '_nickname'] ? $this->getOrCreatePlayerCode($fd, $session['player' . $myIndex . '_nickname']) : null,
+            'player_id' => $session['player' . $myIndex . '_nickname'] ? $this->getOrCreatePlayerId($fd, $session['player' . $myIndex . '_nickname']) : null,
             'opponent_name' => $session['player' . $opponentIndex . '_nickname'] ?? '',
         ]);
 
@@ -1525,9 +1517,10 @@ class GameWebSocketHandler extends BaseGameHandler
 
         $targetIp = $opponentInfo['ip'];
         $targetFingerprint = $opponentInfo['fingerprint'];
+        $targetPlayerId = $playerInfo['player_id'] ?? '';
         $reason = Sanitizer::text($data['reason'] ?? '', 200);
 
-        BanRepository::ban($targetIp, $targetFingerprint, $reason);
+        BanRepository::ban($targetIp, $targetFingerprint, $reason, $targetPlayerId);
 
         $banText = '你已被管理员封禁';
         if ($reason) $banText .= '，原因：' . $reason;
@@ -1598,19 +1591,16 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $stickerId = Sanitizer::identifier($data['id'] ?? '');
-        if (empty($stickerId)) {
-            $this->sendError($server, $fd, '无效的表情 ID');
-            return;
-        }
-
-        // 服务端校验：ID 必须存在于 SQLite 中
-        $stickerRepo = \App\Services\Repository\StickerRepository::get($stickerId);
-        if (!$stickerRepo) {
+        // 服务端校验：ID 必须存在于 MySQL 中（优先查用户自定义，回退默认）
+        $senderName = $fd === $session['player1_fd']
+            ? $session['player1_nickname']
+            : $session['player2_nickname'];
+        $senderPid = $this->getOrCreatePlayerId($fd, $senderName);
+        $sticker = $this->resolveSticker($data, $senderPid);
+        if (!$sticker) {
             $this->sendError($server, $fd, '该表情不存在');
             return;
         }
-        $sticker = $stickerRepo;
 
         $opponentFd = $this->gameService->getOpponentFd($fd);
         $sessionId = $session['id'];
@@ -1625,18 +1615,16 @@ class GameWebSocketHandler extends BaseGameHandler
         }
 
         // 记录到聊天历史
-        $senderName = $fd === $session['player1_fd']
-            ? $session['player1_nickname']
-            : $session['player2_nickname'];
         $side = $fd === $session['player1_fd'] ? 'left' : 'right';
-        GameService::addSessionMessage($sessionId, $senderName, '', $side, $stickerId, $sticker['name'] ?? '');
+        GameService::addSessionMessage($sessionId, $senderName, '', $side, $sticker['id'], $sticker['name'] ?? '');
 
-        // 转发给对手（仅 id+name，不含 URL）
+        // 转发给对手
         if ($opponentFd > 0) {
             $this->sendToPlayer($server, $opponentFd, [
                 'type' => 'sticker',
-                'id' => $stickerId,
+                'id' => $sticker['id'],
                 'name' => $sticker['name'] ?? '',
+                'url' => $sticker['url'] ?? '',
                 'sender' => '对方',
             ]);
         }
@@ -1650,7 +1638,7 @@ class GameWebSocketHandler extends BaseGameHandler
         }
         $this->sendToSpectators($server, $sessionId, [
             'type' => 'spectate_sticker',
-            'id' => $stickerId,
+            'id' => $sticker['id'],
             'name' => $sticker['name'] ?? '',
             'sender' => $roleLabel,
             'side' => $spSide,
@@ -1659,7 +1647,7 @@ class GameWebSocketHandler extends BaseGameHandler
         Logger::debug('Player sent sticker', [
             'fd' => $fd,
             'session_id' => $sessionId,
-            'sticker_id' => $stickerId,
+            'sticker_id' => $sticker['id'],
         ]);
     }
 
@@ -1826,7 +1814,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         'reason' => 'opponent_timeout',
                         'opponent_truth' => $p2Truth,
                         'session_id' => $sessionId,
-                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($session['player1_fd'], $p1Name) : null,
+                        'player_id' => $p1Name ? $this->getOrCreatePlayerId($session['player1_fd'], $p1Name) : null,
                         'opponent_name' => $this->getOpponentName($session, $session['player1_fd']),
                     ]);
                     $this->sendToPlayer($server, $session['player2_fd'], [
@@ -1834,7 +1822,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         'reason' => 'you_timeout',
                         'opponent_truth' => $session['player1_truth'] ?? 'ai',
                         'session_id' => $sessionId,
-                        'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($session['player2_fd'], $p2Name) : null,
+                        'player_id' => $p2Name ? $this->getOrCreatePlayerId($session['player2_fd'], $p2Name) : null,
                         'opponent_name' => $this->getOpponentName($session, $session['player2_fd']),
                     ]);
 
@@ -1851,7 +1839,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         'reason' => 'you_timeout',
                         'opponent_truth' => $session['player2_truth'] ?? 'ai',
                         'session_id' => $sessionId,
-                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($session['player1_fd'], $p1Name) : null,
+                        'player_id' => $p1Name ? $this->getOrCreatePlayerId($session['player1_fd'], $p1Name) : null,
                         'opponent_name' => $this->getOpponentName($session, $session['player1_fd']),
                     ]);
                     $this->sendToPlayer($server, $session['player2_fd'], [
@@ -1859,7 +1847,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         'reason' => 'opponent_timeout',
                         'opponent_truth' => $p1Truth,
                         'session_id' => $sessionId,
-                        'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($session['player2_fd'], $p2Name) : null,
+                        'player_id' => $p2Name ? $this->getOrCreatePlayerId($session['player2_fd'], $p2Name) : null,
                         'opponent_name' => $this->getOpponentName($session, $session['player2_fd']),
                     ]);
 
@@ -1877,7 +1865,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         'reason' => 'both_timeout',
                         'opponent_truth' => $p2Truth,
                         'session_id' => $sessionId,
-                        'recovery_code' => $p1Name ? $this->getOrCreatePlayerCode($session['player1_fd'], $p1Name) : null,
+                        'player_id' => $p1Name ? $this->getOrCreatePlayerId($session['player1_fd'], $p1Name) : null,
                         'opponent_name' => $this->getOpponentName($session, $session['player1_fd']),
                     ]);
                     if ($session['player2_fd'] > 0) {
@@ -1886,7 +1874,7 @@ class GameWebSocketHandler extends BaseGameHandler
                             'reason' => 'both_timeout',
                             'opponent_truth' => $p1Truth,
                             'session_id' => $sessionId,
-                            'recovery_code' => $p2Name ? $this->getOrCreatePlayerCode($session['player2_fd'], $p2Name) : null,
+                            'player_id' => $p2Name ? $this->getOrCreatePlayerId($session['player2_fd'], $p2Name) : null,
                             'opponent_name' => $this->getOpponentName($session, $session['player2_fd']),
                         ]);
                     }
@@ -1976,7 +1964,7 @@ class GameWebSocketHandler extends BaseGameHandler
                 'truth' => 'ai',
                 'opponent_guess' => $botGuess,
                 'session_id' => $sessionId,
-                'recovery_code' => $session['player1_nickname'] ? $this->getOrCreatePlayerCode($playerFd, $session['player1_nickname']) : null,
+                'player_id' => $session['player1_nickname'] ? $this->getOrCreatePlayerId($playerFd, $session['player1_nickname']) : null,
                 'opponent_name' => 'AI Bot',
             ]);
 
@@ -2327,23 +2315,23 @@ class GameWebSocketHandler extends BaseGameHandler
      */
     private function handleUpdateNickname(Server $server, int $fd, array $data): void
     {
-        $code = Sanitizer::identifier($data['code'] ?? '');
+        $playerId = Sanitizer::identifier($data['player_id'] ?? '');
         $nickname = Sanitizer::text($data['nickname'] ?? '', 16);
         $fp = Sanitizer::identifier($data['fp'] ?? '');
 
-        if (empty($code) || empty($nickname)) {
+        if (empty($playerId) || empty($nickname)) {
             $this->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'error' => '参数不完整']);
             return;
         }
 
         // 检查昵称唯一性
         $existing = PlayerStatsRepository::findByNickname($nickname);
-        if ($existing && $existing['code'] !== $code) {
+        if ($existing && $existing['id'] !== $playerId) {
             $this->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'error' => '昵称已被占用']);
             return;
         }
 
-        PlayerStatsRepository::updateNickname($code, $nickname, $this->clientInfo[(string)$fd]['ip'] ?? '', $fp);
+        PlayerStatsRepository::updateNickname($playerId, $nickname, $this->clientInfo[(string)$fd]['ip'] ?? '', $fp);
         $this->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'success' => true]);
     }
 }

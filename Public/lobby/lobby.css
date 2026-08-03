@@ -54,11 +54,32 @@
     font-size: 13px;
     color: var(--ink-black);
     opacity: 0.8;
+    overflow: hidden;
+    padding: 0 12px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+}
+
+.lyric-line,
+.lyric-sub {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    padding: 0 12px;
-    min-width: 0;
+}
+
+.lyric-line.scrolling,
+.lyric-sub.scrolling {
+    text-overflow: clip;
+    padding-right: 30px;
+    animation: songTitleScroll 8s linear infinite;
+}
+
+.lyric-sub {
+    font-size: 11px;
+    opacity: 0.6;
 }
 
 .lobby-chat-actions {
@@ -236,10 +257,81 @@
     text-underline-offset: 2px;
     word-break: break-all;
 }
+
 .auto-link:hover {
     color: var(--note-blue-dark, #2563eb);
 }
 
+/* B站视频嵌入播放器 */
+.bili-embed {
+    width: calc(100vw - 90px);
+    max-width: 600px;
+}
+
+/* 包含视频的消息行：解除 75% max-width 限制 */
+.lobby-msg-row:has(.bili-embed) .lobby-msg-content {
+    max-width: none;
+}
+
+.bili-video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    min-height: 200px;
+    border-radius: 8px;
+    border: 2px solid var(--ink-black);
+    display: block;
+}
+
+/* Plyr 主题适配 */
+.bili-embed .plyr {
+    border-radius: 8px;
+    border: 2px solid var(--ink-black);
+}
+
+.bili-embed .plyr--full-ui {
+    border-radius: 8px;
+}
+
+.bili-title {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bili-title a {
+    color: var(--text-subtle);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.bili-title a:hover {
+    color: var(--note-blue-dark, #2563eb);
+}
+
+.bili-loading {
+    font-size: 12px;
+    color: var(--text-subtle);
+    padding: 12px 0;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.bili-spinner {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.bili-error {
+    font-size: 12px;
+    color: var(--note-red);
+}
 
 .lobby-msg-context-menu {
     position: fixed;
@@ -814,10 +906,25 @@
 }
 
 @keyframes kfcFly {
-    0%   { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0); }
-    12%  { opacity: 1; transform: translate(calc(var(--dx) * 0.15), calc(var(--dy) * 0.2)) rotate(calc(var(--rot) * 0.15)) scale(1.3); }
-    35%  { opacity: 1; transform: translate(calc(var(--dx) * 0.5), calc(var(--dy) * 0.55)) rotate(calc(var(--rot) * 0.5)) scale(1); }
-    100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.1); }
+    0% {
+        opacity: 0;
+        transform: translate(0, 0) rotate(0deg) scale(0);
+    }
+
+    12% {
+        opacity: 1;
+        transform: translate(calc(var(--dx) * 0.15), calc(var(--dy) * 0.2)) rotate(calc(var(--rot) * 0.15)) scale(1.3);
+    }
+
+    35% {
+        opacity: 1;
+        transform: translate(calc(var(--dx) * 0.5), calc(var(--dy) * 0.55)) rotate(calc(var(--rot) * 0.5)) scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.1);
+    }
 }
 
 
@@ -1037,11 +1144,11 @@
     transition: left 0.2s;
 }
 
-.song-listen-toggle input:checked + .toggle-track {
+.song-listen-toggle input:checked+.toggle-track {
     background: var(--note-green);
 }
 
-.song-listen-toggle input:checked + .toggle-track .toggle-thumb {
+.song-listen-toggle input:checked+.toggle-track .toggle-thumb {
     left: 16px;
     background: var(--ink-blue);
 }
@@ -1220,8 +1327,16 @@
 }
 
 @keyframes songTitleScroll {
-    0%, 8% { transform: translateX(0); }
-    92%, 100% { transform: translateX(calc(-1 * var(--scroll-distance, 0px))); }
+
+    0%,
+    8% {
+        transform: translateX(0);
+    }
+
+    92%,
+    100% {
+        transform: translateX(calc(-1 * var(--scroll-distance, 0px)));
+    }
 }
 
 .song-item .song-meta {

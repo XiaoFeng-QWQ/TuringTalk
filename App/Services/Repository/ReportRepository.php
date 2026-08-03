@@ -8,9 +8,8 @@ use App\Services\Infrastructure\Logger;
 /**
  * 举报记录存储服务（MySQL）
  *
- * 记录玩家在对局中的举报信息，包括举报者、被举报者、原因等。
- * 支持按 session 去重（同一对局中同一举报者只能举报一次）。
- * 被举报的对局聊天记录会异步保存到 MySQL 供管理员审核。
+ * 以 player_data.id 为核心标识，记录举报者与被举报者。
+ * source + source_id 统一表示来源。
  */
 class ReportRepository
 {
@@ -21,29 +20,24 @@ class ReportRepository
     {
         $pdo = Database::connect();
 
-        // 举报记录表
         $pdo->exec('CREATE TABLE IF NOT EXISTS reports (
-            id                    BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-            session_id            VARCHAR(64)  NOT NULL COMMENT "对局 ID",
-            reporter_fd           INT          NOT NULL COMMENT "举报者 fd",
-            reporter_ip           VARCHAR(45)  NOT NULL DEFAULT "" COMMENT "举报者 IP",
-            reporter_fingerprint  VARCHAR(64)  NOT NULL DEFAULT "" COMMENT "举报者浏览器指纹",
-            reporter_name         VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "举报者昵称",
-            target_fd             INT          NOT NULL COMMENT "被举报者 fd",
-            target_ip             VARCHAR(45)  NOT NULL DEFAULT "" COMMENT "被举报者 IP",
-            target_fingerprint    VARCHAR(64)  NOT NULL DEFAULT "" COMMENT "被举报者浏览器指纹",
-            target_name           VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "被举报者昵称",
-            reason                VARCHAR(255) NOT NULL DEFAULT "" COMMENT "举报原因",
-            reviewed              TINYINT      NOT NULL DEFAULT 0 COMMENT "是否已审核 0=未审 1=已审",
-            created_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT "举报时间",
-            INDEX idx_session   (session_id),
-            INDEX idx_reviewed   (reviewed),
-            INDEX idx_created    (created_at),
-            UNIQUE uk_reporter_session (session_id, reporter_fd)
+            id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            source              VARCHAR(16)  NOT NULL COMMENT "来源: game/lobby/whoisai",
+            source_id           VARCHAR(128) NOT NULL COMMENT "来源标识(session_id/message_id/room_id)",
+            reporter_player_id  VARCHAR(64)  NOT NULL COMMENT "举报者 player_data.id",
+            target_player_id    VARCHAR(64)  NOT NULL COMMENT "被举报者 player_data.id",
+            reporter_name       VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "举报者昵称(快照)",
+            target_name         VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "被举报者昵称(快照)",
+            reason              VARCHAR(255) NOT NULL DEFAULT "" COMMENT "举报原因",
+            evidence            TEXT COMMENT "证据(消息内容等)",
+            reviewed            TINYINT      NOT NULL DEFAULT 0 COMMENT "是否已审核 0=未审 1=已审",
+            created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT "举报时间",
+            UNIQUE uk_source_report (source, source_id, reporter_player_id),
+            INDEX idx_reviewed (reviewed),
+            INDEX idx_created  (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         COMMENT="玩家举报记录"');
 
-        // 被举报对局的聊天记录表
         $pdo->exec('CREATE TABLE IF NOT EXISTS report_chat_history (
             id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             session_id  VARCHAR(64)   NOT NULL COMMENT "对局 ID",
@@ -64,16 +58,14 @@ class ReportRepository
      * @return array{success: bool, message: string}
      */
     public static function report(
-        string $sessionId,
-        int    $reporterFd,
-        string $reporterIp,
-        string $reporterFingerprint,
-        int    $targetFd,
-        string $targetIp,
-        string $targetFingerprint,
+        string $source,
+        string $sourceId,
+        string $reporterPlayerId,
+        string $targetPlayerId,
+        string $reporterName,
+        string $targetName,
         string $reason,
-        string $reporterName = '',
-        string $targetName = ''
+        string $evidence = ''
     ): array {
         self::ensureTable();
 
@@ -86,21 +78,21 @@ class ReportRepository
 
         try {
             $stmt = $pdo->prepare(
-                'INSERT INTO reports (session_id, reporter_fd, reporter_ip, reporter_fingerprint, reporter_name, target_fd, target_ip, target_fingerprint, target_name, reason)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO reports (source, source_id, reporter_player_id, target_player_id, reporter_name, target_name, reason, evidence)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$sessionId, $reporterFd, $reporterIp, $reporterFingerprint, $reporterName, $targetFd, $targetIp, $targetFingerprint, $targetName, $reason]);
+            $stmt->execute([$source, $sourceId, $reporterPlayerId, $targetPlayerId, $reporterName, $targetName, $reason, $evidence]);
 
             Logger::debug('Report submitted', [
-                'session_id'  => $sessionId,
-                'reporter_fd' => $reporterFd,
-                'target_fd'   => $targetFd,
-                'reason'      => $reason,
+                'source'         => $source,
+                'source_id'      => $sourceId,
+                'reporter'       => $reporterPlayerId,
+                'target'         => $targetPlayerId,
+                'reason'         => $reason,
             ]);
 
             return ['success' => true, 'message' => '举报已提交，管理员将尽快处理'];
         } catch (\Throwable $e) {
-            // 1062 = Duplicate entry（同一对局重复举报）
             if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062')) {
                 return ['success' => false, 'message' => '你已经举报过对方了'];
             }
@@ -117,7 +109,7 @@ class ReportRepository
     {
         try {
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('SELECT 1 FROM reports WHERE session_id = ? LIMIT 1');
+            $stmt = $pdo->prepare("SELECT 1 FROM reports WHERE source = 'game' AND source_id = ? LIMIT 1");
             $stmt->execute([$sessionId]);
             return (bool)$stmt->fetchColumn();
         } catch (\Throwable $e) {
@@ -172,15 +164,13 @@ class ReportRepository
                 $params[] = $reviewed === '1' ? 1 : 0;
             }
 
-            // 总数
             $countStmt = $pdo->prepare("SELECT COUNT(*) FROM reports r {$where}");
             $countStmt->execute($params);
             $total = (int)$countStmt->fetchColumn();
 
-            // 分页
             $offset = ($page - 1) * $pageSize;
             $sql = "SELECT r.*, 
-                        (SELECT COUNT(*) FROM report_chat_history ch WHERE ch.session_id = r.session_id) AS has_history
+                        (SELECT COUNT(*) FROM report_chat_history ch WHERE ch.session_id = r.source_id AND r.source = 'game') AS has_history
                     FROM reports r
                     {$where}
                     ORDER BY r.created_at DESC
@@ -214,13 +204,38 @@ class ReportRepository
                 return null;
             }
 
-            // 查询聊天记录
-            $histStmt = $pdo->prepare('SELECT * FROM report_chat_history WHERE session_id = ?');
-            $histStmt->execute([$report['session_id']]);
-            $report['chat_history'] = $histStmt->fetch();
+            // 补上 reporter 和 target 的 IP + 指纹（从 player_data 关联）
+            $report['reporter_ip'] = '';
+            $report['reporter_fingerprint'] = '';
+            $report['target_ip'] = '';
+            $report['target_fingerprint'] = '';
 
-            if ($report['chat_history'] && !empty($report['chat_history']['messages'])) {
-                $report['chat_history']['messages'] = json_decode($report['chat_history']['messages'], true) ?: [];
+            if (!empty($report['reporter_player_id'])) {
+                $repData = self::getPlayerInfo($pdo, $report['reporter_player_id']);
+                if ($repData) {
+                    $report['reporter_ip'] = $repData['ip'] ?? '';
+                    $report['reporter_fingerprint'] = $repData['fp'] ?? '';
+                }
+            }
+            if (!empty($report['target_player_id'])) {
+                $tgtData = self::getPlayerInfo($pdo, $report['target_player_id']);
+                if ($tgtData) {
+                    $report['target_ip'] = $tgtData['ip'] ?? '';
+                    $report['target_fingerprint'] = $tgtData['fp'] ?? '';
+                }
+            }
+
+            // 只有 game 类型才有聊天记录
+            if ($report['source'] === 'game') {
+                $histStmt = $pdo->prepare('SELECT * FROM report_chat_history WHERE session_id = ?');
+                $histStmt->execute([$report['source_id']]);
+                $report['chat_history'] = $histStmt->fetch();
+
+                if ($report['chat_history'] && !empty($report['chat_history']['messages'])) {
+                    $report['chat_history']['messages'] = json_decode($report['chat_history']['messages'], true) ?: [];
+                }
+            } else {
+                $report['chat_history'] = null;
             }
 
             return $report;
@@ -242,5 +257,20 @@ class ReportRepository
         } catch (\Throwable $e) {
             Logger::error('ReportRepository: markReviewed failed', ['error' => $e->getMessage()]);
         }
+    }
+
+    /**
+     * 从 player_data 取 IP 和指纹
+     */
+    private static function getPlayerInfo(\PDO $pdo, string $playerId): ?array
+    {
+        static $cache = [];
+        if (array_key_exists($playerId, $cache)) {
+            return $cache[$playerId];
+        }
+        $stmt = $pdo->prepare('SELECT ip, fp FROM player_data WHERE id = ?');
+        $stmt->execute([$playerId]);
+        $cache[$playerId] = $stmt->fetch() ?: null;
+        return $cache[$playerId];
     }
 }

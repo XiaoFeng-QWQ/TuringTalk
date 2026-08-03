@@ -6,6 +6,9 @@ use App\Config\Config;
 use App\Core\ErrorHandler;
 use App\Services\Infrastructure\Logger;
 use App\CLI\Commands\CleanupInactivePlayers;
+use App\CLI\Commands\MigratePlayerIdentity;
+use App\CLI\Commands\MigrateReports;
+use App\CLI\Commands\MigrateStickers;
 
 /**
  * 命令行接口内核
@@ -25,6 +28,9 @@ class ConsoleKernel
         Logger::initialize();
 
         $this->register(new CleanupInactivePlayers());
+        $this->register(new MigratePlayerIdentity());
+        $this->register(new MigrateReports());
+        $this->register(new MigrateStickers());
     }
 
     public function register(Command $command): void
