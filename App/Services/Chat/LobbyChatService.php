@@ -5,6 +5,7 @@ namespace App\Services\Chat;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\Database;
+use App\Services\Infrastructure\AsyncDbWriter;
 
 /**
  * 公共聊天室服务
@@ -64,6 +65,42 @@ class LobbyChatService
     }
 
     /**
+     * 发送表情消息：写入 Redis 缓存 + 推送异步写入队列
+     */
+    public function sendSticker(string $senderName, string $senderId, string $stickerId, string $stickerName, string $stickerUrl, string $ip = '', string $fingerprint = ''): array
+    {
+        $redis = RedisService::connect();
+        $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
+
+        $msg = [
+            'id'           => $id,
+            'type'         => 'sticker',
+            'sender_name'  => $senderName,
+            'sender_id'    => $senderId,
+            'sender_ip'    => $ip,
+            'sender_fp'    => $fingerprint,
+            'sticker_id'   => $stickerId,
+            'sticker_name' => mb_substr($stickerName, 0, 32),
+            'sticker_url'  => $stickerUrl,
+            'time'         => date('H:i:s'),
+            'created_at'   => date('Y-m-d H:i:s'),
+        ];
+
+        $json = json_encode($msg, JSON_UNESCAPED_UNICODE);
+
+        // 写入 Redis 缓存（保留最新 100 条）
+        $redis->lPush(RedisService::KP_LOBBY_MSGS, $json);
+        $redis->lTrim(RedisService::KP_LOBBY_MSGS, 0, self::MAX_REDIS_MSGS - 1);
+
+        // 推送异步写入队列
+        $redis->rPush(RedisService::KP_LOBBY_WRITE_Q, $json);
+
+        Logger::debug('Lobby sticker message sent', ['id' => $id, 'sender' => $senderName, 'sticker_id' => $stickerId]);
+
+        return $msg;
+    }
+
+    /**
      * 获取最近 N 条消息（用于新用户进入时推送历史）
      */
     public function getRecentMessages(int $limit = 100, bool $keepMeta = false): array
@@ -91,6 +128,7 @@ class LobbyChatService
      */
     public function getMessagesPage(int $page, int $pageSize, string $nickname = ''): array
     {
+        AsyncDbWriter::ensureLobbyTable();
         $pdo = Database::connect();
         $tables = $this->getRelevantMonths();
 
@@ -120,7 +158,7 @@ class LobbyChatService
             try {
                 // 先检查表是否存在
                 $pdo->query("SELECT 1 FROM `{$table}` LIMIT 0");
-                $unions[] = "SELECT id, sender_name, sender_ip, sender_fp, content, reply_to_id, reply_to_name, reply_to_text, is_deleted, created_at FROM `{$table}`{$whereClause}";
+                $unions[] = "SELECT id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, is_deleted, created_at FROM `{$table}`{$whereClause}";
             } catch (\Throwable $e) {
                 Logger::warning('LobbyChatService: table check failed, skipping', ['table' => $table, 'error' => $e->getMessage()]);
                 continue;
@@ -154,6 +192,10 @@ class LobbyChatService
                 'sender_ip'   => $row['sender_ip'] ?? '',
                 'sender_fp'   => $row['sender_fp'] ?? '',
                 'content'     => $row['content'] ?? '',
+                'type'        => $row['type'] ?? '',
+                'sticker_id'  => $row['sticker_id'] ?? '',
+                'sticker_name'=> $row['sticker_name'] ?? '',
+                'sticker_url' => $row['sticker_url'] ?? '',
                 'created_at'  => $row['created_at'] ?? '',
             ];
             if ($row['reply_to_id']) {
@@ -167,6 +209,124 @@ class LobbyChatService
         }
 
         return ['total' => $total, 'messages' => $messages];
+    }
+
+    /**
+     * 后台管理用：Redis + MySQL 合并读取（保证实时性）
+     *
+     * Redis 存最新 100 条，MySQL 存全量。合并策略：
+     *   1. 从 Redis 读取所有缓存消息（无分页，最多 100 条）
+     *   2. 从 MySQL 读取全量（去重：排除 Redis 中已有的 ID）
+     *   3. 合并后按 ID 倒序，再按 page/pageSize 分页返回
+     *
+     * @return array{total: int, messages: array}
+     */
+    public function getAdminMessages(int $page, int $pageSize, string $nickname = ''): array
+    {
+        // 确保所有相关月表结构最新
+        foreach ($this->getRelevantMonths() as $tableName) {
+            try {
+                $monthSuffix = substr($tableName, strlen('lobby_messages_'));
+                AsyncDbWriter::ensureLobbyTable($monthSuffix);
+            } catch (\Throwable $e) {
+                Logger::warning('LobbyChatService: ensureLobbyTable failed', ['table' => $tableName, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // 1. 从 Redis 读取缓存消息
+        $redisMsgs = $this->getRecentMessages(self::MAX_REDIS_MSGS, true);
+        $redisIds  = [];
+        $cachedMap = [];
+        foreach ($redisMsgs as $msg) {
+            $rid = (int)($msg['id'] ?? 0);
+            if ($rid > 0) {
+                $redisIds[] = $rid;
+                $cachedMap[$rid] = $msg;
+            }
+        }
+
+        // 2. 从 MySQL 读取全量并合并
+        $allMessages = [];
+        $seenIds = [];
+
+        // 先加 Redis 消息
+        foreach ($cachedMap as $rid => $msg) {
+            if ($nickname !== '' && mb_stripos($msg['sender_name'] ?? '', $nickname) === false) continue;
+            $allMessages[] = $msg;
+            $seenIds[$rid] = true;
+        }
+
+        // 再加 MySQL 消息（Redis 中已有的跳过）
+        $pdo = Database::connect();
+        $tables = $this->getRelevantMonths();
+        $unions = [];
+        $whereClause = '';
+        $likeParams = [];
+        if ($nickname !== '') {
+            $whereClause = ' WHERE sender_name LIKE ?';
+            $likeParams[] = '%' . $nickname . '%';
+        }
+
+        foreach ($tables as $table) {
+            try {
+                $pdo->query("SELECT 1 FROM `{$table}` LIMIT 0");
+                $unions[] = "SELECT id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, is_deleted, created_at FROM `{$table}`{$whereClause}";
+            } catch (\Throwable $e) {
+                continue;
+            }
+        }
+
+        if (!empty($unions)) {
+            try {
+                $allParams = [];
+                $unionCount = count($unions);
+                for ($i = 0; $i < $unionCount; $i++) {
+                    $allParams = array_merge($allParams, $likeParams);
+                }
+                $sql = implode(' UNION ALL ', $unions) . ' ORDER BY id DESC';
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($allParams);
+                $rows = $stmt->fetchAll() ?: [];
+
+                foreach ($rows as $row) {
+                    $rid = (int)$row['id'];
+                    if (isset($seenIds[$rid])) continue;
+                    $seenIds[$rid] = true;
+                    $m = [
+                        'id'          => $rid,
+                        'sender_name' => $row['sender_name'] ?? '',
+                        'sender_ip'   => $row['sender_ip'] ?? '',
+                        'sender_fp'   => $row['sender_fp'] ?? '',
+                        'content'     => $row['content'] ?? '',
+                        'type'        => $row['type'] ?? '',
+                        'sticker_id'  => $row['sticker_id'] ?? '',
+                        'sticker_name'=> $row['sticker_name'] ?? '',
+                        'sticker_url' => $row['sticker_url'] ?? '',
+                        'time'        => date('H:i:s', strtotime($row['created_at'] ?? '')),
+                        'created_at'  => $row['created_at'] ?? '',
+                    ];
+                    if ($row['reply_to_id']) {
+                        $m['reply_to'] = [
+                            'id'   => (int)$row['reply_to_id'],
+                            'name' => $row['reply_to_name'] ?? '',
+                            'text' => $row['reply_to_text'] ?? '',
+                        ];
+                    }
+                    $allMessages[] = $m;
+                }
+            } catch (\Throwable $e) {
+                Logger::warning('LobbyChatService: getAdminMessages MySQL query failed', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // 3. 按 ID 倒序
+        usort($allMessages, fn($a, $b) => ($b['id'] ?? 0) <=> ($a['id'] ?? 0));
+
+        $total = count($allMessages);
+        $offset = ($page - 1) * $pageSize;
+        $paged = array_slice($allMessages, $offset, $pageSize);
+
+        return ['total' => $total, 'messages' => $paged];
     }
 
     /**
@@ -317,6 +477,17 @@ class LobbyChatService
 
         // 更新 Redis list 中的该条消息
         $redis->lSet(RedisService::KP_LOBBY_MSGS, $targetIndex, $newJson);
+
+        // 同步更新所有引用此消息的 reply_to.text（防止引用内容泄漏）
+        for ($i = 0, $len = count($raw); $i < $len; $i++) {
+            $m = json_decode($raw[$i], true);
+            if (!$m) continue;
+            $replyId = (int)($m['reply_to']['id'] ?? 0);
+            if ($replyId === $messageId) {
+                $m['reply_to']['text'] = '[已撤回]';
+                $redis->lSet(RedisService::KP_LOBBY_MSGS, $i, json_encode($m, JSON_UNESCAPED_UNICODE));
+            }
+        }
 
         Logger::info('Lobby message revoked', ['id' => $messageId, 'senderId' => $senderId]);
         return $targetMsg;

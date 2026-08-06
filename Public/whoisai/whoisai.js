@@ -68,6 +68,7 @@
     let myIdentity = '';
     let countdownTimer = null;
     let countdownSec = 0;
+    let lastSentStickerId = '';
     let pendingMatchMsg = null;
     let isEliminated = false;
 
@@ -365,13 +366,17 @@
 
     function renderWhoisAIStickerPicker() {
         refreshStickerCache();
-        renderSharedStickerPicker($stickerPickerBody, whoisaiStickerMap, function (id) {
-            sendWhoisAISticker(id);
+        renderSharedStickerPicker($stickerPickerBody, whoisaiStickerMap, function (id, st) {
+            sendWhoisAISticker(id, st);
         });
     }
 
-    function sendWhoisAISticker(stickerId) {
+    function sendWhoisAISticker(stickerId, stickerData) {
         send({ type: 'WhoisAI_sticker', id: stickerId });
+        // 立即本地渲染，不等服务端广播回传（防止表情被吞）
+        appendWhoisAISticker(stickerId, stickerData ? stickerData.url : '', stickerData ? stickerData.name : '', true, mySeat);
+        // 记录已渲染的表情，防止服务端广播回报时重复追加
+        lastSentStickerId = stickerId;
         $stickerPicker.style.display = 'none';
     }
 
@@ -410,6 +415,11 @@
     function onStickerMessage(data) {
         var stickerId = data.id || '';
         if (!stickerId) return;
+        // 如果该表情已由本地渲染过（发送时立即渲染），跳过服务端广播回传
+        if (lastSentStickerId === stickerId) {
+            lastSentStickerId = '';
+            return;
+        }
         var isMine = data.sender_seat === mySeat;
         appendWhoisAISticker(stickerId, data.url || '', data.sender_name || '玩家' + data.sender_seat, isMine, data.sender_seat);
     }
@@ -949,12 +959,15 @@
         $inputArea.style.display = 'none';
         $votePanel.style.display = 'none';
 
-        // 保存服务器返回的恢复码
+        // 保存服务器返回的恢复码（仅在 player_id 与本地一致或本地无数据时写入，防止数据被其他玩家覆盖）
         if (data.player_id && myNickname) {
-            setUserNickname(myNickname);
-            setUserPlayerId(data.player_id);
-            if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
-            showIdentityState();
+            var localPid = getUserPlayerId();
+            if (!localPid || String(localPid) === String(data.player_id)) {
+                setUserNickname(myNickname);
+                setUserPlayerId(data.player_id);
+                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
+                showIdentityState();
+            }
         }
 
         var isDisconnect = data.reason === 'disconnect';

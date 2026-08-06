@@ -75,6 +75,7 @@
     let banned = false;
     let myNickname = '';
     let myPlayerId = '';          // player_data.id，用于消息归属判断（防止昵称冒用）
+    let lastSentStickerId = '';   // 本地渲染去重，防止服务端广播回传导致重复
     let replyTarget = null;      // { id, name, text }
     let stickyScroll = false;
     let onlinePlayers = [];      // [{ fd, nickname }] — 在线玩家列表
@@ -247,24 +248,23 @@
     }
 
     function handleJoined(data) {
-        // 保存服务端返回的恢复码
-        if (data.player_id) {
-            setUserPlayerId(data.player_id);
+        var localPid = getUserPlayerId();
+        // 仅在本地无 player_id 或服务端返回的 player_id 与本地一致时才写入，防止数据被其他玩家覆盖
+        var pidMatch = !localPid || String(localPid) === String(data.player_id || '');
+        if (data.player_id && pidMatch) {
+            if (!localPid) setUserPlayerId(data.player_id);
+            myPlayerId = String(data.player_id);
         }
-        if (data.recovery_code) {
-            setUserRecoveryCode(data.recovery_code);
+        if (data.recovery_code && pidMatch) {
+            if (!getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
         }
-        // 使用服务端返回的昵称
-        if (data.nickname && data.nickname !== myNickname) {
+        // 仅在 player_id 一致时使用服务端昵称，否则保留本地昵称
+        if (pidMatch && data.nickname && data.nickname !== myNickname) {
             myNickname = data.nickname;
             setUserNickname(myNickname);
         }
         if (!getUserNickname()) {
             setUserNickname(myNickname);
-        }
-        // 保存服务端返回的玩家ID（player_data.id）
-        if (data.player_id) {
-            myPlayerId = String(data.player_id);
         }
         // 切换到聊天界面
         $hasIdentity.style.display = 'flex';
@@ -398,6 +398,11 @@
                 break;
 
             case 'sticker':
+                // 如果该表情已由本地渲染过（发送时立即渲染），跳过服务端广播回传
+                if (lastSentStickerId === (data.id || '')) {
+                    lastSentStickerId = '';
+                    break;
+                }
                 appendStickerMessage(data);
                 break;
 
@@ -686,9 +691,27 @@
                 '</div>';
         }
 
-        bubble.innerHTML =
-            replyHtml +
-            '<div class="lobby-msg-text">' + autoLink(parseBilibiliLinks(escapeHtml(data.content))) + '</div>';
+        // 表情消息：渲染为图片
+        if (data.type === 'sticker' && data.sticker_id) {
+            var stickerUrl = resolveStickerUrl(data.sticker_id, data.sticker_url, stickerMap);
+            bubble.innerHTML = stickerUrl
+                ? '<img class="sticker-img" src="' + escapeHtmlAttr(stickerUrl) + '" alt="表情" title="' + escapeHtmlAttr(data.sticker_name || '') + '">'
+                : '<span style="color:#999;font-style:italic;">[表情不存在: ' + escapeHtml(data.sticker_id) + ']</span>';
+            if (stickerUrl) {
+                (function (url) {
+                    var img = bubble.querySelector('.sticker-img');
+                    if (img) {
+                        img.addEventListener('click', function () {
+                            showStickerLightbox(url);
+                        });
+                    }
+                })(stickerUrl);
+            }
+        } else {
+            bubble.innerHTML =
+                replyHtml +
+                '<div class="lobby-msg-text">' + autoLink(parseBilibiliLinks(escapeHtml(data.content))) + '</div>';
+        }
 
         var replyDiv = bubble.querySelector('.lobby-msg-reply');
         if (replyDiv) {
@@ -824,6 +847,11 @@
         appendSystem((senderName || '有人') + ' 撤回了一条消息', false);
         // 从 DOM 移除原消息
         removeMessage(messageId);
+        // 更新所有引用该消息的回复预览
+        document.querySelectorAll('.lobby-msg-reply[data-reply-id="' + messageId + '"]').forEach(function (reply) {
+            reply.innerHTML = '<span class="reply-name">' + escapeHtml(senderName || '有人') + '</span>: <i>消息已撤回</i>';
+            reply.classList.add('revoked');
+        });
     }
 
     // ==================== 右键菜单 ====================
@@ -1236,8 +1264,15 @@
         const fresh = loadStickerCache();
         if (Object.keys(fresh).length > 0) stickerMap = fresh;
 
-        renderSharedStickerPicker($stickerPickerBody, stickerMap, function (id) {
+        renderSharedStickerPicker($stickerPickerBody, stickerMap, function (id, st) {
             send({ type: 'lobby_sticker', id: id });
+            // 立即本地渲染，不等服务端广播回传（防止表情被吞）
+            appendStickerMessage({
+                id: id, url: st ? st.url : '', name: st ? st.name : '',
+                sender: myNickname, sender_id: myPlayerId
+            });
+            // 记录已渲染的表情，防止服务端广播回报时重复追加
+            lastSentStickerId = id;
             $stickerPicker.style.display = 'none';
         });
     }

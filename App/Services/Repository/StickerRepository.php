@@ -3,6 +3,7 @@
 namespace App\Services\Repository;
 
 use App\Services\Infrastructure\Database;
+use App\Services\Infrastructure\RedisService;
 use PDO;
 
 /**
@@ -61,6 +62,7 @@ class StickerRepository
         $stmt = $pdo->prepare("INSERT INTO stickers (id, name, url) VALUES (?, ?, ?)
             ON DUPLICATE KEY UPDATE name = VALUES(name), url = VALUES(url)");
         $stmt->execute([$id, $name, $url]);
+        self::invalidateDefaultCache();
     }
 
     public static function delete(string $id): void
@@ -68,6 +70,7 @@ class StickerRepository
         $pdo = Database::connect();
         $stmt = $pdo->prepare('DELETE FROM stickers WHERE id = ?');
         $stmt->execute([$id]);
+        self::invalidateDefaultCache();
     }
 
     /**
@@ -75,10 +78,25 @@ class StickerRepository
      */
     public static function all(): array
     {
+        try {
+            $redis = RedisService::connect();
+            $cached = $redis->get(RedisService::KP_STICKER_DEFAULT);
+            if ($cached !== false) {
+                $rows = json_decode($cached, true);
+                if (is_array($rows)) return $rows;
+            }
+        } catch (\Throwable $e) {}
+
         $pdo = Database::connect();
         $stmt = $pdo->query('SELECT id, name, url, created_at FROM stickers ORDER BY created_at DESC');
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         foreach ($rows as &$r) { $r['source'] = 'default'; }
+
+        try {
+            $redis = RedisService::connect();
+            $redis->setex(RedisService::KP_STICKER_DEFAULT, RedisService::STICKER_CACHE_TTL, json_encode($rows, JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) {}
+
         return $rows;
     }
 
@@ -112,11 +130,28 @@ class StickerRepository
      */
     public static function getUserStickers(string $userId): array
     {
+        $cacheKey = RedisService::KP_STICKER_USER . $userId;
+
+        try {
+            $redis = RedisService::connect();
+            $cached = $redis->get($cacheKey);
+            if ($cached !== false) {
+                $rows = json_decode($cached, true);
+                if (is_array($rows)) return $rows;
+            }
+        } catch (\Throwable $e) {}
+
         $pdo = Database::connect();
         $stmt = $pdo->prepare('SELECT id, name, url, status, created_at FROM user_stickers WHERE user_id = ? ORDER BY created_at DESC');
         $stmt->execute([$userId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         foreach ($rows as &$r) { $r['source'] = 'mine'; }
+
+        try {
+            $redis = RedisService::connect();
+            $redis->setex($cacheKey, RedisService::STICKER_CACHE_TTL, json_encode($rows, JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) {}
+
         return $rows;
     }
 
@@ -126,6 +161,7 @@ class StickerRepository
         $stmt = $pdo->prepare("INSERT INTO user_stickers (id, user_id, name, url, status) VALUES (?, ?, ?, ?, 'pending')
             ON DUPLICATE KEY UPDATE name = VALUES(name), url = VALUES(url), status = 'pending'");
         $stmt->execute([$id, $userId, $name, $url]);
+        self::invalidateUserCache($userId);
     }
 
     public static function deleteUserSticker(string $userId, string $id): void
@@ -133,6 +169,7 @@ class StickerRepository
         $pdo = Database::connect();
         $stmt = $pdo->prepare('DELETE FROM user_stickers WHERE user_id = ? AND id = ?');
         $stmt->execute([$userId, $id]);
+        self::invalidateUserCache($userId);
     }
 
     /**
@@ -188,6 +225,7 @@ class StickerRepository
         $pdo = Database::connect();
         $stmt = $pdo->prepare('UPDATE user_stickers SET status = ? WHERE user_id = ? AND id = ?');
         $stmt->execute([$status, $userId, $id]);
+        self::invalidateUserCache($userId);
     }
 
     /**
@@ -236,5 +274,23 @@ class StickerRepository
             'version'  => $currentVersion,
             'stickers' => self::allForUser($userId),
         ];
+    }
+
+    // ==================== 缓存失效 ====================
+
+    private static function invalidateDefaultCache(): void
+    {
+        try {
+            $redis = RedisService::connect();
+            $redis->del(RedisService::KP_STICKER_DEFAULT);
+        } catch (\Throwable $e) {}
+    }
+
+    private static function invalidateUserCache(string $userId): void
+    {
+        try {
+            $redis = RedisService::connect();
+            $redis->del(RedisService::KP_STICKER_USER . $userId);
+        } catch (\Throwable $e) {}
     }
 }

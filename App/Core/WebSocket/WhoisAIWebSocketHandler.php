@@ -219,7 +219,8 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
 
         // 记录实时昵称，供管理员旁观时获取最新名
         $this->clientInfo[(string)$fd] = array_merge($this->clientInfo[(string)$fd] ?? [], [
-            'nickname' => $nickname,
+            'nickname'  => $nickname,
+            'player_id' => $playerId ?: null,
         ]);
 
         if ($result['already_in_game']) {

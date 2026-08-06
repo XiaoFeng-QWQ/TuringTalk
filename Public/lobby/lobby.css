@@ -251,6 +251,17 @@
     line-height: 1.55;
 }
 
+/* 已撤回的消息 */
+.lobby-msg.revoked {
+    background: var(--note-pink);
+    border-style: dashed;
+    opacity: 0.75;
+}
+.lobby-msg.revoked .revoked-text {
+    font-style: italic;
+    color: var(--text-subtle);
+}
+
 /* 自动链接样式 */
 .auto-link {
     text-decoration: underline;
@@ -388,6 +399,13 @@
 .lobby-msg-reply:hover {
     background: var(--note-yellow);
     border-color: var(--ink-black);
+}
+.lobby-msg-reply.revoked {
+    background: var(--surface-subtle);
+    border-color: var(--border-lighter);
+    color: var(--text-subtle);
+    font-style: italic;
+    cursor: default;
 }
 
 .lobby-msg-reply .reply-name {

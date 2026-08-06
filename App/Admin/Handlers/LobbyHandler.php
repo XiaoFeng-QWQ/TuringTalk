@@ -199,7 +199,7 @@ class LobbyHandler
         $pageSize = min(100, max(10, (int)($data['page_size'] ?? 20)));
         $nickname = trim($data['nickname'] ?? '');
 
-        $result = $this->lobbyHandler->getService()->getMessagesPage($page, $pageSize, $nickname);
+        $result = $this->lobbyHandler->getService()->getAdminMessages($page, $pageSize, $nickname);
 
         $this->lobbyHandler->sendToPlayer($server, $fd, [
             'type'      => 'admin_lobby_messages',

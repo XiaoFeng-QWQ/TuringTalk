@@ -69,6 +69,11 @@ class RedisService
     public const KP_LOBBY_SONG_REQ_Q   = self::LOBBY_PREFIX . 'song:req_q:';     // list   点歌频率队列
     public const KP_LOBBY_SONG_VOTE_Q  = self::LOBBY_PREFIX . 'song:vote_q:';    // list   投票频率队列（含正向+移除）
 
+    // ==================== 表情缓存 ====================
+    public const KP_STICKER_DEFAULT = self::PREFIX . 'sticker:default';           // json   默认表情列表缓存
+    public const KP_STICKER_USER    = self::PREFIX . 'sticker:user:';             // json   用户自定义表情缓存（后缀 userId）
+    public const STICKER_CACHE_TTL  = 3600;
+
     /**
      * 获取当前协程专属的 Redis 连接
      * @return \Redis

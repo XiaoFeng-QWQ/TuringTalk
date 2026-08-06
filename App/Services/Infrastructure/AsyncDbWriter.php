@@ -239,16 +239,21 @@ class AsyncDbWriter
         $tableName = self::ensureLobbyTable();
 
         $pdo = Database::connect();
+        $isSticker = ($msg['type'] ?? '') === 'sticker';
         $stmt = $pdo->prepare(
-            "INSERT IGNORE INTO {$tableName} (id, sender_name, sender_ip, sender_fp, content, reply_to_id, reply_to_name, reply_to_text, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT IGNORE INTO {$tableName} (id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $msg['id'],
             $msg['sender_name'] ?? '',
             $msg['sender_ip'] ?? '',
             $msg['sender_fp'] ?? '',
-            $msg['content'] ?? '',
+            $isSticker ? '' : ($msg['content'] ?? ''),
+            $isSticker ? 'sticker' : '',
+            $isSticker ? ($msg['sticker_id'] ?? '') : '',
+            $isSticker ? ($msg['sticker_name'] ?? '') : '',
+            $isSticker ? ($msg['sticker_url'] ?? '') : '',
             $msg['reply_to']['id'] ?? null,
             $msg['reply_to']['name'] ?? null,
             $msg['reply_to']['text'] ?? null,
@@ -256,9 +261,12 @@ class AsyncDbWriter
         ]);
     }
 
-    private static function ensureLobbyTable(): string
+    /**
+     * 确保月表存在且结构最新（可选指定月份，如 '202607'）
+     */
+    public static function ensureLobbyTable(?string $monthSuffix = null): string
     {
-        $tableName = 'lobby_messages_' . date('Ym');
+        $tableName = 'lobby_messages_' . ($monthSuffix ?? date('Ym'));
 
         $pdo = Database::connect();
         $pdo->exec("CREATE TABLE IF NOT EXISTS {$tableName} (
@@ -267,6 +275,10 @@ class AsyncDbWriter
             sender_ip     VARCHAR(45)  NOT NULL DEFAULT '',
             sender_fp     VARCHAR(64)  NOT NULL DEFAULT '',
             content       TEXT         NOT NULL,
+            type          VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '消息类型：空=文本, sticker=表情',
+            sticker_id    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '表情ID',
+            sticker_name  VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '表情名称',
+            sticker_url   TEXT         NULL DEFAULT NULL COMMENT '表情URL',
             reply_to_id   BIGINT UNSIGNED NULL DEFAULT NULL,
             reply_to_name VARCHAR(32)  NULL DEFAULT NULL,
             reply_to_text VARCHAR(300) NULL DEFAULT NULL,
@@ -275,6 +287,32 @@ class AsyncDbWriter
             INDEX idx_created (created_at),
             INDEX idx_ip     (sender_ip)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // 为已有表补充缺失列（兼容存量表）
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'type'");
+            if ($cols->rowCount() === 0) {
+                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN type VARCHAR(16) NOT NULL DEFAULT '' COMMENT '消息类型' AFTER content");
+            }
+        } catch (\Throwable $e) {}
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'sticker_id'");
+            if ($cols->rowCount() === 0) {
+                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN sticker_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT '表情ID' AFTER type");
+            }
+        } catch (\Throwable $e) {}
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'sticker_name'");
+            if ($cols->rowCount() === 0) {
+                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN sticker_name VARCHAR(32) NOT NULL DEFAULT '' COMMENT '表情名称' AFTER sticker_id");
+            }
+        } catch (\Throwable $e) {}
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'sticker_url'");
+            if ($cols->rowCount() === 0) {
+                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN sticker_url TEXT NULL DEFAULT NULL COMMENT '表情URL' AFTER sticker_name");
+            }
+        } catch (\Throwable $e) {}
 
         return $tableName;
     }

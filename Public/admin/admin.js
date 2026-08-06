@@ -2528,11 +2528,15 @@ function _doRenderLobbyMessages() {
     let html = '';
     _lobbyAllMessages.forEach(m => {
         const timeStr = m.created_at || m.time || '';
+        const isSticker = m.type === 'sticker' && m.sticker_id;
+        const displayContent = isSticker
+            ? ('[表情: ' + (m.sticker_name || m.sticker_id) + ']')
+            : (m.content || '');
         html += '<div style="padding:2px 0;border-bottom:1px dashed var(--border-lighter);word-break:break-all;">' +
             '<input type="checkbox" class="lobby-msg-check" data-id="' + m.id + '" style="margin:0 4px 0 0;vertical-align:middle;">' +
             '<span style="color:var(--text-muted);">#' + m.id + '</span> ' +
             '<strong>' + escapeHtml(m.sender_name || '') + '</strong>: ' +
-            escapeHtml(m.content || '') +
+            escapeHtml(displayContent) +
             ' <span style="color:var(--text-muted);font-size:10px;">' + escapeHtml(timeStr) + '</span>' +
             ' <button class="doodle-btn" style="font-size:10px;padding:0 4px;margin-left:4px;" data-del-id="' + m.id + '">删除</button>' +
         '</div>';

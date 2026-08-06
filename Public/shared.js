@@ -304,7 +304,7 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
         });
 
         item.addEventListener('click', function () {
-            onClickSticker(id);
+            onClickSticker(id, s);
         });
 
         bodyEl.appendChild(item);

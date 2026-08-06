@@ -397,6 +397,18 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $sticker = $this->resolveSticker($data, $playerId);
         if (!$sticker) return;
 
+        // 持久化表情消息到 Redis（用于历史记录）
+        $this->lobbyService->sendSticker(
+            $info['nickname'],
+            $playerId,
+            $sticker['id'],
+            $sticker['name'] ?? '',
+            $sticker['url'] ?? '',
+            $this->clientInfo[(string)$fd]['ip'] ?? '',
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? ''
+        );
+
+        // 实时广播给所有在线用户
         $this->broadcastLobby($server, 0, [
             'type'        => 'sticker',
             'id'          => $sticker['id'],
@@ -987,8 +999,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
     /**
      * 向所有在线聊天室用户广播（除指定 fd）
-     * 每条推送用 go() 异步发送，防止慢客户端阻塞整条广播链。
-     * 桥接转发也在独立协程中完成，不拖慢本地广播。
+     * 直接同步 push，$server->push() 本身非阻塞（写入缓冲区即返回），
+     * 无需 go() 协程包装，避免协程调度遗漏导致消息丢失。
      */
     private function broadcastLobby(Server $server, int $excludeFd, array $data): void
     {
@@ -1001,10 +1013,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             if (!$server->isEstablished($fd)) continue;
             if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
 
-            go(function () use ($server, $fd, $payload) {
-                if (!$server->isEstablished($fd)) return;
-                $server->push($fd, $payload);
-            });
+            $server->push($fd, $payload);
         }
     }
 

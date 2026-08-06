@@ -1131,15 +1131,16 @@ function appendSticker(stickerId, stickerName, side, sender, stickerUrl) {
 }
 
 /** 发送表情 */
-function sendSticker(stickerId) {
+function sendSticker(stickerId, stickerData) {
     if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) return;
     transport._ws.send(JSON.stringify({
         type: 'sticker',
         id: stickerId
     }));
-    // 自己发出的表情也渲染在右边
-    if (stickerMap[stickerId]) {
-        appendSticker(stickerId, stickerMap[stickerId].name, 'right', getNickname());
+    // 立即本地渲染（用点击时传入的完整数据，不依赖 stickerMap 缓存状态）
+    var st = stickerData || (stickerMap[stickerId] || null);
+    if (st) {
+        appendSticker(stickerId, st.name, 'right', getNickname(), st.url);
     }
     userMsgCount++;
     updateJudgementState(game._judgementAllowed);
@@ -2162,8 +2163,8 @@ function repositionStickerPicker() {
 
 /** 根据 stickerMap 渲染表情选择器内容 */
 function renderStickerPicker() {
-    renderSharedStickerPicker(stickerPickerBody, stickerMap, function (id) {
-        sendSticker(id);
+    renderSharedStickerPicker(stickerPickerBody, stickerMap, function (id, st) {
+        sendSticker(id, st);
     });
 }
 
@@ -2838,10 +2839,13 @@ function mergeServerStats(stats) {
     };
     saveStats(local);
 
-    // 同步昵称
+    // 同步昵称（仅在本地无昵称或 player_id 一致时更新，防止数据被其他玩家覆盖）
     if (stats.nickname) {
-        setUserNickname(stats.nickname);
-        document.getElementById('nickname-input').value = stats.nickname;
+        var localPid = getUserPlayerId();
+        if (!getUserNickname() || !localPid || String(localPid) === String(stats.id)) {
+            setUserNickname(stats.nickname);
+            document.getElementById('nickname-input').value = stats.nickname;
+        }
     }
 }
 
