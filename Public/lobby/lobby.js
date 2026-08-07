@@ -437,7 +437,7 @@
                 break;
 
             case 'system':
-                if (data.text && data.text.includes('已有活跃连接')) {
+                if (data.text && (data.text.includes('已有活跃连接') || data.text.includes('已在其他地方登录'))) {
                     showTopToast(data.text, true);
                     intentionalClose = true;
                     stopHeartbeat();
@@ -843,10 +843,24 @@
     }
 
     function revokeMessageUI(messageId, senderName) {
-        // 显示系统消息
-        appendSystem((senderName || '有人') + ' 撤回了一条消息', false);
+        // 先在源消息位置插入系统消息，再移除原消息
+        var el = $messages.querySelector('[data-msg-id="' + messageId + '"]');
+        var row = el ? el.closest('.lobby-msg-row') : null;
+
+        var div = document.createElement('div');
+        div.className = 'lobby-msg system';
+        div.textContent = (senderName || '有人') + ' 撤回了一条消息';
+
+        if (row && row.parentNode) {
+            row.parentNode.insertBefore(div, row);
+        } else {
+            $messages.appendChild(div);
+            scrollToBottom();
+        }
+
         // 从 DOM 移除原消息
         removeMessage(messageId);
+
         // 更新所有引用该消息的回复预览
         document.querySelectorAll('.lobby-msg-reply[data-reply-id="' + messageId + '"]').forEach(function (reply) {
             reply.innerHTML = '<span class="reply-name">' + escapeHtml(senderName || '有人') + '</span>: <i>消息已撤回</i>';
@@ -1367,18 +1381,18 @@
     }
 
     /**
-     * 解析已转义文本中的 B站视频链接，替换为占位元素
+     * 解析已转义文本中的 B站/抖音视频链接，替换为占位元素
      * 必须在 escapeHtml 之后、autoLink 之前调用。
-     * 异步解析由 resolveBilibiliEmbeds 完成。
+     * 异步解析由 resolveBilibiliEmbeds 完成（同一 API 支持多平台）。
      */
     function parseBilibiliLinks(text) {
-        var regex = /https?:\/\/(?:www\.)?bilibili\.com\/video\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/b23\.tv\/[^\s<>"'，。！？、；：》\)\]]+/gi;
+        var regex = /https?:\/\/(?:www\.)?bilibili\.com\/video\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/b23\.tv\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/v\.douyin\.com\/[^\s<>"'，。！？、；：》\)\]]+/gi;
         return text.replace(regex, function (match) {
             // 剥离 GET 参数
             var cleanUrl = match.replace(/\?.*$/, '');
             return '<div class="bili-embed" data-bili-url="' + encodeURIComponent(cleanUrl) + '">' +
-                   '<div class="bili-loading">' + BILI_SPINNER_SVG + '解析中...</div>' +
-                   '</div>';
+                '<div class="bili-loading">' + BILI_SPINNER_SVG + '解析中...</div>' +
+                '</div>';
         });
     }
 
@@ -1407,11 +1421,17 @@
                     var title = data.title || '';
                     var cover = data.cover || '';
                     el.innerHTML =
-                        '<video class="bili-video" src="' + videoUrl + '"' + (cover ? ' poster="' + cover + '"' : '') + ' controls></video>' +
+                        '<video class="bili-video" src="' + videoUrl + '" controls></video>' +
                         '<div class="bili-title"><a href="' + url + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a></div>';
-                    try { new Plyr(el.querySelector('.bili-video')); } catch (e) {}
+                    if (cover) {
+                        var vid = el.querySelector('.bili-video');
+                        vid.setAttribute('poster', cover);
+                    }
+                    try { new Plyr(el.querySelector('.bili-video'), { controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'] }); } catch (e) { }
                 } else {
-                    el.innerHTML = '<div class="bili-error">⚠ 视频解析失败</div>';
+                    el.innerHTML =
+                        '<div class="bili-error">⚠ 视频解析失败</div>' +
+                        '<div class="bili-title"><a href="' + url + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a></div>';
                 }
             });
         });
@@ -1781,7 +1801,7 @@
         var transMatch = currentLine.match(/^(.+?)\s*[（(]([^)）]+)[）)]\s*$/);
         if (transMatch) {
             html = '<div class="lyric-line">' + escapeHtml(transMatch[1].trim()) + '</div>' +
-                   '<div class="lyric-sub">' + escapeHtml(transMatch[2].trim()) + '</div>';
+                '<div class="lyric-sub">' + escapeHtml(transMatch[2].trim()) + '</div>';
         } else {
             html = '<div class="lyric-line">' + escapeHtml(currentLine) + '</div>';
         }

@@ -10,6 +10,7 @@ use App\Services\Repository\ReportRepository;
 use App\Services\Repository\BanRepository;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
+use App\Services\Game\GameService;
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 
@@ -239,7 +240,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
         // 新玩家：立即创建 player_data 记录（聊天室没有"对局结束"时机）
         if (!$playerId) {
-            $playerId = $this->getOrCreatePlayerId($fd, $nickname);
+            $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
         }
 
         // 封禁检查（IP + 指纹）
@@ -265,7 +266,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
             'player_id'     => $playerId ?: null,
-            'recovery_code' => $valid['recovery_code'] ?? null,
+            'recovery_code' => $valid['recovery_code'] ?? GameService::getPlayerCode($fd) ?? null,
         ]);
 
         // 广播更新后的在线列表（去重：仅列表变化时发送）
@@ -1022,7 +1023,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
      * 直接遍历 $this->clientInfo 而非 $server->connections，
      * 避免依赖 Swoole 连接迭代器在 onClose 期间的边界行为导致僵尸条目。
      */
-    private function getOnlinePlayers(Server $server): array
+    public function getOnlinePlayers(Server $server): array
     {
         $seen = [];
         foreach ($this->clientInfo as $fdKey => $info) {

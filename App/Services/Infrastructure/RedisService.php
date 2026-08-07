@@ -26,7 +26,8 @@ class RedisService
     public const KP_SESSION    = self::PREFIX . 'sess:';     // sess:{id}        → hash
     public const KP_PLAYER     = self::PREFIX . 'player:';   // player:{fd}      → hash
     public const KP_MSG        = self::PREFIX . 'msg:';      // msg:{sessId}     → list
-    public const KP_CODE       = self::PREFIX . 'code:';     // code:{code}      → hash
+    public const KP_CODE       = self::PREFIX . 'code:';     // code:{fd}          → string (player_id)
+    public const KP_RCODE      = self::PREFIX . 'rcode:';    // rcode:{fd}         → string (recovery_code, TTL 300s)
     public const KP_SPECTATOR  = self::PREFIX . 'spec:';     // spec:{sessId}    → set
     public const KP_MATCH_Q    = self::PREFIX . 'queue';     // queue            → list
     public const KP_MATCH_TIMER= self::PREFIX . 'timer:';    // timer:{fd}       → string
@@ -72,6 +73,7 @@ class RedisService
     // ==================== 表情缓存 ====================
     public const KP_STICKER_DEFAULT = self::PREFIX . 'sticker:default';           // json   默认表情列表缓存
     public const KP_STICKER_USER    = self::PREFIX . 'sticker:user:';             // json   用户自定义表情缓存（后缀 userId）
+    public const KP_PLAYER_ONLINE   = self::PREFIX . 'ponline:';                  // ponline:{playerId} → hash {fd,ts} 全局在线锁（TTL 120s）
     public const STICKER_CACHE_TTL  = 3600;
 
     /**
@@ -174,6 +176,8 @@ class RedisService
         // 1. 直接删除无通配符的 key
         $redis->del(self::KP_MATCH_Q);                        // 匹配队列
         $redis->del(self::PREFIX . 'write:queue');             // 异步写入队列
+        // 聊天室消息先刷入 MySQL 再删队列（防止重启丢失待写入的消息）
+        AsyncDbWriter::drainLobbyMessages();
         $redis->del(self::KP_LOBBY_MSGS);                      // 聊天室消息缓存
         $redis->del(self::KP_LOBBY_WRITE_Q);                   // 聊天室写入队列
         $redis->del(self::KP_LOBBY_MUTED);                     // 聊天室禁言
@@ -192,6 +196,7 @@ class RedisService
             self::KP_PLAYER,     // tg:player:*
             self::KP_MSG,        // tg:msg:*
             self::KP_CODE,       // tg:code:*
+            self::KP_RCODE,      // tg:rcode:*
             self::KP_MATCH_TIMER,// tg:timer:*
             self::KP_SPECTATOR,  // tg:spec:*
             self::KP_LOBBY_SONG_META,         // tg:lobby:song:meta:*

@@ -24,10 +24,39 @@ class LobbyChatService
     /**
      * 发送消息：写入 Redis 缓存 + 推送异步写入队列
      * senderId 为 player_data.id，用于消息归属判断（防止昵称冒用）
+     * 启动 / 第一条消息时从 MySQL 同步 msg_id 计数器（防止重启丢号）
      */
+    private function syncMsgIdFromDb(): void
+    {
+        $redis = RedisService::connect();
+        $currentId = (int)$redis->get(RedisService::KP_LOBBY_MSG_ID);
+
+        try {
+            $tables = $this->getRelevantMonths();
+            $maxFromDb = 0;
+            foreach ($tables as $table) {
+                try {
+                    $pdo = Database::connect();
+                    $stmt = $pdo->query("SELECT MAX(id) FROM `{$table}`");
+                    $row = $stmt->fetch(\PDO::FETCH_NUM);
+                    if ($row && $row[0] > $maxFromDb) $maxFromDb = (int)$row[0];
+                } catch (\Throwable $e) {
+                    continue;
+                }
+            }
+            if ($maxFromDb > $currentId) {
+                $redis->set(RedisService::KP_LOBBY_MSG_ID, $maxFromDb);
+                Logger::info('Lobby msg_id synced from DB', ['from' => $currentId, 'to' => $maxFromDb]);
+            }
+        } catch (\Throwable $e) {
+            // MySQL 不可用时继续用 Redis 计数器
+        }
+    }
+
     public function send(string $senderName, string $senderId, string $content, string $ip = '', string $fingerprint = '', ?int $replyToId = null, ?string $replyToName = null, ?string $replyToText = null): array
     {
         $redis = RedisService::connect();
+        $this->syncMsgIdFromDb();
         $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
 
         $msg = [

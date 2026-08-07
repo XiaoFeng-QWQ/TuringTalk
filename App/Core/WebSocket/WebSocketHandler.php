@@ -7,6 +7,7 @@ use Swoole\WebSocket\Frame;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
+use App\Core\WebSocket\GomokuWebSocketHandler;
 use App\Admin\AdminWebSocketHandler;
 use App\Core\Application;
 use App\Config\Config;
@@ -42,6 +43,7 @@ class WebSocketHandler
             new GameWebSocketHandler(),
             new WhoisAIWebSocketHandler(),
             new LobbyChatWebSocketHandler(),
+            new GomokuWebSocketHandler(),
         ];
 
         // 自动构建路由表
@@ -182,6 +184,11 @@ class WebSocketHandler
     public function getLobbyHandler(): LobbyChatWebSocketHandler
     {
         return $this->routeByPath['/ws/lobby'] ?? null;
+    }
+
+    public function getGomokuHandler(): GomokuWebSocketHandler
+    {
+        return $this->routeByPath['/ws/gomoku'] ?? null;
     }
 
     // ==================== 在线人数广播 ====================

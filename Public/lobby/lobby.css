@@ -1,3 +1,9 @@
+/* 管理通告横幅定位修正（聊天室无侧边栏） */
+#announcement-area {
+    left: 0;
+    right: 0;
+}
+
 #lobby-main {
     display: flex;
     justify-content: center;

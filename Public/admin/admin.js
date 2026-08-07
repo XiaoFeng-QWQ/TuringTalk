@@ -143,7 +143,7 @@ let btnAddSticker, stickerList, stickerListEmpty;
 let btnStickerUpload, stickerFileInput, stickerUploadStatus, stickerBatchProgress;
 let stickerLightbox, stickerLightboxImg, stickerLightboxClose;
 let stickerBatchToolbar, stickerSelectAll, stickerSelectCount, btnStickerBatchDelete;
-let btnStickerSync, stickerSyncStatus;
+let btnStickerSync, stickerSyncStatus, btnStickerSyncJson, stickerJsonInput;
 // 用户表情审核
 let stickerReviewList, stickerReviewListEmpty, stickerReviewSearch, stickerReviewPagination;
 let stickerReviewActions, stickerReviewSelectAll, btnStickerReviewBatchApprove, btnStickerReviewBatchReject;
@@ -695,20 +695,38 @@ function handleAdminMessage(data) {
             alert(data.message || '封禁完成');
             break;
 
-        case 'admin_sticker_added':
+        case 'admin_sticker_batch_added':
             if (_syncState && _syncState.phase === 'add') {
-                _syncState.pending--;
-                updateSyncStatus();
-                if (_syncState.pending <= 0) {
-                    // 同步完成
-                    stickerSyncStatus.textContent = '同步完成！共添加 ' + _syncState.total + ' 个表情';
-                    stickerSyncStatus.style.color = '#4caf50';
-                    setTimeout(() => { stickerSyncStatus.style.display = 'none'; }, 5000);
+                stickerSyncStatus.textContent = '同步完成！共添加 ' + data.added + ' 个表情';
+                stickerSyncStatus.style.color = '#4caf50';
+                setTimeout(() => { stickerSyncStatus.style.display = 'none'; }, 5000);
+                _syncState = null;
+                loadStickers();
+                if (btnStickerSync) { btnStickerSync.disabled = false; btnStickerSync.style.opacity = ''; }
+                if (btnStickerSyncJson) { btnStickerSyncJson.disabled = false; btnStickerSyncJson.style.opacity = ''; }
+            }
+            break;
+        case 'admin_sticker_batch_deleted':
+            if (_syncState && _syncState.phase === 'delete') {
+                if (_syncState._jsonItems && _syncState._jsonItems.length) {
+                    // JSON 同步：删除完成，发送 JSON 数据
+                    stickerSyncStatus.textContent = '已清空 ' + data.deleted + ' 个表情，正在从JSON添加...';
+                    stickerSyncStatus.style.color = '#888';
+                    const items = _syncState._jsonItems;
+                    _syncState = { phase: 'add', pending: 0, total: 0 };
+                    adminSend('admin_sticker_batch_add', { items: items });
+                } else {
+                    stickerSyncStatus.textContent = '已清空 ' + data.deleted + ' 个表情，正在拉取新数据...';
+                    stickerSyncStatus.style.color = '#888';
                     _syncState = null;
-                    loadStickers();
-                    if (btnStickerSync) { btnStickerSync.disabled = false; btnStickerSync.style.opacity = ''; }
+                    fetchAndSyncStickers();
                 }
-            } else if (_batchUploadActive) {
+            } else {
+                loadStickers();
+            }
+            break;
+        case 'admin_sticker_added':
+            if (_batchUploadActive) {
                 _batchUploadPending--;
                 if (_batchUploadPending <= 0) {
                     finishBatchUpload();
@@ -722,15 +740,7 @@ function handleAdminMessage(data) {
             break;
 
         case 'admin_sticker_deleted':
-            if (_syncState && _syncState.phase === 'delete') {
-                _syncState.pending--;
-                if (_syncState.pending <= 0) {
-                    // 删除阶段完成，开始拉取 API
-                    fetchAndSyncStickers();
-                }
-            } else {
-                loadStickers();
-            }
+            loadStickers();
             break;
 
         case 'admin_stickers_list':
@@ -750,6 +760,11 @@ function handleAdminMessage(data) {
         case 'admin_sticker_approved':
         case 'admin_sticker_rejected':
             loadStickerReviewList();
+            break;
+
+        case 'admin_sticker_batch_approved':
+        case 'admin_sticker_batch_rejected':
+            if (window._batchReviewNextChunk) window._batchReviewNextChunk();
             break;
 
         case 'admin_list':
@@ -1675,15 +1690,7 @@ function loadStickers() {
 function renderStickerList(stickers) {
     if (!stickerList || !stickerListEmpty) return;
     stickerList.innerHTML = '';
-    if (!stickers || stickers.length === 0) {
-        stickerList.appendChild(stickerListEmpty);
-        stickerListEmpty.style.display = 'block';
-        if (stickerBatchToolbar) stickerBatchToolbar.style.display = 'none';
-        return;
-    }
     stickerListEmpty.style.display = 'none';
-    // 显示批量工具栏
-    if (stickerBatchToolbar) stickerBatchToolbar.style.display = 'flex';
     if (stickerSelectAll) stickerSelectAll.checked = false;
     updateStickerSelectCount();
     stickers.forEach(s => {
@@ -1745,11 +1752,9 @@ function fetchAndSyncStickers() {
                 loadStickers();
                 return;
             }
-            const list = result.list.filter(function(item) {
-                // 只同步无 sticker_ 前缀的表情（即管理员上传的默认表情）
-                return !((item.title || '').startsWith('sticker_'));
-            });
-            if (!list.length) {
+            // 过滤 + 标准化
+            const items = _normalizeStickerItems(result.list);
+            if (!items || !items.length) {
                 stickerSyncStatus.textContent = '同步完成：无需同步';
                 stickerSyncStatus.style.color = '#4caf50';
                 btnStickerSync.disabled = false;
@@ -1759,29 +1764,8 @@ function fetchAndSyncStickers() {
                 loadStickers();
                 return;
             }
-            _syncState.pending = list.length;
-            _syncState.total = list.length;
-            updateSyncStatus();
-            list.forEach(item => {
-                const name = (item.title || '').substring(0, 20);
-                const url = item.url || '';
-                if (url) {
-                    adminSend('admin_sticker_add', { name: name, url: url });
-                } else {
-                    _syncState.pending--;
-                    updateSyncStatus();
-                }
-            });
-            // 如果所有 URL 都为空
-            if (_syncState.pending <= 0) {
-                stickerSyncStatus.textContent = '同步完成！共添加 ' + _syncState.total + ' 个表情';
-                stickerSyncStatus.style.color = '#4caf50';
-                setTimeout(() => { stickerSyncStatus.style.display = 'none'; }, 5000);
-                _syncState = null;
-                loadStickers();
-                btnStickerSync.disabled = false;
-                btnStickerSync.style.opacity = '';
-            }
+            _syncState = { phase: 'add', pending: 0, total: 0 };
+            adminSend('admin_sticker_batch_add', { items: items });
         })
         .catch(e => {
             stickerSyncStatus.textContent = '同步失败：' + e.message;
@@ -1792,6 +1776,95 @@ function fetchAndSyncStickers() {
             _syncState = null;
             loadStickers();
         });
+}
+
+/**
+ * 从 JSON 文本同步表情
+ * 支持格式：
+ *   {"code":1,"list":[{"title":"","url":"https://..."}]}
+ *   [{"name":"","url":"https://..."}]
+ */
+function syncStickersFromJson() {
+    if (!stickerJsonInput) return;
+    const raw = stickerJsonInput.value.trim();
+    if (!raw) {
+        alert('请先粘贴JSON数据');
+        return;
+    }
+
+    let items;
+    try {
+        const parsed = JSON.parse(raw);
+        // 自动适配 API 响应格式和纯数组格式
+        const list = Array.isArray(parsed) ? parsed : (parsed.list || parsed.data || []);
+        items = _normalizeStickerItems(list);
+    } catch (e) {
+        alert('JSON格式错误：' + e.message);
+        return;
+    }
+
+    if (!items || !items.length) {
+        alert('JSON中未找到有效的图片URL');
+        return;
+    }
+
+    // 获取当前所有表情 ID
+    const allCheckboxes = stickerList ? stickerList.querySelectorAll('.sticker-checkbox') : [];
+    if (allCheckboxes.length === 0) {
+        // 没有现有表情，直接添加
+        _syncState = { phase: 'add', pending: 0, total: 0 };
+        stickerSyncStatus.style.display = 'inline';
+        stickerSyncStatus.textContent = '正在从JSON添加表情...';
+        stickerSyncStatus.style.color = '#888';
+        if (btnStickerSyncJson) { btnStickerSyncJson.disabled = true; btnStickerSyncJson.style.opacity = '0.5'; }
+        adminSend('admin_sticker_batch_add', { items: items });
+        return;
+    }
+
+    // 阶段 1：批量删除所有现有表情
+    if (!confirm('将从JSON导入 ' + items.length + ' 个表情，当前已有表情将被清空。确定继续？')) return;
+
+    if (btnStickerSyncJson) { btnStickerSyncJson.disabled = true; btnStickerSyncJson.style.opacity = '0.5'; }
+    stickerSyncStatus.style.display = 'inline';
+    stickerSyncStatus.textContent = '正在清空现有表情...';
+    stickerSyncStatus.style.color = '#ff9800';
+
+    _syncState = { phase: 'delete', pending: 0, total: 0, apiUrl: '', _jsonItems: items };
+    const ids = [];
+    allCheckboxes.forEach(cb => {
+        const id = cb.dataset.stickerId;
+        if (id) ids.push(id);
+    });
+    if (ids.length > 0) {
+        adminSend('admin_sticker_batch_delete', { ids: ids });
+    } else {
+        _syncState = { phase: 'add', pending: 0, total: 0 };
+        stickerSyncStatus.textContent = '正在从JSON添加表情...';
+        stickerSyncStatus.style.color = '#888';
+        adminSend('admin_sticker_batch_add', { items: items });
+    }
+}
+
+/**
+ * 标准化表情数据项列表
+ * 支持 {title, url} 和 {name, url} 两种字段名
+ * 过滤非图片文件、title 以 sticker_ 开头的
+ */
+function _normalizeStickerItems(list) {
+    if (!list || !list.length) return [];
+    const filtered = list.filter(function(item) {
+        const title = item.title || item.name || '';
+        if (title.startsWith('sticker_')) return false;
+        if (!item.url) return false;
+        return /\.(png|jpe?g|gif|webp|bmp)(\?.*)?$/i.test(item.url);
+    });
+    return filtered.map(function(item) {
+        const title = item.title || item.name || '';
+        return {
+            name: title.substring(0, 20),
+            url: item.url || ''
+        };
+    }).filter(function(item) { return item.url; });
 }
 
 /**
@@ -2003,18 +2076,28 @@ function _getSelectedStickersForReview() {
 }
 
 function _batchReviewStickers(list, action) {
+    var items = list.map(function(item) {
+        return { user_id: item.user_id, id: item.id };
+    });
+    var batchAction = (action === 'admin_sticker_approve')
+        ? 'admin_sticker_batch_approve'
+        : 'admin_sticker_batch_reject';
+    // 每批 100 个，避免 WS 单帧过大
+    var CHUNK = 100;
     var idx = 0;
-    function next() {
-        if (idx >= list.length) {
-            showAdminToast('批量操作完成，共 ' + list.length + ' 个表情', 'info');
+    function nextChunk() {
+        if (idx >= items.length) {
+            if (idx > 0) showAdminToast('批量操作完成，共 ' + items.length + ' 个表情', 'info');
             loadStickerReviewList();
             return;
         }
-        var item = list[idx++];
-        adminSend(action, { user_id: item.user_id, id: item.id });
-        setTimeout(next, 200);
+        var chunk = items.slice(idx, idx + CHUNK);
+        idx += CHUNK;
+        adminSend(batchAction, { items: chunk });
+        // 下一批在当前批响应后触发（由 admin_sticker_batch_approved/rejected 处理）
     }
-    next();
+    window._batchReviewNextChunk = nextChunk;
+    nextChunk();
 }
 
 // ==================== 管理员管理（仅 super_admin）====================
@@ -3120,6 +3203,8 @@ function initAdminDOMRefs() {
     btnStickerBatchDelete = document.getElementById('btn-sticker-batch-delete');
     btnStickerSync = document.getElementById('btn-sticker-sync');
     stickerSyncStatus = document.getElementById('sticker-sync-status');
+    btnStickerSyncJson = document.getElementById('btn-sticker-sync-json');
+    stickerJsonInput = document.getElementById('sticker-json-input');
     stickerReviewList = document.getElementById('sticker-review-list');
     stickerReviewListEmpty = document.getElementById('sticker-review-list-empty');
     stickerReviewSearch = document.getElementById('sticker-review-search');
@@ -3329,15 +3414,44 @@ function initAdminEvents() {
         });
     }
 
-    // 表情删除（委托）
+    // 表情删除（委托）— 二次确认：点一次变红，3秒内再点才删
+    let _deleteConfirmTimer = null;
+    let _deleteConfirmTarget = null;
     if (stickerList) {
+        const resetDeleteConfirm = () => {
+            clearTimeout(_deleteConfirmTimer);
+            if (_deleteConfirmTarget) {
+                _deleteConfirmTarget.textContent = '删除';
+                _deleteConfirmTarget.style.background = '';
+                _deleteConfirmTarget.style.color = '';
+                _deleteConfirmTarget = null;
+            }
+            _deleteConfirmTimer = null;
+        };
         stickerList.addEventListener('click', (e) => {
             const btn = e.target.closest('.sticker-delete');
-            if (!btn) return;
+            if (!btn) { resetDeleteConfirm(); return; }
             const id = btn.dataset.stickerId;
             if (!id) return;
-            if (!confirm('确定删除这个表情吗？')) return;
-            adminSend('admin_sticker_delete', { id: id });
+
+            if (_deleteConfirmTarget === btn) {
+                // 第二次点击，确认删除
+                resetDeleteConfirm();
+                adminSend('admin_sticker_delete', { id: id });
+                return;
+            }
+
+            // 第一次点击，切换为确认状态
+            resetDeleteConfirm();
+            _deleteConfirmTarget = btn;
+            btn.textContent = '确认删除？';
+            btn.style.background = '#e74c3c';
+            btn.style.color = '#fff';
+            _deleteConfirmTimer = setTimeout(() => { resetDeleteConfirm(); }, 3000);
+        });
+        // 点击其他地方取消确认
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.sticker-delete')) resetDeleteConfirm();
         });
     }
 
@@ -3358,15 +3472,14 @@ function initAdminEvents() {
             const checked = stickerList.querySelectorAll('.sticker-checkbox:checked');
             if (checked.length === 0) return;
             if (!confirm('确定删除选中的 ' + checked.length + ' 个表情吗？')) return;
-            let deletedCount = 0;
+            const ids = [];
             checked.forEach(cb => {
                 const id = cb.dataset.stickerId;
-                if (id) {
-                    adminSend('admin_sticker_delete', { id: id });
-                    deletedCount++;
-                }
+                if (id) ids.push(id);
             });
-            // 批量删除后刷新列表（每个删除响应都会触发 loadStickers，这里仅做 UI 反馈）
+            if (ids.length > 0) {
+                adminSend('admin_sticker_batch_delete', { ids: ids });
+            }
             if (stickerSelectAll) stickerSelectAll.checked = false;
             updateStickerSelectCount();
         });
@@ -3392,13 +3505,26 @@ function initAdminEvents() {
             stickerSyncStatus.textContent = '正在清空现有表情...';
             stickerSyncStatus.style.color = '#ff9800';
 
-            _syncState = { phase: 'delete', pending: allCheckboxes.length, total: 0, apiUrl: '' };
+            _syncState = { phase: 'delete', pending: 0, total: 0, apiUrl: '' };
+            const ids = [];
             allCheckboxes.forEach(cb => {
                 const id = cb.dataset.stickerId;
-                if (id) {
-                    adminSend('admin_sticker_delete', { id: id });
-                }
+                if (id) ids.push(id);
             });
+            if (ids.length > 0) {
+                adminSend('admin_sticker_batch_delete', { ids: ids });
+            } else {
+                // 无现有表情，直接拉取
+                _syncState = null;
+                _startSyncFetch();
+            }
+        });
+    }
+
+    // 从 JSON 同步表情
+    if (btnStickerSyncJson) {
+        btnStickerSyncJson.addEventListener('click', () => {
+            syncStickersFromJson();
         });
     }
 

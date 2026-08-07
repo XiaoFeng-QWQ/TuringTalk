@@ -194,9 +194,17 @@ class AdminWebSocketHandler
                 $this->withOp($server, $fd, "正在添加表情", fn() =>
                 $this->stickerHandler->handleAdd($server, $fd, $data));
                 break;
+            case 'admin_sticker_batch_add':
+                $this->withOp($server, $fd, "正在批量添加表情", fn() =>
+                $this->stickerHandler->handleBatchAdd($server, $fd, $data));
+                break;
             case 'admin_sticker_delete':
                 $this->withOp($server, $fd, "正在删除表情", fn() =>
                 $this->stickerHandler->handleDelete($server, $fd, $data));
+                break;
+            case 'admin_sticker_batch_delete':
+                $this->withOp($server, $fd, "正在批量删除表情", fn() =>
+                $this->stickerHandler->handleBatchDelete($server, $fd, $data));
                 break;
             case 'admin_sticker_list':
                 $this->stickerHandler->handleList($server, $fd);
@@ -208,9 +216,17 @@ class AdminWebSocketHandler
                 $this->withOp($server, $fd, "正在审核表情", fn() =>
                 $this->stickerHandler->handleApprove($server, $fd, $data));
                 break;
+            case 'admin_sticker_batch_approve':
+                $this->withOp($server, $fd, "正在批量通过审核", fn() =>
+                $this->stickerHandler->handleBatchApprove($server, $fd, $data));
+                break;
             case 'admin_sticker_reject':
                 $this->withOp($server, $fd, "正在审核表情", fn() =>
                 $this->stickerHandler->handleReject($server, $fd, $data));
+                break;
+            case 'admin_sticker_batch_reject':
+                $this->withOp($server, $fd, "正在批量拒绝审核", fn() =>
+                $this->stickerHandler->handleBatchReject($server, $fd, $data));
                 break;
             case 'admin_list':
                 $this->manageHandler->handleList($server, $fd);

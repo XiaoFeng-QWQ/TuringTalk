@@ -790,6 +790,9 @@ class GameWebSocketHandler extends BaseGameHandler
         }
         $nickname = $valid['nickname'];
 
+        // 获取/创建玩家身份（含在线唯一性检查）
+        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+
         $this->matchService->enqueue($fd, $nickname, $duration);
     }
 
@@ -1681,6 +1684,8 @@ class GameWebSocketHandler extends BaseGameHandler
             'opponent_name' => '对方',
             'duration' => $duration,
             'session_id' => $sessionId,
+            'player_id' => GameService::getPlayerId($session['player1_fd']),
+            'recovery_code' => GameService::getPlayerCode($session['player1_fd']),
         ]);
 
         if ($session['player2_fd'] > 0) {
@@ -1689,6 +1694,8 @@ class GameWebSocketHandler extends BaseGameHandler
                 'opponent_name' => '对方',
                 'duration' => $duration,
                 'session_id' => $sessionId,
+                'player_id' => GameService::getPlayerId($session['player2_fd']),
+                'recovery_code' => GameService::getPlayerCode($session['player2_fd']),
             ]);
         }
 
@@ -2272,6 +2279,8 @@ class GameWebSocketHandler extends BaseGameHandler
             'opponent_name' => '对方',
             'duration' => (int)$session['duration'],
             'session_id' => $sessionId,
+            'player_id' => GameService::getPlayerId($newFd),
+            'recovery_code' => GameService::getPlayerCode($newFd),
         ]);
 
         // 重放历史消息

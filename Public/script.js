@@ -2436,6 +2436,8 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
             case 'matched':
                 DebugLogger.log('match', '收到matched事件', { opponent: data.opponent_name, session_id: data.session_id, duration: data.duration, elapsed_ms: window._matchStartTs ? Date.now() - window._matchStartTs : -1 });
                 this._lastSessionId = data.session_id || '';
+                if (data.player_id && !getUserPlayerId()) savePlayerId(data.player_id);
+                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
                 // 每次进入对局（首次匹配 / 重连恢复）拉取最新表情列表
                 ws.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion(), player_id: getUserPlayerId() }));
                 this._emit('connected', {
@@ -2456,12 +2458,19 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'system':
                 DebugLogger.log('game', '系统消息', { text: data.text });
+                if (data.text && data.text.includes('已在其他地方登录')) {
+                    this._preventReconnect = true;
+                    this._intentionalClose = true;
+                }
                 this._emit('system', { text: data.text });
+                if (data.text && data.text.includes('已在其他地方登录')) {
+                    if (this._ws) this._ws.close();
+                }
                 break;
             case 'judged':
                 DebugLogger.log('game', '对方已判定', { truth: data.truth, session_id: data.session_id });
-                if (data.player_id) savePlayerId(data.player_id);
-                if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
+                if (data.player_id && !getUserPlayerId()) savePlayerId(data.player_id);
+                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
                 this._emit('opponent_judged', {
                     truth: data.truth,
                     opponent_guess: data.opponent_guess,
@@ -2476,8 +2485,8 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'timeout':
                 DebugLogger.log('game', '收到timeout事件', { reason: data.reason, session_id: data.session_id });
-                if (data.player_id) savePlayerId(data.player_id);
-                if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
+                if (data.player_id && !getUserPlayerId()) savePlayerId(data.player_id);
+                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
                 this._emit('opponent_timeout', {
                     reason: data.reason,
                     session_id: data.session_id,
@@ -2761,7 +2770,7 @@ function updateLbUI() {
     if (pid) {
         recoverArea.style.display = 'none';
         myStatsEl.style.display = '';
-        document.getElementById('lb-my-code').textContent = pid;
+        document.getElementById('lb-my-code').textContent = getUserRecoveryCode() || '（点击恢复身份查看）';
 
         // 用本地存储的数据刷新战绩数字
         const localStats = getUserStats();
@@ -2812,7 +2821,7 @@ function updateLbMyStats(stats) {
     if (!stats) return;
     const tt = stats.turing_test || {};
     const hva = stats.WhoisAI || {};
-    document.getElementById('lb-my-code').textContent = getUserRecoveryCode() || getPlayerId();
+    document.getElementById('lb-my-code').textContent = getUserRecoveryCode() || '（点击恢复身份查看）';
     document.getElementById('lb-my-wins').textContent = (tt.wins || 0) + (hva.wins || 0);
     document.getElementById('lb-my-losses').textContent = (tt.losses || 0) + (hva.losses || 0);
     document.getElementById('lb-my-games').textContent = stats.total_games || 0;
@@ -2839,13 +2848,10 @@ function mergeServerStats(stats) {
     };
     saveStats(local);
 
-    // 同步昵称（仅在本地无昵称或 player_id 一致时更新，防止数据被其他玩家覆盖）
-    if (stats.nickname) {
-        var localPid = getUserPlayerId();
-        if (!getUserNickname() || !localPid || String(localPid) === String(stats.id)) {
-            setUserNickname(stats.nickname);
-            document.getElementById('nickname-input').value = stats.nickname;
-        }
+    // 同步昵称（仅本地无昵称时更新；已有则不覆盖，防止五子棋自动生成的 Gomoku_xxx 覆盖正常昵称）
+    if (stats.nickname && !getUserNickname()) {
+        setUserNickname(stats.nickname);
+        document.getElementById('nickname-input').value = stats.nickname;
     }
 }
 
@@ -2944,6 +2950,25 @@ function autoInitPlayerId() {
 }
 
 document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
+
+// 重新生成恢复码
+document.getElementById('btn-regen-code').addEventListener('click', () => {
+    const pid = getPlayerId();
+    const oldCode = getUserRecoveryCode();
+    if (!pid) { showTopToast('请先获取恢复码'); return; }
+    if (!oldCode) { showTopToast('您还没有恢复码，请先在服务端生成身份'); return; }
+    if (!confirm('重新生成后旧恢复码将立即失效，确定继续？')) return;
+
+    fetch('/api/regenerate-code?player_id=' + encodeURIComponent(pid) + '&old_code=' + encodeURIComponent(oldCode))
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { showTopToast(data.error); return; }
+            setUserRecoveryCode(data.code);
+            updateLbUI();
+            showTopToast('恢复码已刷新');
+        })
+        .catch(() => showTopToast('网络错误，请重试'));
+});
 
 // 查看公开资料
 document.getElementById('btn-open-profile').addEventListener('click', function () {

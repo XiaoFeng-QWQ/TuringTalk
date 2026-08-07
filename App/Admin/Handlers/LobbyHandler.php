@@ -22,16 +22,13 @@ class LobbyHandler
 
     public function handlePlayers(Server $server, int $fd): void
     {
+        $onlinePlayers = $this->lobbyHandler->getOnlinePlayers($server);
         $players = [];
-        foreach ($server->connections as $clientFd) {
-            if (!$server->isEstablished($clientFd)) continue;
-            $info = $this->lobbyHandler->getClientInfo($clientFd);
-            if (!$info) continue;
-            $nickname = $info['nickname'] ?? '';
-            if ($nickname === '') continue;
+        foreach ($onlinePlayers as $p) {
+            $info = $this->lobbyHandler->getClientInfo($p['fd']);
             $players[] = [
-                'fd'       => $clientFd,
-                'nickname' => $nickname,
+                'fd'       => $p['fd'],
+                'nickname' => $p['nickname'],
                 'ip'       => $info['ip'] ?? '',
                 'fp'       => substr($info['fingerprint'] ?? '', 0, 16),
             ];

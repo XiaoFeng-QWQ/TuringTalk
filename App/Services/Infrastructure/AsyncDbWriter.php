@@ -98,6 +98,22 @@ class AsyncDbWriter
     }
 
     /**
+     * 推送五子棋战绩写入任务
+     */
+    public static function pushGomokuStats(string $playerId, bool $win, bool $draw): void
+    {
+        self::push([
+            'type' => 'gomoku_stats',
+            'data' => [
+                'player_id'   => $playerId,
+                'win'         => $win,
+                'draw'        => $draw,
+                'active_hour' => (int)date('G'),
+            ],
+        ]);
+    }
+
+    /**
      * 推送对手标签记录任务
      */
     public static function pushTag(string $playerId, string $tag): void
@@ -174,6 +190,10 @@ class AsyncDbWriter
                 self::processWhoisAIStats($task['data']);
                 break;
 
+            case 'gomoku_stats':
+                self::processGomokuStats($task['data']);
+                break;
+
             case 'tag':
                 PlayerStatsRepository::recordTag($task['data']['player_id'], $task['data']['tag']);
                 break;
@@ -201,7 +221,46 @@ class AsyncDbWriter
         PlayerStatsRepository::recordWhoisAIGame($data['player_id'], (bool)$data['win'], (int)($data['active_hour'] ?? 0));
     }
 
+    private static function processGomokuStats(array $data): void
+    {
+        PlayerStatsRepository::recordGomokuGame(
+            $data['player_id'],
+            (bool)$data['win'],
+            (bool)$data['draw'],
+            (int)($data['active_hour'] ?? 0)
+        );
+    }
+
     // ==================== 聊天室消息队列 ====================
+
+    /**
+     * 启动时把聊天室待处理消息刷入 MySQL（避免重启丢消息）
+     */
+    public static function drainLobbyMessages(): void
+    {
+        $count = 0;
+        while (true) {
+            $redis = RedisService::connect();
+            $raw = $redis->lPop(RedisService::KP_LOBBY_WRITE_Q);
+            if ($raw === false || $raw === null) break;
+
+            $msg = json_decode($raw, true);
+            if (!$msg || empty($msg['id'])) continue;
+
+            try {
+                self::processLobbyMsg($msg);
+                $count++;
+            } catch (\Throwable $e) {
+                Logger::error('AsyncDbWriter drainLobbyMessages error', [
+                    'msg_id' => $msg['id'] ?? 0,
+                    'error'  => $e->getMessage(),
+                ]);
+            }
+        }
+        if ($count > 0) {
+            Logger::info('AsyncDbWriter drainLobbyMessages flushed', ['count' => $count]);
+        }
+    }
 
     /**
      * 消费聊天室写入队列

@@ -32,6 +32,8 @@ class GameController
         '/whoisai/whoisai.js'     => ['whoisai/whoisai.js',             'application/javascript'],
         '/lobby/lobby.css'        => ['lobby/lobby.css',              'text/css'],
         '/lobby/lobby.js'         => ['lobby/lobby.js',               'application/javascript'],
+        '/gomoku/gomoku.css'      => ['gomoku/gomoku.css',            'text/css'],
+        '/gomoku/gomoku.js'       => ['gomoku/gomoku.js',             'application/javascript'],
     ];
 
     public function index(Request $request, Response $response): void
@@ -68,6 +70,21 @@ class GameController
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'lobby/index.html');
         $files = ['/style.css', '/lobby/lobby.css', '/shared.js', '/lobby/lobby.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
+        $response->setContent($html);
+        $response->send();
+    }
+
+    public function gomokuIndex(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'gomoku/index.html');
+        $files = ['/style.css', '/gomoku/gomoku.css', '/shared.js', '/gomoku/gomoku.js'];
         foreach ($files as $file) {
             $html = str_replace(
                 $file . '?v=',
@@ -212,6 +229,30 @@ class GameController
         }
 
         $response->setContent(json_encode(['error' => '未找到玩家'], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * 重新生成恢复码
+     */
+    public function regenerateCode(Request $request, Response $response): void
+    {
+        $playerId = Sanitizer::identifier($request->get('player_id', ''));
+        $oldCode = Sanitizer::identifier($request->get('old_code', ''));
+        $response->setHeader('Content-Type', 'application/json');
+
+        if (empty($playerId) || empty($oldCode)) {
+            $response->setContent(json_encode(['error' => '缺少 player_id 或 old_code'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        try {
+            $newCode = PlayerStatsRepository::regenerateCode($playerId, $oldCode);
+            $response->setContent(json_encode(['code' => $newCode], JSON_UNESCAPED_UNICODE));
+        } catch (\RuntimeException $e) {
+            $response->setContent(json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE));
+        }
         $response->send();
     }
 
@@ -629,9 +670,8 @@ class GameController
             return;
         }
 
-        // 用户自定义表情上限 50 个
         $userStickers = \App\Services\Repository\StickerRepository::getUserStickers($playerId);
-        if (count($userStickers) >= 50) {
+        if (count($userStickers) >= 100) {
             $response->setContent(json_encode(['error' => '自定义表情已达上限（50个），请先删除旧表情'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;

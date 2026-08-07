@@ -207,8 +207,8 @@
 
             case 'system':
                 showTopToast(data.text, true);
-                if (data.text && data.text.indexOf('活跃连接') !== -1) {
-                    // 该设备已有活跃连接，停止重连
+                if (data.text && (data.text.indexOf('活跃连接') !== -1 || data.text.indexOf('已在其他地方登录') !== -1)) {
+                    // 该设备已有活跃连接 / 已在其他地方登录，停止重连
                     reconnecting = false;
                     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
                     intentionalClose = true;
@@ -241,7 +241,7 @@
                 // 服务器返回了恢复码则保存
                 if (data.player_id && myNickname) {
                     setUserNickname(myNickname);
-                    setUserPlayerId(data.player_id);
+                    if (!getUserPlayerId()) setUserPlayerId(data.player_id);
                     if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
                     showIdentityState();
                 }
@@ -964,7 +964,7 @@
             var localPid = getUserPlayerId();
             if (!localPid || String(localPid) === String(data.player_id)) {
                 setUserNickname(myNickname);
-                setUserPlayerId(data.player_id);
+                if (!localPid) setUserPlayerId(data.player_id);
                 if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
                 showIdentityState();
             }

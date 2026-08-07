@@ -60,8 +60,8 @@ const ANNOUNCE_MAX = 3;
 let announceQueue = [];
 let announceShowing = 0;
 
-function showDanmaku(text, label = '全服公告', displayMs = 0) {
-    announceQueue.push({ text, label, displayMs });
+function showDanmaku(text, label = '全服公告', durationSec = 0) {
+    announceQueue.push({ text, label, durationSec });
     dequeueAnnounce();
 }
 
@@ -70,7 +70,7 @@ function dequeueAnnounce() {
         const item = announceQueue.shift();
         const text = item.text || item;
         const label = item.label || '全服公告';
-        const ms = (item.displayMs > 0 ? item.displayMs : ANNOUNCE_DISPLAY_MS) * 1000;
+        const ms = item.durationSec > 0 ? item.durationSec * 1000 : ANNOUNCE_DISPLAY_MS;
         announceShowing++;
         const banner = document.createElement('div');
         banner.className = 'announcement-banner' + (label !== '全服公告' ? ' room-warn' : '');

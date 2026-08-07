@@ -364,6 +364,19 @@ class GameService
         return $id ?: null;
     }
 
+    public static function setPlayerCode(int $fd, string $code): void
+    {
+        $redis = RedisService::connect();
+        $redis->setEx(RedisService::KP_RCODE . $fd, 300, $code);
+    }
+
+    public static function getPlayerCode(int $fd): ?string
+    {
+        $redis = RedisService::connect();
+        $code = $redis->get(RedisService::KP_RCODE . $fd);
+        return $code ?: null;
+    }
+
     public static function sessionHasPlayerId(array $session): bool
     {
         $p1 = (int)($session['player1_fd'] ?? 0);
@@ -374,7 +387,32 @@ class GameService
 
     public static function removePlayerId(int $fd): void
     {
-        RedisService::connect()->del(RedisService::KP_CODE . $fd);
+        $redis = RedisService::connect();
+        $redis->del(RedisService::KP_CODE . $fd);
+        $redis->del(RedisService::KP_RCODE . $fd);
+    }
+
+    // ==================== 全局在线锁（同玩家 ID 多地登录拦截）====================
+
+    /**
+     * 原子抢占在线锁。成功返回 true，已被占用返回 false。
+     * 内部：SET NX EX 120s，一步完成，无 TOCTOU 竞态。
+     */
+    public static function tryClaimPlayerOnline(string $playerId, int $fd): bool
+    {
+        $redis = RedisService::connect();
+        $payload = json_encode(['fd' => $fd, 'ts' => time()], JSON_UNESCAPED_UNICODE);
+        // SET key value NX EX 120 → 仅当 key 不存在时写入，过期 120s
+        $result = $redis->set(RedisService::KP_PLAYER_ONLINE . $playerId, $payload, ['nx', 'ex' => 120]);
+        return $result !== false;
+    }
+
+    /**
+     * 释放玩家 ID 的在线锁（连接断开时调用）。
+     */
+    public static function releasePlayerOnline(string $playerId): void
+    {
+        RedisService::connect()->del(RedisService::KP_PLAYER_ONLINE . $playerId);
     }
 
     // ==================== 会话锁 ====================

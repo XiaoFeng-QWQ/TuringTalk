@@ -4,6 +4,7 @@ namespace App\Core\WebSocket;
 
 use App\Core\Sanitizer;
 use App\Services\Game\WhoisAIService;
+use App\Services\Game\GameService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Infrastructure\AsyncDbWriter;
@@ -206,6 +207,9 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             return;
         }
 
+        // 获取/创建玩家身份（含在线唯一性检查）
+        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+
         // 检查匹配池中是否已有同名玩家（防止绕过数据库检查，WhoisAI 特有）
         $pool = $this->WhoisAIService->getPool();
         foreach ($pool as $poolFd => $poolPlayer) {
@@ -235,7 +239,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'pool_count'    => $poolCount,
             'nickname'      => $nickname,
             'player_id'     => $playerId ?: null,
-            'recovery_code' => $valid['recovery_code'] ?? null,
+            'recovery_code' => $valid['recovery_code'] ?? GameService::getPlayerCode($fd) ?? null,
         ]);
 
         // 广播匹配池人数

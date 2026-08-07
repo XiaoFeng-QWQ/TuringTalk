@@ -175,6 +175,12 @@ abstract class BaseGameHandler
         }
         unset($this->clientInfo[(string)$fd]);
         $this->removeSpectatorFdAll($fd);
+
+        // 释放全局在线锁
+        $playerId = GameService::getPlayerId($fd);
+        if ($playerId) {
+            GameService::releasePlayerOnline($playerId);
+        }
     }
 
     // ==================== 全服公告 ====================
@@ -417,30 +423,24 @@ abstract class BaseGameHandler
         $fp = Sanitizer::identifier($row['fingerprint'] ?? '');
         $ip = $row['ip'] ?? '';
 
-        // 恢复码找回身份
-        if (!empty($recoveryCode) && empty($playerId)) {
-            $existing = PlayerStatsRepository::findByCode($recoveryCode);
-            if (!$existing) {
-                return ['success' => false, 'error' => '恢复码无效', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
-            }
-            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'recovery_code' => $recoveryCode];
-        }
-
-        if (!empty($playerId)) {
+        // player_id + recovery_code 必须同时匹配才确认身份
+        if (!empty($playerId) && !empty($recoveryCode)) {
             $existing = PlayerStatsRepository::findById($playerId);
-            if (!$existing) {
-                return ['success' => false, 'error' => '玩家 ID 无效', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
+            if ($existing && $existing['code'] === $recoveryCode) {
+                GameService::setPlayerCode($fd, $recoveryCode);
+                return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'recovery_code' => $recoveryCode];
             }
-            return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'recovery_code' => null];
+            return ['success' => false, 'error' => '身份验证失败，请检查玩家ID和恢复码', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
         }
 
-        // 无玩家 ID 无恢复码，检查昵称唯一性
+        // 无身份信息 → 检查昵称唯一性
         $existing = PlayerStatsRepository::findByNickname($nickname);
         if ($existing) {
             if ($existing['fp'] !== $fp || $existing['ip'] !== $ip) {
                 return ['success' => false, 'error' => '该昵称已被占用，请换一个', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
             }
-            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => $existing['id'], 'recovery_code' => null];
+            GameService::setPlayerCode($fd, $existing['code'] ?? '');
+            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => $existing['id'], 'recovery_code' => $existing['code'] ?? null];
         }
 
         return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
@@ -497,8 +497,9 @@ abstract class BaseGameHandler
     /**
      * 获取或创建玩家的 ID（与昵称绑定）。
      * 首次对局结束后自动生成，后续对局直接复用。
+     * $server 传入时执行在线唯一性检查（仅登录流程传，其他流程不传）。
      */
-    public function getOrCreatePlayerId(int $fd, string $nickname): ?string
+    public function getOrCreatePlayerId(int $fd, string $nickname, ?Server $server = null): ?string
     {
         if (empty($nickname)) return null;
 
@@ -510,13 +511,31 @@ abstract class BaseGameHandler
         if ($existing) {
             $playerId = $existing['id'];
             GameService::setPlayerId($fd, $playerId);
+            if ($server !== null) $this->claimOnlineLock($server, $fd, $playerId);
             return $playerId;
         }
 
         $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp);
         $playerId = $result['id'];
         GameService::setPlayerId($fd, $playerId);
+        GameService::setPlayerCode($fd, $result['code'] ?? '');
         Logger::info(static::class . ' player ID created', ['fd' => $fd, 'player_id' => $playerId, 'code' => $result['code'], 'nickname' => $nickname]);
+        if ($server !== null) $this->claimOnlineLock($server, $fd, $playerId);
         return $playerId;
+    }
+
+    /**
+     * 在线锁：防止同一 player_id 多地同时连接。
+     * 使用 Redis SETNX 原子操作，无竞态条件。
+     */
+    protected function claimOnlineLock(Server $server, int $fd, string $playerId): void
+    {
+        if (!GameService::tryClaimPlayerOnline($playerId, $fd)) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'system',
+                'text' => '该账号已在其他地方登录，请先退出后再重试',
+            ]);
+            $server->close($fd);
+        }
     }
 }

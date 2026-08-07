@@ -213,11 +213,20 @@ class PlayerStatsRepository
             fp VARCHAR(64) NOT NULL DEFAULT "",
             turing_test TEXT,
             WhoisAI TEXT,
+            gomoku TEXT,
             sticker_favorites TEXT,
             messages TEXT,
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+        // 为存量表补充 gomoku 列
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `player_data` LIKE 'gomoku'");
+            if ($cols->rowCount() === 0) {
+                $pdo->exec('ALTER TABLE player_data ADD COLUMN gomoku TEXT AFTER WhoisAI');
+            }
+        } catch (\Throwable $e) {}
 
         // 对手标签累计表
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_tags (
@@ -257,13 +266,27 @@ class PlayerStatsRepository
                 'total_games' => 0, 'wins' => 0, 'losses' => 0,
                 'active_hours' => [],
             ],
+            'gomoku' => [
+                'total_games' => 0, 'wins' => 0, 'losses' => 0,
+                'draws' => 0,
+                'active_hours' => [],
+            ],
             default => [],
+        };
+    }
+
+    private static function getColumn(string $gameMode): string
+    {
+        return match ($gameMode) {
+            'WhoisAI' => 'WhoisAI',
+            'gomoku'  => 'gomoku',
+            default   => 'turing_test',
         };
     }
 
     private static function getGameStats(string $playerId, string $gameMode): array
     {
-        $col = $gameMode === 'WhoisAI' ? 'WhoisAI' : 'turing_test';
+        $col = self::getColumn($gameMode);
         $pdo = Database::connect();
         $stmt = $pdo->prepare("SELECT {$col} FROM player_data WHERE id = ? LIMIT 1");
         $stmt->execute([$playerId]);
@@ -280,7 +303,7 @@ class PlayerStatsRepository
 
     private static function saveGameStats(string $playerId, string $gameMode, array $stats): void
     {
-        $col = $gameMode === 'WhoisAI' ? 'WhoisAI' : 'turing_test';
+        $col = self::getColumn($gameMode);
         $pdo = Database::connect();
         $stmt = $pdo->prepare("UPDATE player_data SET {$col} = ? WHERE id = ?");
         $stmt->execute([serialize($stats), $playerId]);
@@ -322,6 +345,35 @@ class PlayerStatsRepository
         $pool = self::WORD_POOL;
         $keys = array_rand($pool, 4);
         return $pool[$keys[0]] . '-' . $pool[$keys[1]] . '-' . $pool[$keys[2]] . '-' . $pool[$keys[3]];
+    }
+
+    /**
+     * 重新生成指定玩家的恢复码（需旧恢复码通过验证）。
+     * @throws \RuntimeException 玩家/旧恢复码不匹配或生成失败
+     */
+    public static function regenerateCode(string $playerId, string $oldCode): string
+    {
+        $newCode = self::generateCode();
+        $pdo = Database::connect();
+
+        for ($i = 0; $i < 3; $i++) {
+            try {
+                $stmt = $pdo->prepare('UPDATE player_data SET code = ? WHERE id = ? AND code = ?');
+                $stmt->execute([$newCode, $playerId, $oldCode]);
+                if ($stmt->rowCount() === 0) {
+                    throw new \RuntimeException('玩家ID或旧恢复码不匹配');
+                }
+                return $newCode;
+            } catch (\PDOException $e) {
+                if ($e->getCode() === '23000') {
+                    $newCode = self::generateCode();
+                    continue;
+                }
+                throw $e;
+            }
+        }
+
+        throw new \RuntimeException('生成恢复码失败，请重试');
     }
 
     /**
@@ -605,6 +657,36 @@ class PlayerStatsRepository
         }
 
         self::saveGameStats($playerId, 'WhoisAI', $stats);
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE id = ?');
+        $stmt->execute([time(), $playerId]);
+    }
+
+    /**
+     * 记录一局五子棋结果
+     */
+    public static function recordGomokuGame(string $playerId, bool $win, bool $draw, int $activeHour = 0): void
+    {
+        $player = self::findById($playerId);
+        if (!$player) return;
+
+        $stats = self::getGameStats($playerId, 'gomoku');
+        $stats['total_games']++;
+        if ($draw) {
+            $stats['draws']++;
+        } elseif ($win) {
+            $stats['wins']++;
+        } else {
+            $stats['losses']++;
+        }
+
+        if ($activeHour > 0) {
+            $h = (int)$activeHour;
+            $stats['active_hours'][$h] = ($stats['active_hours'][$h] ?? 0) + 1;
+        }
+
+        self::saveGameStats($playerId, 'gomoku', $stats);
 
         $pdo = Database::connect();
         $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE id = ?');

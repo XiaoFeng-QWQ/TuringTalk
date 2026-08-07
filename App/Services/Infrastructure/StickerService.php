@@ -125,9 +125,11 @@ class StickerService
         $urlField     = Config::get('ImageHosting.UrlField', 'url');
         $errorField   = Config::get('ImageHosting.ErrorField', 'msg');
 
-        $ext = strtolower($fileExt);
-        if (!in_array($ext, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'], true)) {
-            $ext = 'png';
+        $ext = strtolower(trim($fileExt));
+        // 仅允许标准图片格式，不在白名单内直接拒绝
+        $allowedExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+        if (!in_array($ext, $allowedExts, true)) {
+            throw new \RuntimeException('不支持的文件格式：' . $ext . '，仅允许 ' . implode(', ', $allowedExts));
         }
         if ($ext === 'jpg') {
             $ext = 'jpeg';
@@ -136,41 +138,41 @@ class StickerService
         // 解码 base64
         $binaryData = base64_decode($imageData, true);
         if ($binaryData === false) {
-            // 可能传入的是原始二进制
-            $binaryData = $imageData;
+            throw new \RuntimeException('图片数据 base64 解码失败');
         }
 
-        // 校验图片内容：必须是有效图片
-        $imgInfo = @getimagesizefromstring($binaryData);
-        if ($imgInfo === false) {
+        // 文件大小校验：解码后最大 16MB
+        $maxSize = 16 * 1024 * 1024;
+        if (strlen($binaryData) > $maxSize) {
+            throw new \RuntimeException('图片大小不能超过 16MB');
+        }
+
+        // 校验图片内容：真正解码验证（非仅读文件头），同时剥离内嵌载荷
+        $img = @imagecreatefromstring($binaryData);
+        if ($img === false) {
             throw new \RuntimeException('文件不是有效的图片');
         }
 
-        // 校验图片尺寸：最大 4096x4096，最小 16x16
-        $width = $imgInfo[0];
-        $height = $imgInfo[1];
+        // 校验图片尺寸：表情包不需要大图，限制 512x512 保证 GD 处理毫秒级完成
+        $width = imagesx($img);
+        $height = imagesy($img);
         if ($width < 16 || $height < 16) {
+            imagedestroy($img);
             throw new \RuntimeException('图片尺寸过小，最小 16x16');
         }
-        if ($width > 4096 || $height > 4096) {
-            throw new \RuntimeException('图片尺寸过大，最大 4096x4096');
+        if ($width > 512 || $height > 512) {
+            imagedestroy($img);
+            throw new \RuntimeException('图片尺寸过大，最大 512x512');
         }
 
-        // 校验 MIME 类型与扩展名一致
-        $detectedMime = $imgInfo['mime'] ?? '';
-        $allowedMimes = [
-            'png'  => 'image/png',
-            'jpeg' => 'image/jpeg',
-            'gif'  => 'image/gif',
-            'webp' => 'image/webp',
-            'bmp'  => 'image/bmp',
-        ];
-        $expectedMime = $allowedMimes[$ext] ?? 'image/png';
-        if ($detectedMime !== '' && $detectedMime !== $expectedMime) {
-            throw new \RuntimeException('图片类型不匹配，声称 ' . $ext . ' 但检测为 ' . $detectedMime);
-        }
-
-        $mimeType = $expectedMime;
+        // 统一转换为 WebP（体积更小、格式统一）
+        $img = self::ensureTrueColor($img);
+        ob_start();
+        imagewebp($img, null, 80);
+        $binaryData = ob_get_clean();
+        imagedestroy($img);
+        $ext = 'webp';
+        $mimeType = 'image/webp';
 
         $boundary = '----FormBoundary' . bin2hex(random_bytes(16));
 
@@ -239,6 +241,24 @@ class StickerService
         }
 
         return (string)$imageUrl;
+    }
+
+    /**
+     * 确保图像为真彩色（GIF 等调色板图像转换后透明通道才能正常工作）
+     */
+    private static function ensureTrueColor(\GdImage $img): \GdImage
+    {
+        if (imageistruecolor($img)) {
+            return $img;
+        }
+        $w = imagesx($img);
+        $h = imagesy($img);
+        $tc = imagecreatetruecolor($w, $h);
+        imagealphablending($tc, false);
+        imagesavealpha($tc, true);
+        imagecopy($tc, $img, 0, 0, 0, 0, $w, $h);
+        imagedestroy($img);
+        return $tc;
     }
 
     /**
