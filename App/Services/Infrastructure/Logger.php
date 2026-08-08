@@ -48,6 +48,21 @@ class Logger
         self::$minLevel = $configured instanceof LogLevel ? $configured : LogLevel::INFO;
     }
 
+    /**
+     * 从当前日志文件名提取日期，用于跨天检测
+     */
+    private static function getLogDate(): ?string
+    {
+        if (self::$logFile === null) {
+            return null;
+        }
+        // 文件名格式: xxx-YYYY-MM-DD.log → 提取 YYYY-MM-DD
+        if (preg_match('/(\d{4}-\d{2}-\d{2})/', self::$logFile, $m)) {
+            return $m[1];
+        }
+        return null;
+    }
+
     public static function info(string $message, array $context = []): void
     {
         self::log('INFO', $message, $context);
@@ -80,6 +95,10 @@ class Logger
         }
 
         if (self::$logFile === null) {
+            self::initialize();
+        } elseif (date('Y-m-d') !== self::getLogDate()) {
+            // 日期变更，切换到新文件
+            self::$logFile = null;
             self::initialize();
         }
 

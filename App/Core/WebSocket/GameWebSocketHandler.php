@@ -792,6 +792,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
         // 获取/创建玩家身份（含在线唯一性检查）
         $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+        if (!$playerId) return;
 
         $this->matchService->enqueue($fd, $nickname, $duration);
     }

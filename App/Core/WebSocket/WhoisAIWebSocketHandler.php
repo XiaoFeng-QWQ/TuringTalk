@@ -209,6 +209,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
 
         // 获取/创建玩家身份（含在线唯一性检查）
         $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+        if (!$playerId) return;
 
         // 检查匹配池中是否已有同名玩家（防止绕过数据库检查，WhoisAI 特有）
         $pool = $this->WhoisAIService->getPool();

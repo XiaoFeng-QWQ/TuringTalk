@@ -194,29 +194,6 @@ class BanRepository
             UNIQUE(ip, fingerprint, player_id)
         )');
 
-        // 兼容旧表：若缺少 player_id 列则自动添加
-        $cols = $pdo->query('PRAGMA table_info(bans)');
-        $hasPlayerId = false;
-        while ($col = $cols->fetch(\PDO::FETCH_ASSOC)) {
-            if ($col['name'] === 'player_id') { $hasPlayerId = true; break; }
-        }
-        if (!$hasPlayerId) {
-            $pdo->exec('ALTER TABLE bans ADD COLUMN player_id TEXT NOT NULL DEFAULT ""');
-            // 重建 UNIQUE 约束需要重建表，这里简单处理：删旧约束重建
-            $pdo->exec('CREATE TABLE IF NOT EXISTS bans_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip TEXT NOT NULL,
-                fingerprint TEXT NOT NULL DEFAULT "",
-                player_id TEXT NOT NULL DEFAULT "",
-                reason TEXT NOT NULL DEFAULT "",
-                banned_at INTEGER NOT NULL,
-                UNIQUE(ip, fingerprint, player_id)
-            )');
-            $pdo->exec('INSERT OR IGNORE INTO bans_new (id, ip, fingerprint, player_id, reason, banned_at) SELECT id, ip, fingerprint, "", reason, banned_at FROM bans');
-            $pdo->exec('DROP TABLE bans');
-            $pdo->exec('ALTER TABLE bans_new RENAME TO bans');
-        }
-
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_bans_ip ON bans(ip)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_bans_fingerprint ON bans(fingerprint)');
         $pdo->exec('CREATE INDEX IF NOT EXISTS idx_bans_player_id ON bans(player_id)');

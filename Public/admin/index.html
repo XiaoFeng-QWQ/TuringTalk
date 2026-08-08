@@ -8,6 +8,25 @@
     <title>管理后台 - 图灵测试</title>
     <link rel="icon" type="image/svg+xml" href="/admin/favicon.svg">
     <meta name="theme-color" content="#000000">
+    <!-- ---------- 字体 ---------- -->
+    <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
+    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-regular.css">
+    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-bold.css">
+
+    <style>
+    @font-face{
+      font-family:'Patrick Hand'; font-style:normal; font-weight:400; font-display:swap;
+      src:url('https://s4.zstatic.net/npm/@fontsource/patrick-hand@5.0.13/files/patrick-hand-latin-400-normal.woff2') format('woff2');
+    }
+    @font-face{
+      font-family:'Caveat'; font-style:normal; font-weight:400; font-display:swap;
+      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-400-normal.woff2') format('woff2');
+    }
+    @font-face{
+      font-family:'Caveat'; font-style:normal; font-weight:700; font-display:swap;
+      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-700-normal.woff2') format('woff2');
+    }
+    </style>
     <link rel="stylesheet" href="/admin/admin.css?v=">
 </head>
 
@@ -61,6 +80,7 @@
                 <button class="admin-tab-btn" id="tab-reports">举报审核</button>
                 <button class="admin-tab-btn" id="tab-stickers">自定义表情包</button>
                 <button class="admin-tab-btn" id="tab-lobby">聊天室管理</button>
+                <button class="admin-tab-btn" id="tab-users">用户管理</button>
             </div>
 
             
@@ -265,6 +285,40 @@
                 </div>
                 <div id="lobby-messages-pagination"
                     style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:8px;font-size:12px;color:var(--text-muted);">
+                </div>
+            </div>
+
+            
+            <div class="setting-row" id="panel-users" style="display:none;">
+                <h4>
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                    用户搜索与封禁
+                </h4>
+                <div style="display:flex;gap:6px;margin-bottom:8px;">
+                    <select id="user-search-field" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
+                        <option value="nickname">昵称</option>
+                        <option value="player_id">玩家ID</option>
+                        <option value="ip">IP地址</option>
+                        <option value="fp">指纹</option>
+                    </select>
+                    <input type="text" id="user-search-input" placeholder="输入搜索关键词..." maxlength="64"
+                        style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
+                    <button class="doodle-btn" id="btn-user-search"
+                        style="flex-shrink:0;justify-content:center;">搜索</button>
+                </div>
+                <div id="user-search-result" style="margin-bottom:8px;">
+                    <div style="text-align:center;color:var(--text-muted);padding:10px;">输入关键词搜索在线用户</div>
+                </div>
+                <div id="user-search-actions" style="display:none;gap:6px;margin-bottom:8px;">
+                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                        <input type="checkbox" id="user-search-select-all"> 全选
+                    </label>
+                    <button class="doodle-btn" id="btn-user-batch-ban" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量封禁</button>
                 </div>
             </div>
         </div>

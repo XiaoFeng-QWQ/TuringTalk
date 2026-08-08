@@ -203,9 +203,9 @@ class GameClient {
         const tagInput = document.getElementById('tag-input');
         const tag = tagInput ? tagInput.value.trim() : '';
 
-        // 重置顶部计时器为 60 秒，继续倒计时
+        // 最多给对方 60 秒判定时间，但不超过当前剩余时间
         clearInterval(timerInterval);
-        totalSeconds = 60;
+        totalSeconds = Math.min(totalSeconds, 60);
         timerDisplay.textContent = formatTime(totalSeconds);
         timerDisplay.classList.remove('urgent');
         timerDisplay.style.color = '';
@@ -345,9 +345,8 @@ class GameClient {
         // 立即清空聊天区 DOM，防止上局消息在新匹配到来前闪现
         chatBody.innerHTML = '';
 
-        // 清理 UI 和本地状态（跳过 reset()，因为我们要断开 WS 而不是发 leave）
+        // 清理 UI 和本地状态（复用已有连接，不关闭 WS）
         this._disconnecting = true;
-        if (this._transport) this._transport._intentionalClose = true;
         if (this._waitTimer) {
             clearInterval(this._waitTimer);
             this._waitTimer = null;
@@ -382,14 +381,8 @@ class GameClient {
         document.getElementById('system-id').textContent = browserFingerprint;
         this._disconnecting = false;
 
-        // 断开旧连接（服务端 onClose 会完整清理 playersTable/sessionsTable/queue）
-        if (this._transport._ws) {
-            try { this._transport._ws.close(); } catch (e) { }
-            this._transport._ws = null;
-        }
-
-        // reconnect 检测到 WS 已关闭，会创建新连接并重新计算 PoW
-        setTimeout(() => this._transport.reconnect(nickname, duration), 0);
+        // 复用已有连接，服务端 handleJoin 会自动清理旧对局状态
+        this._transport.reconnect(nickname, duration);
     }
 
     // ---- 事件处理器 ----
@@ -411,7 +404,7 @@ class GameClient {
         if (infoDiv) {
             infoDiv.innerHTML = `
                         <div style="font-size: 12px; color: var(--text-subtle);">当前对手</div>
-                        <strong style="font-size: 18px;">${escapeHtml(this._opponentName)}</strong>
+                        <strong style="font-size: 18px;">???</strong>
                     `;
         }
 
@@ -1263,11 +1256,6 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                         <span class="label">对方身份</span>
                         <span class="value">${truthLabel}</span>
                     </div>
-                    ${opponentName ? `
-                    <div class="result-row">
-                        <span class="label">对方昵称</span>
-                        <span class="value">${escapeHtml(opponentName)}</span>
-                    </div>` : ''}
                     ${opponentTag ? `
                     <div class="result-row">
                         <span class="label">对方标签</span>

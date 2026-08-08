@@ -132,6 +132,20 @@
     }
 }
 
+@keyframes nudgeShake {
+    0%, 100% { transform: translateX(0); }
+    15% { transform: translateX(-6px); }
+    30% { transform: translateX(6px); }
+    45% { transform: translateX(-4px); }
+    60% { transform: translateX(4px); }
+    75% { transform: translateX(-2px); }
+    90% { transform: translateX(2px); }
+}
+
+.lobby-chat-header.nudged {
+    animation: nudgeShake 0.5s ease;
+}
+
 
 .lobby-messages {
     flex: 1;
@@ -169,6 +183,8 @@
     font-weight: 700;
     color: var(--ink-blue);
     box-shadow: 2px 2px 0 var(--shadow-sm);
+    cursor: pointer;
+    user-select: none;
 }
 
 .lobby-msg-row.mine .lobby-avatar {
@@ -239,6 +255,37 @@
     border-radius: 14px 14px 4px 14px;
 }
 
+/* 消息 +1 跟队形徽章（气泡外部） */
+.lobby-msg-bubble-wrap {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+.lobby-msg-plusone {
+    display: inline-block;
+    background: transparent;
+    color: var(--ink-blue);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 16px 6px 16px 6px;
+    cursor: pointer;
+    border: 1.5px solid var(--ink-black);
+    box-shadow: 1px 2px 0 var(--shadow-sm);
+    transition: all 0.15s;
+    user-select: none;
+    width: fit-content;
+    line-height: 1.5;
+    opacity: 0.7;
+}
+
+.lobby-msg-plusone:hover {
+    opacity: 1;
+    background: var(--note-yellow);
+    box-shadow: 2px 3px 0 var(--shadow-sm);
+}
+
 @keyframes msgPopIn {
     from {
         opacity: 0;
@@ -255,6 +302,7 @@
     font-size: 15px;
     color: var(--ink-black);
     line-height: 1.55;
+    white-space: pre-wrap;
 }
 
 /* 已撤回的消息 */
@@ -486,16 +534,20 @@
 
 
 .lobby-input-area {
-    padding: 14px 20px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
+    padding: 0;
     border-top: 2px solid var(--ink-black);
     background: var(--bg-input);
     flex-shrink: 0;
 }
 
-.lobby-input-area .input-inner {
+.lobby-input-row {
+    padding: 14px 20px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.lobby-input-row .input-inner {
     flex: 1;
     display: flex;
     align-items: center;
@@ -506,28 +558,34 @@
     transition: border-color 0.2s;
 }
 
-.lobby-input-area .input-inner:focus-within {
+.lobby-input-row .input-inner:focus-within {
     border-color: var(--ink-blue);
     box-shadow: 0 0 0 3px rgba(30, 55, 153, 0.08);
 }
 
-.lobby-input-area input {
+.lobby-input-row input,
+.lobby-input-row textarea {
     flex: 1;
     border: none;
     background: transparent;
     padding: 10px 6px 10px 6px;
     font-size: 15px;
+    font-family: inherit;
     color: var(--ink-blue);
     outline: none;
     min-width: 0;
+    resize: none;
+    overflow-y: auto;
+    line-height: 1.55;
 }
 
-.lobby-input-area input::placeholder {
+.lobby-input-row input::placeholder,
+.lobby-input-row textarea::placeholder {
     color: var(--text-subtle);
     font-style: italic;
 }
 
-.lobby-input-area .sticker-btn {
+.lobby-input-row .sticker-btn {
     position: static;
     left: auto;
     top: auto;
@@ -546,12 +604,12 @@
     align-items: center;
 }
 
-.lobby-input-area .sticker-btn:hover {
+.lobby-input-row .sticker-btn:hover {
     color: var(--ink-blue);
     background: transparent !important;
 }
 
-.lobby-input-area .send-btn {
+.lobby-input-row .send-btn {
     padding: 10px 20px;
     font-size: 15px;
     flex-shrink: 0;
@@ -560,12 +618,12 @@
     border-color: var(--judge-bg);
 }
 
-.lobby-input-area .send-btn * {
+.lobby-input-row .send-btn * {
     color: #fff;
     stroke: #fff;
 }
 
-.lobby-input-area .send-btn:hover {
+.lobby-input-row .send-btn:hover {
     background: var(--ink-blue);
     border-color: var(--ink-blue);
 }
@@ -792,6 +850,11 @@
     font-weight: 700;
     color: var(--ink-blue);
     background: var(--note-green);
+}
+
+.lobby-user-item {
+    cursor: pointer;
+    user-select: none;
 }
 
 .lobby-user-item.you .user-avatar {

@@ -22,7 +22,7 @@
         stroke-linecap="round" stroke-linejoin="round" fill-opacity="0"/>
 
   <!-- 气泡内问号 -->
-  <text x="62" y="68" font-family="'ZCOOL KuaiLe', 'Pangolin', 'Comic Sans MS', cursive, sans-serif"
+  <text x="62" y="68" font-family="'LXGW WenKai', 'Patrick Hand', cursive, sans-serif"
         font-size="48" font-weight="bold" fill="#1e3799"
         text-anchor="middle" transform="rotate(-8, 62, 54)">?</text>
 

@@ -208,6 +208,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->handleSongCurrent($server, $fd, $data);
                     break;
 
+                case 'lobby_nudge':
+                    $this->handleNudge($server, $fd, $data);
+                    break;
+
                 default:
                     break;
             }
@@ -241,6 +245,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         // 新玩家：立即创建 player_data 记录（聊天室没有"对局结束"时机）
         if (!$playerId) {
             $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+            if (!$playerId) return;
         }
 
         // 封禁检查（IP + 指纹）
@@ -420,6 +425,52 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         ]);
     }
 
+    // ==================== 拍一拍 ====================
+
+    /**
+     * 拍一拍：双击头像触发，向目标玩家发送提醒并广播系统消息
+     */
+    private function handleNudge(Server $server, int $fd, array $data): void
+    {
+        $senderInfo = $this->clientInfo[(string)$fd] ?? null;
+        if (!$senderInfo || empty($senderInfo['nickname']) || empty($senderInfo['player_id'])) {
+            return;
+        }
+
+        $targetFd = (int)($data['target_fd'] ?? 0);
+        $targetNickname = Sanitizer::nickname($data['target_nickname'] ?? '');
+
+        if ($targetFd <= 0 || $targetNickname === '') return;
+        if ($targetFd === $fd) return; // 不能拍自己
+
+        // 校验目标 fd 是否有效且昵称匹配
+        $targetInfo = $this->clientInfo[(string)$targetFd] ?? null;
+        if (!$targetInfo || ($targetInfo['nickname'] ?? '') !== $targetNickname) return;
+
+        // 频率限制：每个发送者 5 秒一次
+        $redis = RedisService::connect();
+        $rateKey = 'lobby:nudge:' . $senderInfo['player_id'];
+        if ($redis->exists($rateKey)) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '拍得太频繁了，请稍后再试']);
+            return;
+        }
+        $redis->setex($rateKey, 5, '1');
+
+        // 向目标推送拍一拍通知
+        if ($server->isEstablished($targetFd)) {
+            $this->sendToPlayer($server, $targetFd, [
+                'type'        => 'lobby_nudged',
+                'sender_name' => $senderInfo['nickname'],
+            ]);
+        }
+
+        // 广播系统消息给所有人
+        $this->broadcastLobby($server, 0, [
+            'type' => 'lobby_system',
+            'text' => $senderInfo['nickname'] . ' 拍了拍 ' . $targetNickname,
+        ]);
+    }
+
     // ==================== 举报 ====================
 
     /**
@@ -474,7 +525,13 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $reporterName,
             $targetName,
             $reason,
-            $evidence
+            $evidence,
+            $fd,
+            $clientInfo['ip'] ?? '',
+            $clientInfo['fingerprint'] ?? '',
+            0,                                          // target_fd 未知（可能已离线）
+            $msg['sender_ip'] ?? '',
+            $msg['sender_fp'] ?? ''
         );
 
         $this->sendToPlayer($server, $fd, [

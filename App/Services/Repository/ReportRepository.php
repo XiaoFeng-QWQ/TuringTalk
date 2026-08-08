@@ -25,7 +25,14 @@ class ReportRepository
             source              VARCHAR(16)  NOT NULL COMMENT "来源: game/lobby/whoisai",
             source_id           VARCHAR(128) NOT NULL COMMENT "来源标识(session_id/message_id/room_id)",
             reporter_player_id  VARCHAR(64)  NOT NULL COMMENT "举报者 player_data.id",
+            reporter_fd         INT          NOT NULL DEFAULT 0 COMMENT "举报者 fd",
+            reporter_ip         VARCHAR(45)  NOT NULL DEFAULT "" COMMENT "举报者 IP",
+            reporter_fingerprint VARCHAR(64) NOT NULL DEFAULT "" COMMENT "举报者浏览器指纹",
             target_player_id    VARCHAR(64)  NOT NULL COMMENT "被举报者 player_data.id",
+            target_fd           INT          NOT NULL DEFAULT 0 COMMENT "被举报者 fd",
+            target_ip           VARCHAR(45)  NOT NULL DEFAULT "" COMMENT "被举报者 IP",
+            target_fingerprint  VARCHAR(64)  NOT NULL DEFAULT "" COMMENT "被举报者浏览器指纹",
+            session_id          VARCHAR(64)  NOT NULL DEFAULT "" COMMENT "对局ID(game)/room_id(whoisai)，非对局上报为空",
             reporter_name       VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "举报者昵称(快照)",
             target_name         VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "被举报者昵称(快照)",
             reason              VARCHAR(255) NOT NULL DEFAULT "" COMMENT "举报原因",
@@ -65,7 +72,13 @@ class ReportRepository
         string $reporterName,
         string $targetName,
         string $reason,
-        string $evidence = ''
+        string $evidence = '',
+        int    $reporterFd = 0,
+        string $reporterIp = '',
+        string $reporterFingerprint = '',
+        int    $targetFd = 0,
+        string $targetIp = '',
+        string $targetFingerprint = ''
     ): array {
         self::ensureTable();
 
@@ -78,10 +91,17 @@ class ReportRepository
 
         try {
             $stmt = $pdo->prepare(
-                'INSERT INTO reports (source, source_id, reporter_player_id, target_player_id, reporter_name, target_name, reason, evidence)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO reports (
+                    source, source_id, reporter_player_id, reporter_fd, reporter_ip, reporter_fingerprint,
+                    target_player_id, target_fd, target_ip, target_fingerprint,
+                    reporter_name, target_name, reason, evidence, session_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([$source, $sourceId, $reporterPlayerId, $targetPlayerId, $reporterName, $targetName, $reason, $evidence]);
+            $stmt->execute([
+                $source, $sourceId, $reporterPlayerId, $reporterFd, $reporterIp, $reporterFingerprint,
+                $targetPlayerId, $targetFd, $targetIp, $targetFingerprint,
+                $reporterName, $targetName, $reason, $evidence, '',
+            ]);
 
             Logger::debug('Report submitted', [
                 'source'         => $source,
@@ -97,7 +117,7 @@ class ReportRepository
                 return ['success' => false, 'message' => '你已经举报过对方了'];
             }
 
-            Logger::error('ReportRepository: insert failed', ['error' => $e->getMessage()]);
+            Logger::error('ReportRepository: insert failed', ['error' => $e->getMessage(), 'code' => $e->getCode(), 'sqlState' => ($stmt ?? null)?->errorInfo()[0] ?? '']);
             return ['success' => false, 'message' => '举报提交失败，请稍后再试'];
         }
     }

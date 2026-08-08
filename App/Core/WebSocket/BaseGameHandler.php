@@ -118,21 +118,18 @@ abstract class BaseGameHandler
 
         $this->clientInfo[(string)$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
 
-        // IP 去重
+        // IP 去重：同一 IP 已存在活跃连接时，关闭旧连接、放行新连接
+        // 避免前端重连时旧 fd onClose 尚未触发导致新连接被误拒的竞态问题
         if (Config::get('Server.DenyMultiConnection', true)) {
             $existingFd = $this->ipToFd[$clientIp] ?? null;
-            if ($existingFd !== null && $server->isEstablished($existingFd)) {
-                Logger::info(static::class . ' WS rejected: IP already connected', [
+            if ($existingFd !== null && $existingFd !== $fd && $server->isEstablished($existingFd)) {
+                Logger::info(static::class . ' WS: closing old connection for same IP', [
                     'fd' => $fd,
                     'ip' => $clientIp,
                     'existing_fd' => $existingFd,
                 ]);
-                $this->sendToPlayer($server, $fd, [
-                    'type' => 'system',
-                    'text' => '该设备已有活跃连接，请关闭其他页面后重试',
-                ]);
-                $server->close($fd);
-                return false;
+                $server->close($existingFd);
+                unset($this->ipToFd[$clientIp]);
             }
         }
 
@@ -513,6 +510,18 @@ abstract class BaseGameHandler
             GameService::setPlayerId($fd, $playerId);
             if ($server !== null) $this->claimOnlineLock($server, $fd, $playerId);
             return $playerId;
+        }
+
+        // 同 IP 最多允许 3个账号
+        if (!empty($ip) && PlayerStatsRepository::countByIp($ip) >= 3) {
+            Logger::warning(static::class . ' IP account limit hit', ['fd' => $fd, 'ip' => $ip, 'nickname' => $nickname]);
+            if ($server !== null) {
+                $this->sendToPlayer($server, $fd, [
+                    'type' => 'error',
+                    'message' => '不允许创建多个账号！',
+                ]);
+            }
+            return null;
         }
 
         $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp);

@@ -41,12 +41,6 @@ class StickerRepository
             INDEX idx_status (status)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-        // 兼容旧表：无 status 列则自动追加，已有记录默认 approved
-        try {
-            $pdo->exec("ALTER TABLE user_stickers ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'approved'");
-        } catch (\PDOException $e) {
-            // 列已存在，忽略
-        }
         $pdo->exec("CREATE TABLE IF NOT EXISTS sticker_meta (
             key_name VARCHAR(32) PRIMARY KEY,
             value TEXT NOT NULL

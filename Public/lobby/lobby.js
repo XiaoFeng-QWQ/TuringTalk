@@ -92,7 +92,7 @@
     let songCurAudio = null;      // 当前正在播放的 Audio 实例
     let songProgressTimer = null; // 进度条更新定时器
     let audioUnlocked = false;    // 浏览器自动播放策略是否已解锁
-    let songListen = getUserdata().song_listen ?? true;  // 是否参与听歌
+    let songListen = getUserdata().song_listen ?? false;  // 是否参与听歌
 
     // ==================== 浏览器通知 ====================
     let notifyEnabled = getUserdata().lobby_notify ?? false;
@@ -436,6 +436,10 @@
                 sendNotification('有人@了你', data.sender_name + ' 在公共聊天室提到了你');
                 break;
 
+            case 'lobby_nudged':
+                handleNudged(data.sender_name);
+                break;
+
             case 'system':
                 if (data.text && (data.text.includes('已有活跃连接') || data.text.includes('已在其他地方登录'))) {
                     showTopToast(data.text, true);
@@ -588,6 +592,72 @@
         $chatInput.focus();
     }
 
+    // ==================== 拍一拍 ====================
+
+    function nudgeUser(targetNickname) {
+        if (!targetNickname || targetNickname === myNickname) return;
+        // 从在线列表中查找 fd
+        var target = null;
+        for (var i = 0; i < onlinePlayers.length; i++) {
+            if (onlinePlayers[i].nickname === targetNickname) {
+                target = onlinePlayers[i];
+                break;
+            }
+        }
+        if (!target) {
+            showTopToast('该玩家已离线', true);
+            return;
+        }
+        send({
+            type: 'lobby_nudge',
+            target_fd: target.fd,
+            target_nickname: targetNickname
+        });
+        showTopToast('你拍了拍 ' + targetNickname, false);
+    }
+
+    /**
+     * 为头像元素绑定拍一拍交互（双击 / 双拍）
+     */
+    function addAvatarNudgeHandler(el, targetNickname) {
+        if (!el || !targetNickname) return;
+
+        // 桌面端：双击
+        el.addEventListener('dblclick', function (e) {
+            if (scrollGuard) return;
+            e.preventDefault();
+            e.stopPropagation();
+            nudgeUser(targetNickname);
+        });
+
+        // 移动端：双拍检测（两次 tap 间隔 ≤ 300ms）
+        var lastTap = 0;
+        el.addEventListener('touchend', function (e) {
+            if (scrollGuard) { lastTap = 0; return; }
+            var now = Date.now();
+            if (now - lastTap < 300) {
+                e.preventDefault();
+                nudgeUser(targetNickname);
+                lastTap = 0;
+            } else {
+                lastTap = now;
+            }
+        });
+    }
+
+    /**
+     * 收到拍一拍通知：抖一抖聊天头部 + toast
+     */
+    function handleNudged(senderName) {
+        showTopToast(senderName + ' 拍了拍你', false);
+        if ($lobbyChatHeader) {
+            $lobbyChatHeader.classList.add('nudged');
+            setTimeout(function () {
+                $lobbyChatHeader.classList.remove('nudged');
+            }, 600);
+        }
+    }
+
     // 消息归属判断：优先用 player_data.id，防止昵称冒用导致消息归属错误
     function isMineMessage(data) {
         if (myPlayerId && data.sender_id) {
@@ -619,6 +689,7 @@
             var started = false;
 
             function onStart(e) {
+                if (scrollGuard) return;
                 started = false;
                 timer = setTimeout(function () {
                     started = true;
@@ -644,6 +715,9 @@
             // 阻止长按弹出菜单
             av.addEventListener('contextmenu', function (e) { if (started) e.preventDefault(); });
         })(avatar, senderName);
+
+        // 拍一拍：双击头像
+        addAvatarNudgeHandler(avatar, senderName);
 
         // 右侧内容区：名字时间 + 气泡
         var content = document.createElement('div');
@@ -710,7 +784,7 @@
         } else {
             bubble.innerHTML =
                 replyHtml +
-                '<div class="lobby-msg-text">' + autoLink(parseBilibiliLinks(escapeHtml(data.content))) + '</div>';
+                '<div class="lobby-msg-text">' + autoLink(parseBilibiliLinks(escapeHtml(data.content))).replace(/\n/g, '<br>') + '</div>';
         }
 
         var replyDiv = bubble.querySelector('.lobby-msg-reply');
@@ -748,6 +822,9 @@
         avatar.textContent = getAvatarChar(senderName);
         avatar.style.background = isMine ? 'var(--note-blue)' : getAvatarColor(senderName);
 
+        // 拍一拍：双击头像
+        addAvatarNudgeHandler(avatar, senderName);
+
         var content = document.createElement('div');
         content.className = 'lobby-msg-content';
 
@@ -777,6 +854,7 @@
         wrapper.appendChild(content);
         $messages.appendChild(wrapper);
         scrollToBottom();
+        updatePlusOneChain();
     }
 
     function renderHistory(messages) {
@@ -799,6 +877,7 @@
         $messages.appendChild(bubble);
         resolveBilibiliEmbeds(bubble);
         scrollToBottom();
+        updatePlusOneChain();
 
         if (new Date().getDay() === 4 && data.content && /疯狂星期四|V我50|KFC|鸡腿|全家桶|原味鸡/.test(data.content)) {
             var rect = bubble.getBoundingClientRect();
@@ -806,6 +885,104 @@
             var cy = rect.top + rect.height / 2;
             spawnKfcBurst(cx, cy, 5);
         }
+    }
+
+    // ==================== 消息 +1 跟队形 ====================
+
+    function updatePlusOneChain() {
+        // 清除所有已有 +1 徽章
+        document.querySelectorAll('.lobby-msg-plusone').forEach(function (el) { el.remove(); });
+        // 解包旧的 bubble-wrap，还原 DOM 结构
+        document.querySelectorAll('.lobby-msg-bubble-wrap').forEach(function (wrap) {
+            var parent = wrap.parentNode;
+            while (wrap.firstChild) {
+                parent.insertBefore(wrap.firstChild, wrap);
+            }
+            parent.removeChild(wrap);
+        });
+
+        var rows = $messages.querySelectorAll('.lobby-msg-row');
+        if (rows.length < 2) return;
+
+        // 从底部向上扫描，找出连续相同内容的消息链
+        var chainEnd = rows.length - 1;
+        var chainContent = '';
+
+        // 从最后一条有效文本消息开始
+        for (var i = rows.length - 1; i >= 0; i--) {
+            var row = rows[i];
+            var bubble = row.querySelector('.lobby-msg');
+            if (!bubble || !bubble.dataset.msgId || bubble.classList.contains('revoked')) continue;
+            var textEl = bubble.querySelector('.lobby-msg-text');
+            if (!textEl) continue;
+            var content = textEl.textContent.trim();
+            if (!content) continue;
+
+            chainContent = content;
+            chainEnd = i;
+            break;
+        }
+
+        if (!chainContent) return;
+
+        // 向上扩展链，找到所有连续相同内容的行
+        var chainStart = chainEnd;
+        for (var j = chainEnd - 1; j >= 0; j--) {
+            var row = rows[j];
+            var bubble = row.querySelector('.lobby-msg');
+            if (!bubble || !bubble.dataset.msgId || bubble.classList.contains('revoked')) break;
+            var textEl = bubble.querySelector('.lobby-msg-text');
+            if (!textEl) break;
+            if (textEl.textContent.trim() === chainContent) {
+                chainStart = j;
+            } else {
+                break;
+            }
+        }
+
+        var chainLen = chainEnd - chainStart + 1;
+        if (chainLen < 2) return;
+
+        // 只在最后一条消息（链尾）显示 +1 徽章
+        var row = rows[chainEnd];
+        var bubble = row.querySelector('.lobby-msg');
+        if (bubble && bubble.dataset.msgId && !bubble.classList.contains('revoked')) {
+            var isMine = row.classList.contains('mine');
+
+            // 用横排容器包裹气泡，+1 徽章放在左或右
+            var wrap = document.createElement('div');
+            wrap.className = 'lobby-msg-bubble-wrap';
+            bubble.parentNode.insertBefore(wrap, bubble);
+            wrap.appendChild(bubble);
+
+            var badge = document.createElement('span');
+            badge.className = 'lobby-msg-plusone';
+            badge.textContent = '+1';
+            badge.title = '跟队形';
+            badge.addEventListener('click', function (e) {
+                e.stopPropagation();
+                doPlusOne(chainContent);
+            });
+
+            if (isMine) {
+                // 自己的消息：+1 在气泡左边
+                wrap.insertBefore(badge, bubble);
+            } else {
+                // 对方的消息：+1 在气泡右边
+                wrap.appendChild(badge);
+            }
+        }
+    }
+
+    function doPlusOne(content) {
+        if (!content) return;
+        // 打断机制：发送前先清除链上的 +1 徽章（避免点多次）
+        document.querySelectorAll('.lobby-msg-plusone').forEach(function (el) { el.remove(); });
+        send({
+            type: 'lobby_chat',
+            nickname: myNickname,
+            content: content
+        });
     }
 
     function highlightMentionedMessage(messageId) {
@@ -839,7 +1016,10 @@
         if (!row) return;
         row.style.transition = 'opacity 0.3s';
         row.style.opacity = '0';
-        setTimeout(function () { row.remove(); }, 300);
+        setTimeout(function () {
+            row.remove();
+            updatePlusOneChain();
+        }, 300);
     }
 
     function revokeMessageUI(messageId, senderName) {
@@ -901,10 +1081,22 @@
             }
         });
 
-        // 复制文本
+        // 复制选中（仅当用户已选中文字时显示）
+        var selection = window.getSelection().toString().trim();
+        if (selection) {
+            items.push({
+                label: '复制选中',
+                class: '',
+                action: function () {
+                    copyToClipboard(selection);
+                }
+            });
+        }
+
+        // 复制全部
         if (data.content) {
             items.push({
-                label: '复制文本',
+                label: '复制全部',
                 class: '',
                 action: function () {
                     copyToClipboard(data.content);
@@ -1046,17 +1238,19 @@
 
         send(data);
         $chatInput.value = '';
+        $chatInput.style.height = 'auto';
         hideMentionDropdown();
     }
 
     $btnSend.addEventListener('click', sendMessage);
     $chatInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
             if ($mentionDropdown && $mentionDropdown.style.display !== 'none') {
                 e.preventDefault();
                 selectMentionedUser();
                 return;
             }
+            e.preventDefault();
             sendMessage();
         }
         if (e.key === 'Escape') {
@@ -1074,6 +1268,12 @@
                 selectMentionedUser();
             }
         }
+    });
+
+    // textarea 自动撑高
+    $chatInput.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     });
 
     // ==================== @ 提及自动补全 ====================
@@ -1255,6 +1455,7 @@
             players.forEach(function (p) {
                 var item = document.createElement('div');
                 item.className = 'lobby-user-item';
+                item.dataset.fd = p.fd;
                 if (p.nickname && p.nickname === myNickname) {
                     item.classList.add('you');
                 }
@@ -1264,6 +1465,8 @@
                 avatar.style.background = getAvatarColor(p.nickname || '');
                 item.appendChild(avatar);
                 item.appendChild(document.createTextNode(p.nickname || '匿名'));
+                // 拍一拍：双击用户列表头像
+                addAvatarNudgeHandler(item, p.nickname);
                 $usersList.appendChild(item);
             });
         }
@@ -1364,8 +1567,16 @@
     });
 
     // ==================== 消息滚动 ====================
+    let scrollGuard = false;
+    let scrollGuardTimer = null;
     $messages.addEventListener('scroll', function () {
         stickyScroll = $messages.scrollTop + $messages.clientHeight < $messages.scrollHeight - 40;
+        scrollGuard = true;
+        if (scrollGuardTimer) clearTimeout(scrollGuardTimer);
+        scrollGuardTimer = setTimeout(function () {
+            scrollGuard = false;
+            scrollGuardTimer = null;
+        }, 150);
     });
 
     // ==================== 工具 ====================

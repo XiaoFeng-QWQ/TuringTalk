@@ -242,7 +242,7 @@
                 if (data.player_id && myNickname) {
                     setUserNickname(myNickname);
                     if (!getUserPlayerId()) setUserPlayerId(data.player_id);
-                    if (data.recovery_code) setUserRecoveryCode(data.recovery_code);
+                    if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
                     showIdentityState();
                 }
                 break;

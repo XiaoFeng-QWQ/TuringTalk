@@ -131,6 +131,8 @@ let lobbyAnnounceInput, btnLobbyAnnounce;
 let lobbyRateInput, btnLobbyRateSet, btnLobbyRateQuery, lobbyRateStatus;
 let _lobbyAllMessages = [];
 let _lobbyPage = 1, _lobbyTotal = 0, _lobbyPageSize = 20;
+// 用户管理
+let tabUsers, panelUsers, userSearchField, userSearchInput, btnUserSearch, userSearchResult, userSearchActions, userSearchSelectAll, btnUserBatchBan;
 // 谁是AI
 let tabWhoisAI, panelWhoisAI, WhoisAIRoomsList;
 // 举报审核
@@ -638,6 +640,10 @@ function handleAdminMessage(data) {
             renderLobbyPlayers(data.players || []);
             break;
 
+        case 'admin_user_search_result':
+            renderUserSearchResult(data.users || []);
+            break;
+
         case 'admin_lobby_messages':
             renderLobbyMessages(data.messages || [], data.total, data.page, data.page_size);
             break;
@@ -862,6 +868,7 @@ function switchAdminTab(tab) {
         { btn: tabReports, panel: panelReports, name: 'reports' },
         { btn: tabStickers, panel: panelStickers, name: 'stickers' },
         { btn: tabLobby, panel: panelLobby, name: 'lobby' },
+        { btn: tabUsers, panel: panelUsers, name: 'users' },
     ];
 
     if (_isSuperAdmin && tabAdmin && tabLogs) {
@@ -1632,6 +1639,8 @@ function renderReportDetail(report) {
             ${banBtn(report.target_ip, report.target_fingerprint || '', report.target_player_id || '', '被举报者: ' + escapeHtml(report.target_name || '?'))}
         </div>
         <p><b>原因：</b>${escapeHtml(report.reason || '无')}</p>
+        <p><b>消息内容：</b></p>
+        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:4px;padding:8px;max-height:120px;overflow-y:auto;white-space:pre-wrap;font-size:13px;color:var(--ink-black);">${escapeHtml(report.evidence || '无')}</div>
         <p><b>时间：</b>${escapeHtml(report.created_at)}</p>
         <p><b>状态：</b>${reviewedText}</p>
     `;
@@ -2708,6 +2717,63 @@ function _renderLobbyPagination() {
     });
 }
 
+// ==================== 用户管理 ====================
+
+function renderUserSearchResult(users) {
+    if (!userSearchResult) return;
+    if (!users.length) {
+        userSearchResult.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">未找到匹配的用户</div>';
+        if (userSearchActions) userSearchActions.style.display = 'none';
+        return;
+    }
+    if (userSearchActions) userSearchActions.style.display = 'flex';
+    let html = '';
+    users.forEach(u => {
+        const pid = u.player_id || '';
+        const timeStr = u.last_played_at ? new Date(u.last_played_at * 1000).toLocaleString('zh-CN') : '-';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--border-light);font-size:12px;">' +
+            '<span><input type="checkbox" class="user-search-check"' +
+            ' data-pid="' + escapeHtmlAttr(pid) + '"' +
+            ' data-ip="' + escapeHtmlAttr(u.ip) + '"' +
+            ' data-fp="' + escapeHtmlAttr(u.fp) + '"' +
+            ' style="margin:0 6px 0 0;vertical-align:middle;">' +
+            '<strong>' + escapeHtml(u.nickname || '(未设置)') + '</strong>' +
+            ' <span style="color:var(--text-muted);font-size:10px;">PID=' + escapeHtml(pid.substring(0, 12)) + '</span>' +
+            ' <span style="color:var(--text-muted);">IP=' + escapeHtml(u.ip) + '</span>' +
+            ' <span style="color:var(--text-muted);font-size:10px;">最后活跃: ' + escapeHtml(timeStr) + '</span>' +
+            '</span>' +
+            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-ban-pid="' + escapeHtmlAttr(pid) + '" data-ban-ip="' + escapeHtmlAttr(u.ip) + '" data-ban-fp="' + escapeHtmlAttr(u.fp) + '" data-ban-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">封禁</button>' +
+        '</div>';
+    });
+    userSearchResult.innerHTML = html;
+
+    // 全选
+    if (userSearchSelectAll) {
+        userSearchSelectAll.checked = false;
+        userSearchSelectAll.onclick = function () {
+            userSearchResult.querySelectorAll('.user-search-check').forEach(cb => cb.checked = this.checked);
+        };
+    }
+
+    // 单个封禁按钮
+    userSearchResult.querySelectorAll('[data-ban-pid]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetName = btn.dataset.banName;
+            const player = {
+                player_id: btn.dataset.banPid,
+                ip: btn.dataset.banIp,
+                fp: btn.dataset.banFp,
+            };
+            showBanReasonDialog(
+                '封禁用户 ' + targetName + '？',
+                (reason) => {
+                    adminSend('admin_user_ban', { players: [player], reason });
+                }
+            );
+        });
+    });
+}
+
 // ==================== 谁是AI 管理 ====================
 
 /**
@@ -3174,6 +3240,15 @@ function initAdminDOMRefs() {
     btnLobbyRateSet = document.getElementById('btn-lobby-rate-set');
     btnLobbyRateQuery = document.getElementById('btn-lobby-rate-query');
     lobbyRateStatus = document.getElementById('lobby-rate-status');
+    tabUsers = document.getElementById('tab-users');
+    panelUsers = document.getElementById('panel-users');
+    userSearchField = document.getElementById('user-search-field');
+    userSearchInput = document.getElementById('user-search-input');
+    btnUserSearch = document.getElementById('btn-user-search');
+    userSearchResult = document.getElementById('user-search-result');
+    userSearchActions = document.getElementById('user-search-actions');
+    userSearchSelectAll = document.getElementById('user-search-select-all');
+    btnUserBatchBan = document.getElementById('btn-user-batch-ban');
     WhoisAIRoomsList = document.getElementById('WhoisAI-rooms-list');
     reportsList = document.getElementById('reports-list');
     reportsPagination = document.getElementById('reports-pagination');
@@ -3300,6 +3375,9 @@ function initAdminEvents() {
     }
     if (tabLobby) {
         tabLobby.addEventListener('click', () => switchAdminTab('lobby'));
+    }
+    if (tabUsers) {
+        tabUsers.addEventListener('click', () => switchAdminTab('users'));
     }
 
     // 举报审核筛选按钮
@@ -3696,6 +3774,36 @@ function initAdminEvents() {
             const ids = Array.from(checks).map(c => parseInt(c.dataset.id)).filter(id => id > 0);
             if (!confirm('确定删除选中的 ' + ids.length + ' 条消息吗？')) return;
             adminSend('admin_lobby_batch_delete', { message_ids: ids });
+        });
+    }
+
+    // 用户搜索
+    if (btnUserSearch && userSearchInput && userSearchField) {
+        btnUserSearch.addEventListener('click', () => {
+            const keyword = userSearchInput.value.trim();
+            adminSend('admin_user_search', { keyword: keyword, field: userSearchField.value });
+        });
+        userSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); btnUserSearch.click(); }
+        });
+    }
+
+    // 用户批量封禁（复用 showBanReasonDialog）
+    if (btnUserBatchBan) {
+        btnUserBatchBan.addEventListener('click', () => {
+            const checks = userSearchResult.querySelectorAll('.user-search-check:checked');
+            if (!checks.length) { showAdminToast('请选择要封禁的用户'); return; }
+            const players = Array.from(checks).map(c => ({
+                player_id: c.dataset.pid || '',
+                ip: c.dataset.ip || '',
+                fp: c.dataset.fp || '',
+            }));
+            showBanReasonDialog(
+                `批量封禁 ${players.length} 名用户？`,
+                (reason) => {
+                    adminSend('admin_user_ban', { players, reason });
+                }
+            );
         });
     }
 

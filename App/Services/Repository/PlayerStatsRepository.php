@@ -220,14 +220,6 @@ class PlayerStatsRepository
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
-        // 为存量表补充 gomoku 列
-        try {
-            $cols = $pdo->query("SHOW COLUMNS FROM `player_data` LIKE 'gomoku'");
-            if ($cols->rowCount() === 0) {
-                $pdo->exec('ALTER TABLE player_data ADD COLUMN gomoku TEXT AFTER WhoisAI');
-            }
-        } catch (\Throwable $e) {}
-
         // 对手标签累计表
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_tags (
             player_id VARCHAR(64) NOT NULL,
@@ -469,6 +461,45 @@ class PlayerStatsRepository
         $stmt->execute([trim($nickname)]);
         $row = $stmt->fetch();
         return $row ?: null;
+    }
+
+    /**
+     * 搜索用户（支持昵称/player_id/IP/指纹模糊匹配）
+     * @return array 最多返回 200 条
+     */
+    public static function searchUsers(string $keyword, string $field = 'nickname'): array
+    {
+        if (empty($keyword)) return [];
+        $pdo = Database::connect();
+
+        $column = match ($field) {
+            'player_id' => 'id',
+            'ip'        => 'ip',
+            'fp'        => 'fp',
+            default     => 'nickname',
+        };
+
+        $stmt = $pdo->prepare(
+            "SELECT id, nickname, ip, fp, created_at, last_played_at
+             FROM player_data
+             WHERE {$column} LIKE ?
+             ORDER BY last_played_at DESC
+             LIMIT 200"
+        );
+        $stmt->execute(['%' . $keyword . '%']);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
+     * 统计同一 IP 下的账号数量
+     */
+    public static function countByIp(string $ip): int
+    {
+        if (empty($ip)) return 0;
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM player_data WHERE ip = ?');
+        $stmt->execute([$ip]);
+        return (int)$stmt->fetchColumn();
     }
 
     // ================================================================

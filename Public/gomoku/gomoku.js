@@ -117,7 +117,7 @@ function drawBoard() {
 
     // 坐标标注
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-subtle').trim() || '#888';
-    ctx.font = '11px "ZCOOL KuaiLe", Pangolin, cursive';
+    ctx.font = '11px "LXGW WenKai", "Patrick Hand", cursive';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     for (let i = 0; i < boardSize; i++) {
@@ -770,7 +770,7 @@ function handleWsMsg(msg) {
             if (data && data.player_id && !getUserPlayerId()) {
                 setUserPlayerId(data.player_id);
             }
-            if (data && data.recovery_code) {
+            if (data && data.recovery_code && !getUserRecoveryCode()) {
                 setUserRecoveryCode(data.recovery_code);
             }
             _pendingRecoveryCode = '';

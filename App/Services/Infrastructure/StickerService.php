@@ -141,10 +141,10 @@ class StickerService
             throw new \RuntimeException('图片数据 base64 解码失败');
         }
 
-        // 文件大小校验：解码后最大 16MB
-        $maxSize = 16 * 1024 * 1024;
+        // 文件大小校验：解码后最大 2MB
+        $maxSize = 2 * 1024 * 1024;
         if (strlen($binaryData) > $maxSize) {
-            throw new \RuntimeException('图片大小不能超过 16MB');
+            throw new \RuntimeException('图片大小不能超过 2MB');
         }
 
         // 校验图片内容：真正解码验证（非仅读文件头），同时剥离内嵌载荷
@@ -153,26 +153,13 @@ class StickerService
             throw new \RuntimeException('文件不是有效的图片');
         }
 
-        // 校验图片尺寸：表情包不需要大图，限制 512x512 保证 GD 处理毫秒级完成
-        $width = imagesx($img);
-        $height = imagesy($img);
-        if ($width < 16 || $height < 16) {
-            imagedestroy($img);
-            throw new \RuntimeException('图片尺寸过小，最小 16x16');
-        }
-        if ($width > 512 || $height > 512) {
-            imagedestroy($img);
-            throw new \RuntimeException('图片尺寸过大，最大 512x512');
-        }
-
-        // 统一转换为 WebP（体积更小、格式统一）
-        $img = self::ensureTrueColor($img);
-        ob_start();
-        imagewebp($img, null, 80);
-        $binaryData = ob_get_clean();
+        // 不转换格式，保留原始图片数据
         imagedestroy($img);
-        $ext = 'webp';
-        $mimeType = 'image/webp';
+        $mimeMap = [
+            'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif',
+            'webp' => 'image/webp', 'bmp' => 'image/bmp',
+        ];
+        $mimeType = $mimeMap[$ext] ?? 'image/png';
 
         $boundary = '----FormBoundary' . bin2hex(random_bytes(16));
 

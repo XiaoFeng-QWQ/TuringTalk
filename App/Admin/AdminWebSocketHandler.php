@@ -12,6 +12,7 @@ use App\Admin\Handlers\SpectateHandler;
 use App\Admin\Handlers\ManageHandler;
 use App\Admin\Handlers\LogHandler;
 use App\Admin\Handlers\LobbyHandler;
+use App\Admin\Handlers\UserHandler;
 use App\Admin\Repository\AdminRepository;
 use App\Core\WebSocket\BaseGameHandler;
 use App\Core\WebSocket\GameWebSocketHandler;
@@ -42,6 +43,7 @@ class AdminWebSocketHandler
     private ManageHandler    $manageHandler;
     private LogHandler       $logHandler;
     private LobbyHandler     $lobbyHandlerInstance;
+    private UserHandler      $userHandler;
 
     /**
      * @param BaseGameHandler[] $gameHandlers 所有游戏模式 Handler
@@ -68,6 +70,7 @@ class AdminWebSocketHandler
         $this->manageHandler    = new ManageHandler($this->gameHandler, $this->tracker);
         $this->logHandler       = new LogHandler($this->gameHandler, $this->tracker);
         $this->lobbyHandlerInstance = new LobbyHandler($this->lobbyHandler, $this->tracker);
+        $this->userHandler         = new UserHandler([$this->gameHandler, $this->WhoisAIHandler, $this->lobbyHandler], $this->tracker);
     }
 
     public function getTracker(): Tracker
@@ -292,6 +295,13 @@ class AdminWebSocketHandler
             case 'admin_lobby_batch_ban':
                 $this->withOp($server, $fd, "正在批量封禁聊天室玩家", fn() =>
                 $this->lobbyHandlerInstance->handleBatchBan($server, $fd, $data));
+                break;
+            case 'admin_user_search':
+                $this->userHandler->handleSearch($server, $fd, $data);
+                break;
+            case 'admin_user_ban':
+                $this->withOp($server, $fd, "正在封禁用户", fn() =>
+                $this->userHandler->handleBan($server, $fd, $data));
                 break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);

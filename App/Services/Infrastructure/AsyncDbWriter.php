@@ -347,32 +347,6 @@ class AsyncDbWriter
             INDEX idx_ip     (sender_ip)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-        // 为已有表补充缺失列（兼容存量表）
-        try {
-            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'type'");
-            if ($cols->rowCount() === 0) {
-                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN type VARCHAR(16) NOT NULL DEFAULT '' COMMENT '消息类型' AFTER content");
-            }
-        } catch (\Throwable $e) {}
-        try {
-            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'sticker_id'");
-            if ($cols->rowCount() === 0) {
-                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN sticker_id VARCHAR(64) NOT NULL DEFAULT '' COMMENT '表情ID' AFTER type");
-            }
-        } catch (\Throwable $e) {}
-        try {
-            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'sticker_name'");
-            if ($cols->rowCount() === 0) {
-                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN sticker_name VARCHAR(32) NOT NULL DEFAULT '' COMMENT '表情名称' AFTER sticker_id");
-            }
-        } catch (\Throwable $e) {}
-        try {
-            $cols = $pdo->query("SHOW COLUMNS FROM `{$tableName}` LIKE 'sticker_url'");
-            if ($cols->rowCount() === 0) {
-                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN sticker_url TEXT NULL DEFAULT NULL COMMENT '表情URL' AFTER sticker_name");
-            }
-        } catch (\Throwable $e) {}
-
         return $tableName;
     }
 }

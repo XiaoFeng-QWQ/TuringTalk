@@ -28,6 +28,22 @@ class Database
     private static array $lastConfig = [];
 
     /**
+     * 确保表列存在，缺失则自动添加（兼容存量表，避免 CREATE TABLE IF NOT EXISTS 无法更新已有表）
+     */
+    public static function ensureColumn(PDO $pdo, string $table, string $column, string $definition): void
+    {
+        try {
+            $cols = $pdo->query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'");
+            if ($cols->rowCount() === 0) {
+                $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
+                Logger::info("Database: added column {$column} to {$table}");
+            }
+        } catch (\Throwable $e) {
+            Logger::warning("Database: failed to add column {$column}", ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
      * 获取 PDO 连接（协程安全，非协程环境直接创建裸连接）
      */
     public static function connect(): PDO
