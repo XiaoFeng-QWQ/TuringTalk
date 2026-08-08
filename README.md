@@ -4,28 +4,28 @@
 
 ## 功能
 
-| 模块 | 说明 |
-|------|------|
-| 经典 1v1 模式 | 匿名匹配聊天（真人优先，超时降级 AI）→ 猜对方是人类还是 AI |
-| WhoisAI 模式 | 多人社交推理——人类与 AI Bot 混编，投票揪出谁是 AI |
-| 公共聊天室 | 全局匿名聊天大厅，自由发言、撤回、表情贴纸 |
-| AI Bot 管线 | 多组件管道：人设 → 模板引擎 → 行为学习 → LLM 调用 → 回复生成 |
-| 管理后台 | WebSocket 实时后台：在线人数、对局监视、玩家封禁、广播、审计日志 |
-| 聊天记录保存 | 对局结束后保存记录，支持收藏公开、点赞、评论 |
-| 在线人数统计 | 按 15 分钟粒度记录，SQLite 持久化留存 |
+| 模块         | 说明                                     |
+| ---------- | -------------------------------------- |
+| 经典 1v1 模式  | 匿名匹配聊天（真人优先，超时降级 AI）→ 猜对方是人类还是 AI      |
+| WhoisAI 模式 | 多人社交推理——人类与 AI Bot 混编，投票揪出谁是 AI        |
+| 公共聊天室      | 全局匿名聊天大厅，自由发言、撤回、表情贴纸                  |
+| AI Bot 管线  | 多组件管道：人设 → 模板引擎 → 行为学习 → LLM 调用 → 回复生成 |
+| 管理后台       | WebSocket 实时后台：在线人数、对局监视、玩家封禁、广播、审计日志  |
+| 聊天记录保存     | 对局结束后保存记录，支持收藏公开、点赞、评论                 |
+| 在线人数统计     | 按 15 分钟粒度记录，SQLite 持久化留存               |
 
 ## 技术栈
 
-| 层 | 技术 |
-|---|---|
-| 运行时 | PHP 8.2 + Swoole 5.0（单 Worker 协程并发） |
-| 通信 | WebSocket（多模式前缀路由） |
-| AI 引擎 | OpenAI 兼容 HTTP API |
-| 前端 | 原生 HTML/CSS/JS（SPA） |
-| 缓存 | Redis（会话状态、匹配队列、聊天消息、在线人数） |
-| 持久化 | MySQL（玩家数据、举报记录、聊天历史） |
-| 时序存储 | SQLite（在线人数历史、管理后台数据、贴纸数据） |
-| 管理后台认证 | JWT（web-token/jwt-library） |
+| 层      | 技术                                  |
+| ------ | ----------------------------------- |
+| 运行时    | PHP 8.2 + Swoole 5.0（单 Worker 协程并发） |
+| 通信     | WebSocket（多模式前缀路由）                  |
+| AI 引擎  | OpenAI 兼容 HTTP API                  |
+| 前端     | 原生 HTML/CSS/JS（SPA）                 |
+| 缓存     | Redis（会话状态、匹配队列、聊天消息、在线人数）          |
+| 持久化    | MySQL（玩家数据、举报记录、聊天历史）               |
+| 时序存储   | SQLite（在线人数历史、管理后台数据、贴纸数据）          |
+| 管理后台认证 | JWT（web-token/jwt-library）          |
 
 ## 快速开始
 
@@ -103,102 +103,62 @@ API Key 配置在 `Config/TOKENS.txt`（多行轮换）。
 
 Bot 人设配置在 `Config/LLMPersonas/` 目录，每个 PHP 文件定义一个人设（昵称、性格描述、语言风格等）。
 
-## 项目结构
-
-```
-├── server.php                     # 主服务入口
-├── cli.php                        # CLI 入口
-├── Config/
-│   ├── App.example.php            # 配置示例
-│   ├── Prompt.md                  # LLM 系统提示词（热重载）
-│   └── LLMPersonas/               # Bot 人设定义
-├── App/
-│   ├── Core/
-│   │   ├── Application.php               # 引导启动
-│   │   ├── Router.php                     # HTTP 路由
-│   │   ├── Http/HttpHandler.php           # HTTP 请求处理
-│   │   └── WebSocket/
-│   │       ├── WebSocketHandler.php       # 顶层级分发（按路径/前缀路由）
-│   │       ├── BaseGameHandler.php        # 游戏模式抽象基类
-│   │       ├── GameWebSocketHandler.php   # 1v1 经典模式
-│   │       ├── WhoisAIWebSocketHandler.php # WhoisAI 多人模式
-│   │       └── LobbyChatWebSocketHandler.php # 公共聊天室
-│   ├── Admin/
-│   │   ├── AdminWebSocketHandler.php      # 管理后台 WS
-│   │   └── Handlers/                      # 子模块（封禁/广播/监视/贴纸/举报）
-│   ├── Controllers/GameController.php     # HTTP 控制器
-│   ├── Services/
-│   │   ├── Bot/                           # AI Bot 管线
-│   │   ├── Game/                          # 游戏逻辑
-│   │   ├── Chat/                          # 聊天大厅
-│   │   ├── Repository/                    # 数据访问层
-│   │   └── Infrastructure/                # 基础设施（DB/Redis/日志/贴纸）
-│   ├── Enums/LogLevel.php
-│   └── CLI/                               # 命令行工具
-├── Public/
-│   ├── index.html + script.js + style.css # 主游戏前端
-│   ├── whoisai/                           # WhoisAI 前端
-│   ├── lobby/                             # 聊天室前端
-│   └── admin/                             # 管理后台前端
-└── Storage/                               # 运行时数据
-```
-
 ## WebSocket 协议
 
 服务端监听 `/ws`，消息 JSON 格式。多模式通过路径和 `type` 前缀区分：
 
-| 路径 | 前缀 | 模式 |
-|------|------|------|
-| `/ws` | 无 | 经典 1v1 |
+| 路径            | 前缀         | 模式           |
+| ------------- | ---------- | ------------ |
+| `/ws`         | 无          | 经典 1v1       |
 | `/ws/WhoisAI` | `WhoisAI_` | WhoisAI 多人推理 |
-| `/ws/lobby` | `lobby_` | 公共聊天室 |
-| `/admin/ws` | — | 管理后台 |
+| `/ws/lobby`   | `lobby_`   | 公共聊天室        |
+| `/admin/ws`   | —          | 管理后台         |
 
 ### 经典 1v1 模式
 
 **客户端 → 服务端：**
 
-| type | 字段 | 说明 |
-|------|------|------|
-| `join` | `nickname`, `duration`, `code` | 加入匹配 |
-| `message` | `text` | 发送消息 |
-| `judge` | `guess` (human/ai) | 提交判定 |
-| `leave` | — | 主动离开 |
-| `report` | `target`, `reason` | 举报对方 |
-| `save_history` | `session_id` | 保存聊天记录 |
-| `sticker` | `id`, `name` | 发送贴纸 |
+| type           | 字段                             | 说明     |
+| -------------- | ------------------------------ | ------ |
+| `join`         | `nickname`, `duration`, `code` | 加入匹配   |
+| `message`      | `text`                         | 发送消息   |
+| `judge`        | `guess` (human/ai)             | 提交判定   |
+| `leave`        | —                              | 主动离开   |
+| `report`       | `target`, `reason`             | 举报对方   |
+| `save_history` | `session_id`                   | 保存聊天记录 |
+| `sticker`      | `id`, `name`                   | 发送贴纸   |
 
 **服务端 → 客户端：**
 
-| type | 字段 | 说明 |
-|------|------|------|
-| `matched` | `opponent_name`, `duration`, `session_id` | 匹配成功 |
-| `message` | `text`, `sender`, `side` | 聊天消息 |
-| `system` | `text` | 系统通知 |
-| `judge_notify` | `message` | 对方已判定 |
-| `judged` | `truth`, `opponent_guess`, `correct` | 揭晓结果 |
-| `timeout` | `reason` | 超时 |
-| `typing` | `is_typing` | 对方正在输入 |
-| `sticker` | `id`, `name`, `side` | 对方贴纸 |
+| type           | 字段                                        | 说明     |
+| -------------- | ----------------------------------------- | ------ |
+| `matched`      | `opponent_name`, `duration`, `session_id` | 匹配成功   |
+| `message`      | `text`, `sender`, `side`                  | 聊天消息   |
+| `system`       | `text`                                    | 系统通知   |
+| `judge_notify` | `message`                                 | 对方已判定  |
+| `judged`       | `truth`, `opponent_guess`, `correct`      | 揭晓结果   |
+| `timeout`      | `reason`                                  | 超时     |
+| `typing`       | `is_typing`                               | 对方正在输入 |
+| `sticker`      | `id`, `name`, `side`                      | 对方贴纸   |
 
 ### WhoisAI 多人模式
 
-| type | 字段 | 说明 |
-|------|------|------|
-| `WhoisAI_join` | `nickname`, `code` | 加入房间 |
-| `WhoisAI_chat` | `text` | 公屏发言 |
-| `WhoisAI_vote` | `target_id` | 投票踢人 |
-| `WhoisAI_ready` | — | 准备状态 |
+| type            | 字段                 | 说明   |
+| --------------- | ------------------ | ---- |
+| `WhoisAI_join`  | `nickname`, `code` | 加入房间 |
+| `WhoisAI_chat`  | `text`             | 公屏发言 |
+| `WhoisAI_vote`  | `target_id`        | 投票踢人 |
+| `WhoisAI_ready` | —                  | 准备状态 |
 
 ### 公共聊天室
 
-| type | 字段 | 说明 |
-|------|------|------|
-| `lobby_join` | `nickname` | 进入大厅 |
-| `lobby_chat` | `content`, `id` | 发言 |
-| `lobby_revoke` | `message_id` | 撤回消息 |
-| `lobby_sticker` | `id`, `name` | 发送贴纸 |
-| `lobby_code` | — | 获取恢复码 |
+| type            | 字段              | 说明    |
+| --------------- | --------------- | ----- |
+| `lobby_join`    | `nickname`      | 进入大厅  |
+| `lobby_chat`    | `content`, `id` | 发言    |
+| `lobby_revoke`  | `message_id`    | 撤回消息  |
+| `lobby_sticker` | `id`, `name`    | 发送贴纸  |
+| `lobby_code`    | —               | 获取恢复码 |
 
 ## 管理后台
 
