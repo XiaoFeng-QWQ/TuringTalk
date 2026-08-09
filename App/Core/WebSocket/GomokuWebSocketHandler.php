@@ -69,7 +69,7 @@ class GomokuWebSocketHandler extends BaseGameHandler
         }
 
         $type = $msg['type'];
-        $data = $msg['data'] ?? [];
+        $data = $msg;
 
         try {
             switch ($type) {

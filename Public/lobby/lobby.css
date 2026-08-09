@@ -4,6 +4,15 @@
     right: 0;
 }
 
+#lobby-match-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 25px;
+    width: 100%;
+    max-width: 700px;
+}
+
 #lobby-main {
     display: flex;
     justify-content: center;

@@ -8,25 +8,7 @@
     <title>公共聊天室</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="theme-color" content="#2c3e50">
-    <!-- ---------- 字体 ---------- -->
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-regular.css">
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-bold.css">
-
-    <style>
-    @font-face{
-      font-family:'Patrick Hand'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/patrick-hand@5.0.13/files/patrick-hand-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:700; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-700-normal.woff2') format('woff2');
-    }
-    </style>
     <link rel="stylesheet" href="/style.css?v=">
     <link rel="stylesheet" href="/lobby/lobby.css?v=">
     <link rel="stylesheet" href="https://cdn.plyr.io/3.8.4/plyr.css">
@@ -77,7 +59,57 @@
         </div>
     </header>
 
-    <main>
+    <main style="padding: 0;">
+        <section id="lobby-match-panel">
+            <div class="sticky-hero">
+                <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 01</div>
+                <h1 class="hero-title">公共聊天室</h1>
+                <p class="hero-subtitle">实时聊天 · 全服公告 · 表情互动</p>
+            </div>
+
+            <div id="lobby-no-identity" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
+                    <div class="id-icon">?</div>
+                    <h2>您还没有身份记录</h2>
+                    <p>输入昵称和恢复码可以立即恢复您的战绩和身份</p>
+                    <input type="text" id="lobby-recover-nickname" class="tag-input" maxlength="12"
+                        placeholder="你的昵称" autocomplete="off">
+                    <div class="recover-row">
+                        <input type="text" id="lobby-recover-input" placeholder="输入恢复码..." maxlength="32">
+                        <button id="lobby-btn-recover" class="doodle-btn"
+                            style="flex-shrink:0;font-size:14px;">恢复</button>
+                    </div>
+                    <div id="lobby-recover-msg" class="recover-msg"></div>
+                    <div class="divider">或者</div>
+                    <button id="lobby-btn-go-home" class="doodle-btn btn-full">返回首页创建身份</button>
+                    <button id="lobby-btn-new-name" class="doodle-btn btn-full"
+                        style="border-style:dashed;">直接填写昵称</button>
+                </div>
+            </div>
+
+
+            <div id="lobby-fill-name" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
+                    <svg class="icon" viewBox="0 0 24 24"
+                        style="width:44px;height:44px;stroke:var(--ink-blue);margin-bottom:8px;">
+                        <circle cx="12" cy="8" r="4" />
+                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
+                    </svg>
+                    <h2>设定你的昵称</h2>
+                    <p>进入后会自动生成恢复码，用于跨模式保留身份</p>
+                    <input type="text" id="lobby-nickname-input" class="tag-input" maxlength="12" placeholder="你的昵称"
+                        autocomplete="off">
+                    <button id="lobby-btn-join" class="doodle-btn success btn-full"
+                        style="margin-top:16px;font-size:16px;">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                        进入聊天室
+                    </button>
+                </div>
+            </div>
+        </section>
+
         <div id="lobby-main">
             <div class="lobby-container">
 
@@ -136,49 +168,6 @@
                                 发送
                             </button>
                         </div>
-                    </div>
-                </div>
-
-
-                <div id="lobby-no-identity" class="lobby-identity-card" style="display:none;">
-                    <div class="id-card-inner">
-                        <div class="id-icon">?</div>
-                        <h2>您还没有身份记录</h2>
-                        <p>输入昵称和恢复码可以立即恢复您的战绩和身份</p>
-                        <input type="text" id="lobby-recover-nickname" class="tag-input" maxlength="12"
-                            placeholder="你的昵称" autocomplete="off">
-                        <div class="recover-row">
-                            <input type="text" id="lobby-recover-input" placeholder="输入恢复码..." maxlength="32">
-                            <button id="lobby-btn-recover" class="doodle-btn"
-                                style="flex-shrink:0;font-size:14px;">恢复</button>
-                        </div>
-                        <div id="lobby-recover-msg" class="recover-msg"></div>
-                        <div class="divider">或者</div>
-                        <button id="lobby-btn-go-home" class="doodle-btn btn-full">返回首页创建身份</button>
-                        <button id="lobby-btn-new-name" class="doodle-btn btn-full"
-                            style="border-style:dashed;">直接填写昵称</button>
-                    </div>
-                </div>
-
-
-                <div id="lobby-fill-name" class="lobby-identity-card" style="display:none;">
-                    <div class="id-card-inner">
-                        <svg class="icon" viewBox="0 0 24 24"
-                            style="width:44px;height:44px;stroke:var(--ink-blue);margin-bottom:8px;">
-                            <circle cx="12" cy="8" r="4" />
-                            <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
-                        </svg>
-                        <h2>设定你的昵称</h2>
-                        <p>进入后会自动生成恢复码，用于跨模式保留身份</p>
-                        <input type="text" id="lobby-nickname-input" class="tag-input" maxlength="12" placeholder="你的昵称"
-                            autocomplete="off">
-                        <button id="lobby-btn-join" class="doodle-btn success btn-full"
-                            style="margin-top:16px;font-size:16px;">
-                            <svg class="icon" viewBox="0 0 24 24">
-                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                            </svg>
-                            进入聊天室
-                        </button>
                     </div>
                 </div>
 

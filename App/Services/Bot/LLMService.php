@@ -129,12 +129,7 @@ class LLMService
         for ($attempt = 0; $attempt < self::MAX_RETRIES; $attempt++) {
             // 创建客户端（ResolvedIP 不为空时连接指定 IP）
             $client = new Client($connHost, $port, $ssl);
-            $client->set([
-                'timeout' => $timeout,
-                'ssl_verify_peer' => false,
-                'ssl_allow_self_signed' => true,
-                'connect_timeout' => 5, // 连接超时固定为5秒
-            ]);
+            $client->set(['timeout' => $timeout,]);
 
             // 设置请求头
             $headers = [

@@ -173,10 +173,10 @@ abstract class BaseGameHandler
         unset($this->clientInfo[(string)$fd]);
         $this->removeSpectatorFdAll($fd);
 
-        // 释放全局在线锁
+        // 释放全局在线锁（仅当锁归属当前 fd 时才释放，防止旧连接误释放新连接的锁）
         $playerId = GameService::getPlayerId($fd);
         if ($playerId) {
-            GameService::releasePlayerOnline($playerId);
+            GameService::releasePlayerOnline($playerId, $fd);
         }
     }
 

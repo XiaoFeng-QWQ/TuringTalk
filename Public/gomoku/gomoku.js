@@ -43,6 +43,7 @@ let reconnectTimer = null;
 let reconnecting = false;
 let intentionalClose = false;
 let _pendingRecoveryCode = '';
+let _pendingNickname = '';
 
 // ================= 音效 =================
 const playStoneSound = () => {
@@ -703,7 +704,7 @@ function connectWs(afterOpen) {
             fp: getFingerprint(),
             player_id: getUserPlayerId() || '',
             recovery_code: getUserRecoveryCode() || _pendingRecoveryCode || '',
-            nickname: getUserNickname() || ''
+            nickname: _pendingNickname || getUserNickname() || ''
         }));
         // 启动心跳
         startHeartbeat();
@@ -774,11 +775,14 @@ function handleWsMsg(msg) {
                 setUserRecoveryCode(data.recovery_code);
             }
             _pendingRecoveryCode = '';
+            _pendingNickname = '';
             break;
 
         case 'gomoku_error':
             showTopToast(data || '未知错误', true);
             _pendingRecoveryCode = '';
+            _pendingNickname = '';
+            showIdentityState();
             break;
 
         case 'gomoku_room_created':
@@ -971,29 +975,41 @@ function showIdentityState() {
     const menu = document.getElementById('page-menu');
 
     if (pid) {
-        // 有身份：隐藏身份卡，显示主菜单，自动连接
+        // 有身份：隐藏match面板，显示主菜单，自动连接
+        document.getElementById('gomoku-match-panel').style.display = 'none';
         if (idCard) idCard.style.display = 'none';
         if (menu) menu.style.display = 'flex';
         connectWs(() => {});
     } else {
-        // 无身份：显示身份卡，隐藏主菜单
+        // 无身份：显示match面板，隐藏主菜单
+        document.getElementById('gomoku-match-panel').style.display = '';
         if (idCard) idCard.style.display = 'flex';
         if (menu) menu.style.display = 'none';
     }
 }
 
 function hideIdentityCard() {
+    document.getElementById('gomoku-match-panel').style.display = 'none';
     const idCard = document.getElementById('identity-card');
+    const fillName = document.getElementById('identity-fill-name');
     const menu = document.getElementById('page-menu');
     if (idCard) idCard.style.display = 'none';
+    if (fillName) fillName.style.display = 'none';
     if (menu) menu.style.display = 'flex';
+    document.getElementById('identity-recover-nickname').value = '';
     document.getElementById('identity-recover-input').value = '';
     document.getElementById('identity-recover-msg').style.display = 'none';
 }
 
 function doRecover() {
+    const nickname = document.getElementById('identity-recover-nickname').value.trim();
     const code = document.getElementById('identity-recover-input').value.trim();
     const msgEl = document.getElementById('identity-recover-msg');
+    if (!nickname) {
+        msgEl.textContent = '请输入昵称';
+        msgEl.style.display = 'block';
+        return;
+    }
     if (!code) {
         msgEl.textContent = '请输入恢复码';
         msgEl.style.display = 'block';
@@ -1008,14 +1024,31 @@ function doRecover() {
     msgEl.style.display = 'none';
     // 不立即存本地，等服务端 gomoku_joined 确认后再存
     _pendingRecoveryCode = code;
+    _pendingNickname = nickname;
     connectWs(() => {
         hideIdentityCard();
     });
 }
 
 function doNewPlayer() {
-    hideIdentityCard();
-    connectWs(() => {});
+    const idCard = document.getElementById('identity-card');
+    const fillName = document.getElementById('identity-fill-name');
+    const input = document.getElementById('identity-nickname-input');
+    if (idCard) idCard.style.display = 'none';
+    if (fillName) fillName.style.display = 'flex';
+    if (input) setTimeout(() => input.focus(), 0);
+}
+
+function doJoinWithNickname() {
+    const nickname = document.getElementById('identity-nickname-input').value.trim();
+    if (!nickname || nickname.length > 12) {
+        showTopToast('昵称 1~12 字符', true);
+        return;
+    }
+    _pendingNickname = nickname;
+    connectWs(() => {
+        hideIdentityCard();
+    });
 }
 
 // ================= 事件绑定 =================
@@ -1026,10 +1059,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 身份卡片事件
     document.getElementById('identity-btn-recover').addEventListener('click', doRecover);
+    document.getElementById('identity-recover-nickname').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('identity-recover-input').focus();
+        }
+    });
     document.getElementById('identity-recover-input').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') doRecover();
     });
+    document.getElementById('identity-btn-go-home').addEventListener('click', () => {
+        stopHeartbeat();
+        intentionalClose = true;
+        if (ws) ws.close();
+        setTimeout(() => { window.location.href = '/'; }, 50);
+    });
     document.getElementById('identity-btn-new').addEventListener('click', doNewPlayer);
+    document.getElementById('identity-btn-join').addEventListener('click', doJoinWithNickname);
+    document.getElementById('identity-nickname-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doJoinWithNickname();
+    });
 
     // 主菜单
     document.getElementById('btn-local-ai').addEventListener('click', () => {

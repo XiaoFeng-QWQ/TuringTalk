@@ -8,25 +8,7 @@
     <title>更好的图灵测试</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="theme-color" content="#2c3e50">
-    <!-- ---------- 字体 ---------- -->
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-regular.css">
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-bold.css">
-
-    <style>
-    @font-face{
-      font-family:'Patrick Hand'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/patrick-hand@5.0.13/files/patrick-hand-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:700; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-700-normal.woff2') format('woff2');
-    }
-    </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link rel="stylesheet" href="/style.css?v=">
 </head>
@@ -118,7 +100,7 @@
                     <label style="font-size:12px;color:var(--text-subtle);">输入恢复码找回历史数据：</label>
                     <div style="display:flex;gap:6px;">
                         <input id="recover-input-main" type="text" placeholder="如 ore-yea-woo-jay"
-                            style="flex:1;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:14px;">
+                            style="width:100%;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:14px;">
                         <button class="doodle-btn" id="btn-recover-main"
                             style="font-size:13px;padding:6px 14px;white-space:nowrap;">恢复</button>
                     </div>
@@ -150,60 +132,34 @@
                 </button>
             </div>
 
-            <div class="rules-board">
-                <a href="/lobby" class="rule-item doodle-border">
-                    <h3>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                        </svg>
-                        公共聊天室
-                    </h3>
+            <p class="section-label">更多玩法</p>
+            <div class="game-notes">
+                <a href="/lobby" class="game-note doodle-border" style="background:var(--note-yellow);">
+                    <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <h3>公共聊天室 <span class="game-note-badge">HOT</span></h3>
                     <p>实时聊天 · 全服公告 · 表情互动</p>
                 </a>
-                <a href="/gomoku" class="rule-item doodle-border WhoisAI-rule-item">
-                    <h3>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <circle cx="7" cy="7" r="5" fill="currentColor" />
-                            <circle cx="17" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
-                            <circle cx="12" cy="17" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
-                            <line x1="2" y1="22" x2="9" y2="15" stroke="currentColor" stroke-width="2" />
-                        </svg>
-                        <span class="WhoisAI-entry-badge">NEW</span>
-                        五子棋
-                    </h3>
+                <a href="/gomoku" class="game-note doodle-border" style="background:var(--note-green);">
+                    <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
+                        <circle cx="7" cy="7" r="5" fill="currentColor" />
+                        <circle cx="17" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
+                        <circle cx="12" cy="17" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
+                        <line x1="2" y1="22" x2="9" y2="15" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                    <h3>五子棋</h3>
                     <p>单机AI · 在线对弈 · 观战聊天</p>
                 </a>
-                <a href="/WhoisAI" class="rule-item doodle-border">
-                    <h3>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                            <path d="M2 17l10 5 10-5" />
-                            <path d="M2 12l10 5 10-5" />
-                        </svg>
-                        ?! 谁是AI !?
-                    </h3>
-                    <p>匹配对战 · 多人混战找出隐藏的AI · 投票淘汰</p>
+                <a href="/WhoisAI" class="game-note doodle-border" style="background:var(--note-blue);">
+                    <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                        <path d="M2 17l10 5 10-5" />
+                        <path d="M2 12l10 5 10-5" />
+                    </svg>
+                    <h3>?! 谁是AI !?</h3>
+                    <p>匹配对战 · 多人混战 · 投票淘汰</p>
                 </a>
-                <div class="rule-item doodle-border">
-                    <h3>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                            <circle cx="12" cy="12" r="3" />
-                        </svg>
-                        双向观察
-                    </h3>
-                    <p>你在套路对方，对方也在研究你。</p>
-                </div>
-                <div class="rule-item doodle-border">
-                    <h3>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                        </svg>
-                        限时锁定
-                    </h3>
-                    <p>匹配后，抓紧时间给出你的判断。</p>
-                </div>
             </div>
         </section>
 
@@ -328,7 +284,6 @@
                 </div>
             </div>
 
-            <!-- 断连兜底覆盖层 -->
             <div id="reconnect-overlay">
                 <div class="reconnect-card">
                     <svg class="reconnect-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -384,10 +339,8 @@
 
             <div class="profile-body">
 
-                <!-- 核心数据 -->
                 <div class="profile-key-stats" id="profile-key-stats"></div>
 
-                <!-- 别人眼中的你 -->
                 <div class="profile-social" id="profile-social" style="display:none;">
                     <div class="social-label">
                         <svg class="icon" viewBox="0 0 24 24">
@@ -406,7 +359,6 @@
                     </div>
                 </div>
 
-                <!-- 人物速写 -->
                 <div class="profile-about" id="profile-about" style="display:none;">
                     <div class="about-label">
                         <svg class="icon" viewBox="0 0 24 24">
@@ -418,7 +370,6 @@
                     <div class="about-lines" id="profile-about-lines"></div>
                 </div>
 
-                <!-- 活跃时段 -->
                 <div class="profile-hours" id="profile-hours" style="display:none;">
                     <div class="hours-label">活跃时段</div>
                     <div class="hours-bars" id="profile-hours-bars"></div>
@@ -467,6 +418,12 @@
             </div>
         </section>
     </main>
+
+    <div style="text-align:center;padding:12px 20px 20px;font-size:12px;color:var(--text-subtle);">
+        本项目基于 AGPL 协议开源，欢迎部署或学习：
+        <a href="https://github.com/XiaoFeng-QWQ/TuringTalk" target="_blank" rel="noopener"
+           style="color:var(--ink-blue);text-decoration:underline;">github.com/XiaoFeng-QWQ/TuringTalk</a>
+    </div>
 
     <div id="settings-overlay">
         <div class="clipboard-drawer">

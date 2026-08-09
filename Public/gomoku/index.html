@@ -7,25 +7,10 @@
     <meta name="theme-color" content="#2c3e50">
     <title>五子棋</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <!-- ---------- 字体 ---------- -->
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-regular.css">
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-bold.css">
 
-    <style>
-    @font-face{
-      font-family:'Patrick Hand'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/patrick-hand@5.0.13/files/patrick-hand-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:700; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-700-normal.woff2') format('woff2');
-    }
-    </style>
+
+
     <link rel="stylesheet" href="/style.css?v=">
     <link rel="stylesheet" href="/gomoku/gomoku.css?v=">
 </head>
@@ -62,23 +47,60 @@
         </div>
     </header>
 
-    <main>
-        <!-- 身份卡片（无身份记录时显示） -->
-        <section id="identity-card" class="doodle-border" style="display:none;">
-            <div class="identity-inner">
+    <main style="padding: 0;">
+        <section id="gomoku-match-panel">
+            <div class="sticky-hero">
+            <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 03</div>
+            <h1 class="hero-title">棋逢对手</h1>
+            <p class="hero-subtitle">一阴一阳之谓道，黑白交错演乾坤。</p>
+        </div>
+
+        <div id="identity-card" class="lobby-identity-card" style="display:none;">
+            <div class="id-card-inner">
+                <div class="id-icon">?</div>
                 <h2>您还没有身份记录</h2>
-                <p>输入恢复码可以立即恢复您的战绩和身份</p>
+                <p>输入昵称和恢复码可以立即恢复您的战绩和身份</p>
+                <input type="text" id="identity-recover-nickname" class="tag-input" maxlength="12"
+                    placeholder="你的昵称" autocomplete="off">
                 <div class="recover-row">
                     <input type="text" id="identity-recover-input" placeholder="输入恢复码..." maxlength="32">
-                    <button id="identity-btn-recover" class="doodle-btn" style="flex-shrink:0;">恢复</button>
+                    <button id="identity-btn-recover" class="doodle-btn"
+                        style="flex-shrink:0;font-size:14px;">恢复</button>
                 </div>
-                <div id="identity-recover-msg" class="recover-msg" style="display:none;"></div>
+                <div id="identity-recover-msg" class="recover-msg"></div>
                 <div class="divider">或者</div>
-                <button id="identity-btn-new" class="doodle-btn btn-full" style="border-style:dashed;">以新玩家身份开始</button>
+                <button id="identity-btn-go-home" class="doodle-btn btn-full"
+                    style="margin-bottom:12px;font-size:15px;">
+                    返回首页创建身份
+                </button>
+                <button id="identity-btn-new" class="doodle-btn btn-full"
+                    style="font-size:15px;border-style:dashed;">直接填写昵称</button>
             </div>
-        </section>
+        </div>
 
-        <!-- 主菜单 -->
+        <div id="identity-fill-name" class="lobby-identity-card" style="display:none;">
+            <div class="id-card-inner">
+                <svg class="icon" viewBox="0 0 24 24"
+                    style="width:44px;height:44px;stroke:var(--ink-blue);margin-bottom:8px;">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
+                </svg>
+                <h2>设定你的昵称</h2>
+                <p>进入后会自动生成恢复码，用于跨模式保留身份</p>
+                <input type="text" id="identity-nickname-input" class="tag-input" maxlength="12" placeholder="你的昵称"
+                    autocomplete="off">
+                <button id="identity-btn-join" class="doodle-btn success btn-full"
+                    style="margin-top:16px;font-size:16px;">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M22 2L11 13" />
+                        <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+                    </svg>
+                    进入游戏
+                </button>
+            </div>
+        </div>
+    </section>
+
         <section id="page-menu">
             <div class="doodle-border menu-card">
                 <h1 class="menu-title">棋逢对手</h1>
@@ -105,7 +127,6 @@
             </div>
         </section>
 
-        <!-- 设置面板 -->
         <section id="page-setup" style="display:none;">
             <div class="doodle-border setup-card">
                 <h2 id="setup-title">对局设置</h2>
@@ -164,7 +185,6 @@
             </div>
         </section>
 
-        <!-- 在线 - 创建/等待面板 -->
         <section id="page-wait" style="display:none;">
             <div class="doodle-border wait-card">
                 <h2>等待落座</h2>
@@ -173,10 +193,9 @@
                 <p class="hint">将此凭证告知对手，双方即可对弈。</p>
                 <button class="doodle-btn" id="btn-wait-cancel" style="margin-top:20px;color:var(--danger);border-color:var(--danger);">撤去棋盘</button>
             </div>
-        </section>
+    </section>
 
-        <!-- 在线 - 加入面板 -->
-        <section id="page-join" style="display:none;">
+    <section id="page-join">
             <div class="doodle-border join-card">
                 <h2>入局切磋</h2>
                 <p>请输入对方提供的 5 位凭证：</p>
@@ -188,7 +207,6 @@
             </div>
         </section>
 
-        <!-- 对局面板 -->
         <section id="page-game" style="display:none;">
             <div class="game-layout">
                 <div class="game-board-area">
@@ -228,8 +246,7 @@
             </div>
         </section>
 
-        <!-- 对局结束覆盖层 -->
-        <div id="gameover-overlay" style="display:none;">
+<div id="game-over-overlay" style="display:none;">
             <div class="doodle-border gameover-card">
                 <h2 id="gameover-title">对局结束</h2>
                 <p id="gameover-reason"></p>

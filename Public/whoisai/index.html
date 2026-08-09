@@ -8,25 +8,7 @@
     <title>?! 谁是AI !?</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <meta name="theme-color" content="#2c3e50">
-    <!-- ---------- 字体 ---------- -->
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-regular.css">
-    <link rel="stylesheet" href="https://s4.zstatic.net/npm/lxgw-wenkai-webfont@1.7.0/lxgwwenkai-bold.css">
-
-    <style>
-    @font-face{
-      font-family:'Patrick Hand'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/patrick-hand@5.0.13/files/patrick-hand-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-400-normal.woff2') format('woff2');
-    }
-    @font-face{
-      font-family:'Caveat'; font-style:normal; font-weight:700; font-display:swap;
-      src:url('https://s4.zstatic.net/npm/@fontsource/caveat@5.0.16/files/caveat-latin-700-normal.woff2') format('woff2');
-    }
-    </style>
     <link rel="stylesheet" href="/style.css?v=">
     <link rel="stylesheet" href="/whoisai/whoisai.css?v=">
     <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
@@ -66,24 +48,23 @@
     <main>
 
         <section id="whoisai-match-panel">
-            <div class="sticky-hero" style="max-width:440px;">
+            <div class="sticky-hero">
                 <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 02</div>
                 <h1 class="hero-title">?! 谁是AI !?</h1>
                 <p class="hero-subtitle">多人混战找出隐藏的AI · 投票淘汰 · 全歼AI则人类胜</p>
             </div>
 
-            <div class="id-card doodle-border whoisai-match-card">
-
-                <div id="whoisai-has-identity" style="display:none;text-align:center;width:100%;">
+            <div id="whoisai-has-identity" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
                     <svg class="icon" viewBox="0 0 24 24"
                         style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
                         <circle cx="12" cy="8" r="4" />
                         <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
                     </svg>
-                    <h2 style="font-size:20px;margin:0 0 4px;">欢迎回来，<span id="whoisai-hello-nickname"></span></h2>
-                    <p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;">4~6人匹配对局，随机混入AI</p>
-                    <button id="whoisai-match-btn-authed" class="doodle-btn success"
-                        style="width:100%;justify-content:center;font-size:16px;">
+                    <h2>欢迎回来，<span id="whoisai-hello-nickname"></span></h2>
+                    <p>4~6人匹配对局，随机混入AI</p>
+                    <button id="whoisai-match-btn-authed" class="doodle-btn success btn-full"
+                        style="font-size:16px;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <path d="M22 2L11 13" />
                             <path d="M22 2l-7 20-4-9-9-4 20-7z" />
@@ -91,51 +72,48 @@
                         开始匹配
                     </button>
                 </div>
+            </div>
 
 
-                <div id="whoisai-no-identity" style="display:none;text-align:center;width:100%;">
-                    <div style="font-size:48px;margin-bottom:8px;">?</div>
-                    <h2 style="font-size:18px;margin:0 0 4px;color:var(--text-secondary);">您还没有身份记录</h2>
-                    <p style="color:var(--text-secondary);font-size:13px;margin:0 0 16px;">输入昵称和恢复码可以立即恢复您的战绩和身份</p>
+            <div id="whoisai-no-identity" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
+                    <div class="id-icon">?</div>
+                    <h2>您还没有身份记录</h2>
+                    <p>输入昵称和恢复码可以立即恢复您的战绩和身份</p>
                     <input type="text" id="whoisai-recover-nickname" class="tag-input" maxlength="12" placeholder="你的昵称"
-                        autocomplete="off" style="width:100%;text-align:center;font-size:16px;margin-bottom:10px;">
-                    <div style="display:flex;gap:6px;margin-bottom:12px;">
-                        <input type="text" id="whoisai-recover-input" placeholder="输入恢复码..." maxlength="32"
-                            style="flex:1;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;background:var(--bg-input);color:var(--text);">
+                        autocomplete="off">
+                    <div class="recover-row">
+                        <input type="text" id="whoisai-recover-input" placeholder="输入恢复码..." maxlength="32">
                         <button id="whoisai-btn-recover" class="doodle-btn"
                             style="flex-shrink:0;font-size:14px;">恢复</button>
                     </div>
-                    <div id="whoisai-recover-msg"
-                        style="font-size:12px;color:var(--danger);margin-bottom:10px;display:none;"></div>
-                    <div
-                        style="display:flex;align-items:center;gap:8px;margin-bottom:12px;color:var(--text-secondary);font-size:12px;">
-                        <span style="flex:1;height:1px;background:var(--ink-blue);opacity:0.2;"></span>
-                        或者
-                        <span style="flex:1;height:1px;background:var(--ink-blue);opacity:0.2;"></span>
-                    </div>
-                    <button id="whoisai-btn-go-home" class="doodle-btn"
-                        style="width:100%;justify-content:center;margin-bottom:12px;font-size:15px;">
+                    <div id="whoisai-recover-msg" class="recover-msg" style="display:none;"></div>
+                    <div class="divider">或者</div>
+                    <button id="whoisai-btn-go-home" class="doodle-btn btn-full"
+                        style="margin-bottom:12px;font-size:15px;">
                         返回首页创建身份
                     </button>
-                    <button id="whoisai-btn-new-name" class="doodle-btn"
-                        style="width:100%;justify-content:center;font-size:15px;border-style:dashed;">
+                    <button id="whoisai-btn-new-name" class="doodle-btn btn-full"
+                        style="font-size:15px;border-style:dashed;">
                         直接填写昵称
                     </button>
                 </div>
+            </div>
 
 
-                <div id="whoisai-fill-name" style="display:none;text-align:center;width:100%;">
+            <div id="whoisai-fill-name" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
                     <svg class="icon" viewBox="0 0 24 24"
                         style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
                         <circle cx="12" cy="8" r="4" />
                         <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
                     </svg>
-                    <h2 style="font-size:20px;margin:0 0 4px;">设定你的昵称</h2>
-                    <p style="color:var(--text-secondary);font-size:13px;margin:0 0 20px;">对局结束后会自动生成恢复码</p>
+                    <h2>设定你的昵称</h2>
+                    <p>对局结束后会自动生成恢复码</p>
                     <input type="text" id="whoisai-nickname" class="tag-input" maxlength="12" placeholder="你的昵称"
-                        autocomplete="off" style="width:100%;text-align:center;font-size:18px;">
-                    <button id="whoisai-match-btn" class="doodle-btn success"
-                        style="width:100%;justify-content:center;margin-top:12px;font-size:16px;">
+                        autocomplete="off">
+                    <button id="whoisai-match-btn" class="doodle-btn success btn-full"
+                        style="margin-top:12px;font-size:16px;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <path d="M22 2L11 13" />
                             <path d="M22 2l-7 20-4-9-9-4 20-7z" />
@@ -143,11 +121,11 @@
                         开始匹配
                     </button>
                 </div>
-
-                <div id="whoisai-match-status" class="whoisai-match-status"></div>
-                <div id="whoisai-match-tips" class="whoisai-match-tips"></div>
-                <div id="whoisai-pool-list" class="whoisai-pool-list"></div>
             </div>
+
+            <div id="whoisai-match-status" class="whoisai-match-status"></div>
+            <div id="whoisai-match-tips" class="whoisai-match-tips"></div>
+            <div id="whoisai-pool-list" class="whoisai-pool-list"></div>
         </section>
 
         <section id="whoisai-game-panel" class="whoisai-game-panel" style="display:none;">

@@ -226,12 +226,16 @@
         if (nickname && pid) {
             // 有身份：建立连接，显示聊天界面
             myNickname = nickname;
+            document.getElementById('lobby-match-panel').style.display = 'none';
+            document.getElementById('lobby-main').style.removeProperty('display');
             $hasIdentity.style.display = 'flex';
             $noIdentity.style.display = 'none';
             $fillName.style.display = 'none';
             connect();
         } else {
             // 无身份：不建立连接
+            document.getElementById('lobby-match-panel').style.display = '';
+            document.getElementById('lobby-main').style.display = 'none';
             $hasIdentity.style.display = 'none';
             $noIdentity.style.display = 'flex';
             $fillName.style.display = 'none';
@@ -277,7 +281,7 @@
 
     // 返回首页
     $btnGoHome.addEventListener('click', function () {
-        location.href = '/';
+        leaveLobbyGracefully('/');
     });
 
     // 恢复码恢复
@@ -322,6 +326,7 @@
 
     // 直接填写昵称
     $btnNewName.addEventListener('click', function () {
+        document.getElementById('lobby-main').style.display = 'none';
         $hasIdentity.style.display = 'none';
         $noIdentity.style.display = 'none';
         $fillName.style.display = 'flex';
@@ -338,6 +343,8 @@
         myNickname = nickname;
         setUserNickname(myNickname);
         // 立即显示聊天界面，不等待服务端
+        document.getElementById('lobby-match-panel').style.display = 'none';
+        document.getElementById('lobby-main').style.removeProperty('display');
         $hasIdentity.style.display = 'flex';
         $noIdentity.style.display = 'none';
         $fillName.style.display = 'none';
@@ -2364,16 +2371,34 @@
 
     // ==================== 退出确认 ====================
 
-    // 返回按钮：点击前确认
+    // 返回按钮
     $btnBack.addEventListener('click', function () {
-        window.location.href = '/';
+        leaveLobbyGracefully('/');
     });
 
-    // 关闭/刷新标签页：已进入聊天室时拦截
+    // 关闭/刷新标签页：已进入聊天室时主动关闭 WS
     window.addEventListener('beforeunload', function (e) {
         if ($hasIdentity.style.display !== 'none') {
+            stopHeartbeat();
+            intentionalClose = true;
+            if (ws) { try { ws.close(); } catch(e) {} ws = null; }
             e.preventDefault();
             e.returnValue = '';
         }
     });
+
+    // pagehide 兜底：页面隐藏时一定关闭 WS（前进/后退/关闭等场景）
+    window.addEventListener('pagehide', function () {
+        stopHeartbeat();
+        intentionalClose = true;
+        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+    });
+
+    /** 优雅离开聊天室：关闭WS后延迟导航，确保服务端先收到 close 帧 */
+    function leaveLobbyGracefully(url) {
+        stopHeartbeat();
+        intentionalClose = true;
+        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+        setTimeout(function () { location.href = url; }, 50);
+    }
 })();

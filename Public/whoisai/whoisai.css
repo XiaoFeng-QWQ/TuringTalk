@@ -10,15 +10,115 @@
     max-width: 700px;
 }
 
-.whoisai-match-card {
-    text-align: center;
-    max-width: 400px;
-    width: 100%;
+/* ---- 身份便签卡片（对齐 lobby id-card-inner） ---- */
+.lobby-identity-card {
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 28px 36px;
-    min-height: 200px;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.lobby-identity-card .id-card-inner {
+    background: var(--note-pink);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 30px 28px;
+    box-shadow: 4px 6px 0 var(--shadow-sm);
+    width: min(360px, 90vw);
+    transform: rotate(1deg);
+}
+
+.lobby-identity-card .id-icon {
+    font-size: 42px;
+    margin-bottom: 10px;
+}
+
+.lobby-identity-card h2 {
+    font-size: 18px;
+    margin: 0 0 6px;
+    color: var(--ink-blue);
+}
+
+.lobby-identity-card p {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin: 0 0 18px;
+    line-height: 1.5;
+}
+
+.lobby-identity-card .tag-input {
+    width: 100%;
+    max-width: 260px;
+    text-align: center;
+    font-size: 16px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    background: var(--surface-white);
+    color: var(--ink-blue);
+    outline: none;
+}
+
+.lobby-identity-card .recover-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    width: 100%;
+    max-width: 320px;
+}
+
+.lobby-identity-card .recover-row input {
+    flex: 1;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    padding: 8px 12px;
+    font-size: 14px;
+    background: var(--surface-white);
+    color: var(--ink-black);
+    outline: none;
+    min-width: 0;
+}
+
+.lobby-identity-card .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    color: var(--text-subtle);
+    font-size: 12px;
+    width: 100%;
+    max-width: 260px;
+}
+
+.lobby-identity-card .divider::before,
+.lobby-identity-card .divider::after {
+    content: '';
+    flex: 1;
+    height: 2px;
+    background: var(--ink-blue);
+    opacity: 0.15;
+    border-radius: 1px;
+}
+
+.lobby-identity-card .recover-msg {
+    font-size: 12px;
+    color: var(--danger);
+    margin-bottom: 10px;
+    display: none;
+    width: 100%;
+    max-width: 260px;
+    font-weight: 600;
+}
+
+.lobby-identity-card .btn-full {
+    width: 100%;
+    max-width: 260px;
+    justify-content: center;
+    font-size: 15px;
 }
 
 
@@ -691,7 +791,7 @@
         height: 100%;
     }
 
-    .whoisai-match-card {
+    .lobby-identity-card .id-card-inner {
         padding: 24px 18px;
     }
 

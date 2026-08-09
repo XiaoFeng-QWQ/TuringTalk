@@ -409,10 +409,22 @@ class GameService
 
     /**
      * 释放玩家 ID 的在线锁（连接断开时调用）。
+     * 若传入 $fd，仅在锁归属该 fd 时才释放，防止旧连接误释放新连接的锁。
      */
-    public static function releasePlayerOnline(string $playerId): void
+    public static function releasePlayerOnline(string $playerId, ?int $fd = null): void
     {
-        RedisService::connect()->del(RedisService::KP_PLAYER_ONLINE . $playerId);
+        $redis = RedisService::connect();
+        $key = RedisService::KP_PLAYER_ONLINE . $playerId;
+        if ($fd !== null) {
+            $raw = $redis->get($key);
+            if ($raw) {
+                $data = json_decode($raw, true);
+                if ($data && ($data['fd'] ?? 0) !== $fd) {
+                    return; // 锁已归属其他 fd，不释放
+                }
+            }
+        }
+        $redis->del($key);
     }
 
     // ==================== 会话锁 ====================
