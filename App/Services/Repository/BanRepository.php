@@ -176,6 +176,72 @@ class BanRepository
 
     // ==================== 内部方法 ====================
 
+    /**
+     * 解封：同时清除内存 Table + SQLite
+     */
+    public static function unban(string $ip, string $fingerprint, string $playerId = ''): void
+    {
+        if (!empty($ip) && $ip !== 'unknown') {
+            self::$ipTable->del($ip);
+        }
+        if (!empty($fingerprint)) {
+            self::$fpTable->del($fingerprint);
+        }
+        if (!empty($playerId)) {
+            self::$pidTable->del($playerId);
+        }
+
+        $pdo = self::sqliteConnect();
+        try {
+            $conditions = [];
+            $params = [];
+            if (!empty($ip) && $ip !== 'unknown') {
+                $conditions[] = 'ip = ?';
+                $params[] = $ip;
+            }
+            if (!empty($fingerprint)) {
+                $conditions[] = 'fingerprint = ?';
+                $params[] = $fingerprint;
+            }
+            if (!empty($playerId)) {
+                $conditions[] = 'player_id = ?';
+                $params[] = $playerId;
+            }
+            if (!empty($conditions)) {
+                $stmt = $pdo->prepare('DELETE FROM bans WHERE ' . implode(' AND ', $conditions));
+                $stmt->execute($params);
+            }
+        } catch (\Throwable $e) {
+            Logger::error('BanRepository: unban failed', ['error' => $e->getMessage()]);
+        } finally {
+            $pdo = null;
+        }
+
+        Logger::info('Ban record removed', [
+            'ip'          => $ip,
+            'fingerprint' => substr($fingerprint, 0, 16),
+            'player_id'   => $playerId ?: '(none)',
+        ]);
+    }
+
+    /**
+     * 列出所有封禁记录（管理后台用）
+     * @return array
+     */
+    public static function listAll(): array
+    {
+        $pdo = self::sqliteConnect();
+        try {
+            $stmt = $pdo->query('SELECT ip, fingerprint, player_id, reason, banned_at FROM bans ORDER BY banned_at DESC');
+            return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (\Throwable $e) {
+            Logger::error('BanRepository: listAll failed', ['error' => $e->getMessage()]);
+            return [];
+        } finally {
+            $pdo = null;
+        }
+    }
+
     private static function sqliteConnect(): PDO
     {
         $dbPath = __DIR__ . '/../../../Storage/banlist.db';

@@ -18,6 +18,7 @@ use App\Core\WebSocket\BaseGameHandler;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
+use App\Core\WebSocket\GomokuWebSocketHandler;
 use App\Core\Sanitizer;
 use App\Controllers\GameController;
 use App\Services\Infrastructure\Logger;
@@ -30,6 +31,7 @@ class AdminWebSocketHandler
     private GameWebSocketHandler $gameHandler;
     private WhoisAIWebSocketHandler $WhoisAIHandler;
     private LobbyChatWebSocketHandler $lobbyHandler;
+    private GomokuWebSocketHandler $gomokuHandler;
     private Tracker $tracker;
 
     /** @var array<string, string> fd => ip，onOpen 暂存，handleConnect 消费后清除 */
@@ -55,6 +57,7 @@ class AdminWebSocketHandler
             if ($h::routePrefix() === '') $this->gameHandler = $h;
             if ($h::routePrefix() === 'WhoisAI_') $this->WhoisAIHandler = $h;
             if ($h::routePrefix() === 'lobby_') $this->lobbyHandler = $h;
+            if ($h::routePrefix() === 'gomoku_') $this->gomokuHandler = $h;
         }
 
         $this->tracker = new Tracker();
@@ -70,7 +73,7 @@ class AdminWebSocketHandler
         $this->manageHandler    = new ManageHandler($this->gameHandler, $this->tracker);
         $this->logHandler       = new LogHandler($this->gameHandler, $this->tracker);
         $this->lobbyHandlerInstance = new LobbyHandler($this->lobbyHandler, $this->tracker);
-        $this->userHandler         = new UserHandler([$this->gameHandler, $this->WhoisAIHandler, $this->lobbyHandler], $this->tracker);
+        $this->userHandler         = new UserHandler([$this->gameHandler, $this->WhoisAIHandler, $this->lobbyHandler, $this->gomokuHandler], $this->tracker);
     }
 
     public function getTracker(): Tracker
@@ -302,6 +305,13 @@ class AdminWebSocketHandler
             case 'admin_user_ban':
                 $this->withOp($server, $fd, "正在封禁用户", fn() =>
                 $this->userHandler->handleBan($server, $fd, $data));
+                break;
+            case 'admin_user_unban':
+                $this->withOp($server, $fd, "正在解封用户", fn() =>
+                $this->userHandler->handleUnban($server, $fd, $data));
+                break;
+            case 'admin_user_list_banned':
+                $this->userHandler->handleListBanned($server, $fd);
                 break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);

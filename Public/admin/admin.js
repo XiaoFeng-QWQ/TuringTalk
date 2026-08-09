@@ -79,6 +79,54 @@ function showBanReasonDialog(targetLabel, callback, defaultReason, onCancel) {
     reasonInput.focus();
 }
 
+/**
+ * 渲染封禁列表
+ */
+function renderBannedList(records) {
+    if (!bannedList) return;
+
+    if (!records || !records.length) {
+        bannedList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">暂无封禁记录</div>';
+        return;
+    }
+
+    let html = '';
+    records.forEach(function (r) {
+        const ip = escapeHtml(r.ip || '-');
+        const pid = escapeHtml(r.player_id || '-');
+        const reason = escapeHtml(r.reason || '-');
+        const timeStr = r.banned_at ? new Date(r.banned_at * 1000).toLocaleString('zh-CN') : '-';
+
+        html += '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:4px;">' +
+            '<div style="flex:1;min-width:0;">' +
+            '<div><span style="color:var(--text-muted);">IP:</span> ' + ip + ' <span style="color:var(--text-muted);">PID:</span> ' + pid + '</div>' +
+            '<div style="color:var(--text-muted);">' + timeStr + (reason !== '-' ? ' · ' + reason : '') + '</div>' +
+            '</div>' +
+            (_isSuperAdmin
+                ? '<button class="doodle-btn" style="font-size:10px;padding:2px 6px;flex-shrink:0;color:#4caf50;border-color:#4caf50;"' +
+                  ' data-unban-ip="' + escapeHtmlAttr(r.ip || '') + '"' +
+                  ' data-unban-fp="' + escapeHtmlAttr(r.fingerprint || '') + '"' +
+                  ' data-unban-pid="' + escapeHtmlAttr(r.player_id || '') + '"' +
+                  '>解封</button>'
+                : ''
+            ) +
+            '</div>';
+    });
+
+    bannedList.innerHTML = html;
+
+    bannedList.querySelectorAll('[data-unban-ip]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (!confirm('确认解封该用户？')) return;
+            adminSend('admin_user_unban', {
+                ip: btn.dataset.unbanIp,
+                fp: btn.dataset.unbanFp,
+                player_id: btn.dataset.unbanPid,
+            });
+        });
+    });
+}
+
 // ==================== 管理 WS 专用全局状态 ====================
 let adminToken = getCookie('turing_admin_token');
 let _adminConnected = false;
@@ -699,6 +747,15 @@ function handleAdminMessage(data) {
             _currentDetailReportId = null;
             loadReports(_reportsPage);
             alert(data.message || '封禁完成');
+            break;
+
+        case 'admin_banned_list':
+            renderBannedList(data.records || []);
+            break;
+
+        case 'admin_user_unban_result':
+            showAdminToast('已解封');
+            adminSend('admin_user_list_banned', {});
             break;
 
         case 'admin_sticker_batch_added':
@@ -3249,6 +3306,8 @@ function initAdminDOMRefs() {
     userSearchActions = document.getElementById('user-search-actions');
     userSearchSelectAll = document.getElementById('user-search-select-all');
     btnUserBatchBan = document.getElementById('btn-user-batch-ban');
+    btnRefreshBanned = document.getElementById('btn-refresh-banned');
+    bannedList = document.getElementById('banned-list');
     WhoisAIRoomsList = document.getElementById('WhoisAI-rooms-list');
     reportsList = document.getElementById('reports-list');
     reportsPagination = document.getElementById('reports-pagination');
@@ -3805,6 +3864,12 @@ function initAdminEvents() {
                 }
             );
         });
+
+        if (btnRefreshBanned) {
+            btnRefreshBanned.addEventListener('click', () => {
+                adminSend('admin_user_list_banned', {});
+            });
+        }
     }
 
     // 管理员管理 - 延迟绑定（面板动态创建）

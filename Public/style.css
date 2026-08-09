@@ -1080,7 +1080,7 @@ main {
 #announcement-area {
     position: fixed;
     top: 0;
-    left: 32%;
+    left: 0;
     right: 0;
     z-index: 9999;
     pointer-events: none;
@@ -1149,24 +1149,24 @@ main {
 
 @keyframes announceIn {
     from {
-        transform: translateX(-50%) translateY(-120%) scale(0.95);
+        transform: translateY(-120%) scale(0.95);
         opacity: 0;
     }
 
     to {
-        transform: translateX(-50%) translateY(0) scale(1);
+        transform: translateY(0) scale(1);
         opacity: 1;
     }
 }
 
 @keyframes announceOut {
     from {
-        transform: translateX(-50%) translateY(0);
+        transform: translateY(0);
         opacity: 1;
     }
 
     to {
-        transform: translateX(-50%) translateY(-120%);
+        transform: translateY(-120%);
         opacity: 0;
     }
 }

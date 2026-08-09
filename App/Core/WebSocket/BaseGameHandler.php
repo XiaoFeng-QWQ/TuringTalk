@@ -94,6 +94,7 @@ abstract class BaseGameHandler
     {
         $cfIp = $request->header['cf-connecting-ip'] ?? '';
         $xf   = $request->header['x-forwarded-for'] ?? '';
+        $xri  = $request->header['x-real-ip'] ?? '';
 
         if (!empty($cfIp)) {
             return $cfIp;
@@ -101,7 +102,10 @@ abstract class BaseGameHandler
         if (!empty($xf)) {
             return trim(explode(',', $xf)[0]);
         }
-        return $request->header['x-real-ip'] ?? $request->server['remote_addr'] ?? 'unknown';
+        if (!empty($xri)) {
+            return $xri;
+        }
+        return $request->server['remote_addr'] ?? 'unknown';
     }
 
     // ==================== 连接生命周期（子类 onOpen / onClose 调用） ====================

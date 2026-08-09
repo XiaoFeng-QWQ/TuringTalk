@@ -92,7 +92,7 @@ class UserHandler
             BanRepository::ban($ip, $fp, $reason, $playerId);
 
             // 尝试找出在线连接并踢掉
-            $this->kickOnlineConnection($server, $playerId, $ip, $reason);
+            $this->kickOnlineConnection($server, $playerId, $ip, $fp, $reason);
             $banned++;
         }
 
@@ -116,9 +116,55 @@ class UserHandler
     }
 
     /**
+     * 解封用户
+     */
+    public function handleUnban(Server $server, int $fd, array $data): void
+    {
+        if ($this->tracker->getRole($fd) !== 'super_admin') {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '仅超级管理员可执行解封操作']);
+            return;
+        }
+
+        $ip = (string)($data['ip'] ?? '');
+        $fp = (string)($data['fp'] ?? '');
+        $playerId = (string)($data['player_id'] ?? '');
+
+        if ($ip === '' && $fp === '' && $playerId === '') {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '解封参数无效']);
+            return;
+        }
+
+        BanRepository::unban($ip, $fp, $playerId);
+        $this->send($server, $fd, ['type' => 'admin_user_unban_result', 'ip' => $ip, 'fp' => $fp, 'player_id' => $playerId]);
+
+        $username = $this->tracker->getUsername($fd);
+        $adminId = $this->tracker->getAdminId($fd);
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'unban_user',
+            'player',
+            $playerId ?: $ip ?: $fp,
+            json_encode(['ip' => $ip, 'fp' => $fp, 'player_id' => $playerId], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
+
+        Logger::info('Admin unbanned user', ['admin_fd' => $fd, 'ip' => $ip, 'player_id' => $playerId]);
+    }
+
+    /**
+     * 列出所有封禁记录
+     */
+    public function handleListBanned(Server $server, int $fd): void
+    {
+        $records = BanRepository::listAll();
+        $this->send($server, $fd, ['type' => 'admin_banned_list', 'records' => $records]);
+    }
+
+    /**
      * 尝试踢掉匹配的在线连接
      */
-    private function kickOnlineConnection(Server $server, string $playerId, string $ip, string $reason): void
+    private function kickOnlineConnection(Server $server, string $playerId, string $ip, string $fp, string $reason): void
     {
         $banText = '你已被管理员封禁';
         if ($reason) $banText .= '，原因：' . $reason;
@@ -136,6 +182,7 @@ class UserHandler
             $match = false;
             if (!empty($playerId) && ($info['player_id'] ?? '') === $playerId) $match = true;
             if (!$match && !empty($ip) && ($info['ip'] ?? '') === $ip) $match = true;
+            if (!$match && !empty($fp) && ($info['fingerprint'] ?? '') === $fp) $match = true;
 
             if ($match) {
                 foreach ($this->handlers as $handler) {

@@ -412,36 +412,36 @@ class LobbyChatService
     /**
      * 禁言玩家 N 分钟
      */
-    public function mute(int $fd, int $durationMinutes): void
+    public function mute(string $playerId, int $durationMinutes): void
     {
         $redis = RedisService::connect();
         $expiresAt = time() + ($durationMinutes * 60);
-        $redis->hSet(RedisService::KP_LOBBY_MUTED, (string)$fd, $expiresAt);
-        Logger::info('Lobby player muted', ['fd' => $fd, 'minutes' => $durationMinutes]);
+        $redis->hSet(RedisService::KP_LOBBY_MUTED, $playerId, $expiresAt);
+        Logger::info('Lobby player muted', ['player_id' => $playerId, 'minutes' => $durationMinutes]);
     }
 
     /**
      * 解除禁言
      */
-    public function unmute(int $fd): void
+    public function unmute(string $playerId): void
     {
         $redis = RedisService::connect();
-        $redis->hDel(RedisService::KP_LOBBY_MUTED, (string)$fd);
-        Logger::info('Lobby player unmuted', ['fd' => $fd]);
+        $redis->hDel(RedisService::KP_LOBBY_MUTED, $playerId);
+        Logger::info('Lobby player unmuted', ['player_id' => $playerId]);
     }
 
     /**
      * 检查玩家是否被禁言
      */
-    public function isMuted(int $fd): bool
+    public function isMuted(string $playerId): bool
     {
         $redis = RedisService::connect();
-        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, (string)$fd);
+        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, $playerId);
 
         if ($expiresAt <= 0) return false;
 
         if (time() >= $expiresAt) {
-            $redis->hDel(RedisService::KP_LOBBY_MUTED, (string)$fd);
+            $redis->hDel(RedisService::KP_LOBBY_MUTED, $playerId);
             return false;
         }
 
@@ -451,10 +451,10 @@ class LobbyChatService
     /**
      * 获取禁言剩余秒数
      */
-    public function getMutedRemaining(int $fd): int
+    public function getMutedRemaining(string $playerId): int
     {
         $redis = RedisService::connect();
-        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, (string)$fd);
+        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, $playerId);
         if ($expiresAt <= 0) return 0;
 
         $remaining = $expiresAt - time();
@@ -577,15 +577,15 @@ class LobbyChatService
     /**
      * 检查并记录发言频率，返回仍需等待的秒数（0 表示可以发言）
      */
-    public function checkRateLimit(int $fd): int
+    public function checkRateLimit(string $playerId): int
     {
         $rate = $this->getRateLimit();
         if ($rate <= 0) return 0;
 
         $redis = RedisService::connect();
-        $lastSend = (int)($redis->hGet(RedisService::KP_LOBBY_LAST_SEND, (string)$fd) ?: 0);
-        $now = time();
+        $lastSend = (int)($redis->hGet(RedisService::KP_LOBBY_LAST_SEND, $playerId) ?: 0);
 
+        $now = time();
         if ($lastSend > 0) {
             $elapsed = $now - $lastSend;
             if ($elapsed < $rate) {
@@ -593,8 +593,7 @@ class LobbyChatService
             }
         }
 
-        // 记录本次发言时间
-        $redis->hSet(RedisService::KP_LOBBY_LAST_SEND, (string)$fd, $now);
+        $redis->hSet(RedisService::KP_LOBBY_LAST_SEND, $playerId, $now);
 
         return 0;
     }

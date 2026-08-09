@@ -65,11 +65,13 @@ class Request
     public function getClientIp(): string
     {
         $xForwarded = $this->swooleRequest->header['x-forwarded-for'] ?? '';
+        $xRealIp    = $this->swooleRequest->header['x-real-ip'] ?? '';
         if (!empty($xForwarded)) {
             return trim(explode(',', $xForwarded)[0]);
         }
-        return $this->swooleRequest->header['x-real-ip']
-            ?? $this->swooleRequest->server['remote_addr']
-            ?? 'unknown';
+        if (!empty($xRealIp)) {
+            return $xRealIp;
+        }
+        return $this->swooleRequest->server['remote_addr'] ?? 'unknown';
     }
 }
