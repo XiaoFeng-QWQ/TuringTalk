@@ -98,6 +98,9 @@ class GomokuWebSocketHandler extends BaseGameHandler
                 case 'gomoku_cancel_wait':
                     $this->handleCancelWait($server, $fd);
                     break;
+                case 'get_stickers':
+                    $this->handleGetStickers($server, $fd, $data);
+                    break;
                 default:
                     Logger::info("Gomoku unknown type", ['type' => $type, 'fd' => $fd]);
                     break;
@@ -203,30 +206,31 @@ class GomokuWebSocketHandler extends BaseGameHandler
 
         $nickname = Sanitizer::nickname($data['nickname'] ?? '') ?: '玩家';
 
-        // 统一身份验证（player_id + recovery_code 双重验证）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
+        // 统一身份验证（Token/密码验证）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
         if ($valid['player_id']) {
             GameService::setPlayerId($fd, $valid['player_id']);
             $this->claimOnlineLock($server, $fd, $valid['player_id']);
             $this->sendToPlayer($server, $fd, [
                 'type' => 'gomoku_joined',
-                'data' => ['player_id' => $valid['player_id'], 'recovery_code' => $valid['recovery_code'] ?? null],
+                'data' => ['token' => $valid['token'] ?? null],
             ]);
             Logger::info("Gomoku player joined (existing)", ['fd' => $fd, 'player_id' => $valid['player_id']]);
             return;
         }
 
         // 未通过双重验证 → 新建玩家
-        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
         if (!$playerId) {
             $this->sendError($server, $fd, '身份验证失败');
             return;
         }
 
         $player = PlayerStatsRepository::findById($playerId);
+        $token = \App\Controllers\GameController::generatePlayerToken($playerId, $player['password_hash']);
         $this->sendToPlayer($server, $fd, [
             'type' => 'gomoku_joined',
-            'data' => ['player_id' => $playerId, 'recovery_code' => $player['code'] ?? null],
+            'data' => ['token' => $token],
         ]);
 
         Logger::info("Gomoku player joined (new)", ['fd' => $fd, 'player_id' => $playerId]);

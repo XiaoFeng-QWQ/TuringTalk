@@ -13,8 +13,6 @@
     // ==================== DOM ====================
     const $matchPanel = document.getElementById('whoisai-match-panel');
     const $gamePanel = document.getElementById('whoisai-game-panel');
-    const $nickname = document.getElementById('whoisai-nickname');
-    const $matchBtn = document.getElementById('whoisai-match-btn');
     const $matchBtnAuthed = document.getElementById('whoisai-match-btn-authed');
     const $matchStatus = document.getElementById('whoisai-match-status');
     const $matchTips = document.getElementById('whoisai-match-tips');
@@ -36,14 +34,8 @@
     const $toast = document.getElementById('whoisai-toast');
     const $hasIdentity = document.getElementById('whoisai-has-identity');
     const $noIdentity = document.getElementById('whoisai-no-identity');
-    const $fillName = document.getElementById('whoisai-fill-name');
     const $helloNickname = document.getElementById('whoisai-hello-nickname');
     const $btnGoHome = document.getElementById('whoisai-btn-go-home');
-    const $btnNewName = document.getElementById('whoisai-btn-new-name');
-    const $recoverNickname = document.getElementById('whoisai-recover-nickname');
-    const $recoverInput = document.getElementById('whoisai-recover-input');
-    const $btnRecover = document.getElementById('whoisai-btn-recover');
-    const $recoverMsg = document.getElementById('whoisai-recover-msg');
     const $btnSticker = document.getElementById('whoisai-btn-sticker');
     const $stickerPicker = document.getElementById('whoisai-sticker-picker');
     const $stickerPickerBody = document.getElementById('whoisai-sticker-picker-body');
@@ -238,11 +230,10 @@
                 // 每次匹配成功拉取最新表情列表（和常规模式行为一致）
                 prefetchStickersFromGameWS(true);
                 onMatched(data);
-                // 服务器返回了恢复码则保存
-                if (data.player_id && myNickname) {
+                // 服务器返回了token则保存
+                if (data.token && !getUserToken()) {
+                    setUserToken(data.token);
                     setUserNickname(myNickname);
-                    if (!getUserPlayerId()) setUserPlayerId(data.player_id);
-                    if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
                     showIdentityState();
                 }
                 break;
@@ -329,7 +320,7 @@
             var tmpWs = new WebSocket(WS_URL);
             var done = false;
             tmpWs.onopen = function () {
-                tmpWs.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion() }));
+                tmpWs.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion(), player_token: getUserToken() }));
             };
             tmpWs.onmessage = function (e) {
                 if (done) return;
@@ -487,73 +478,22 @@
     // ==================== 身份检测与面板切换 ====================
     function showIdentityState() {
         var nickname = getUserNickname();
-        var pid = getUserPlayerId();
+        var token = getUserToken();
 
-        if (nickname && pid) {
-            // 有身份：直接显示匹配入口
+        if (nickname && token) {
             myNickname = nickname;
             $hasIdentity.style.display = 'block';
             $noIdentity.style.display = 'none';
-            $fillName.style.display = 'none';
             $helloNickname.textContent = nickname;
         } else {
-            // 无身份
             $hasIdentity.style.display = 'none';
             $noIdentity.style.display = 'block';
-            $fillName.style.display = 'none';
         }
     }
 
-    // 返回首页恢复
+    // 返回首页
     $btnGoHome.addEventListener('click', function () {
         location.href = '/';
-    });
-
-    // 本页恢复码恢复
-    function doRecover() {
-        const pid = $recoverInput.value.trim();
-        if (!pid) { showRecoverMsg('请输入恢复码'); return; }
-        const nickname = getUserNickname() || $recoverNickname.value.trim() || '';
-        if (!nickname) { showRecoverMsg('请先填写昵称'); return; }
-        $recoverMsg.style.display = 'none';
-        $btnRecover.disabled = true;
-        $btnRecover.textContent = '恢复中...';
-        fetch('/api/player-stats?recovery_code=' + encodeURIComponent(pid) + '&nickname=' + encodeURIComponent(nickname))
-            .then(r => r.json())
-            .then(data => {
-                $btnRecover.disabled = false;
-                $btnRecover.textContent = '恢复';
-                if (data.error) { showRecoverMsg(data.error); return; }
-                setUserNickname(nickname);
-                setUserPlayerId(data.player_id);
-                if (data.code) setUserRecoveryCode(data.code);
-                $recoverInput.value = '';
-                showIdentityState();
-            })
-            .catch(() => {
-                $btnRecover.disabled = false;
-                $btnRecover.textContent = '恢复';
-                showRecoverMsg('网络错误，请稍后重试');
-            });
-    }
-    function showRecoverMsg(msg) {
-        $recoverMsg.textContent = msg;
-        $recoverMsg.style.display = 'block';
-    }
-    $btnRecover.addEventListener('click', doRecover);
-    $recoverNickname.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') $recoverInput.focus();
-    });
-    $recoverInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') doRecover();
-    });
-
-    // 直接填写昵称
-    $btnNewName.addEventListener('click', function () {
-        $hasIdentity.style.display = 'none';
-        $noIdentity.style.display = 'none';
-        $fillName.style.display = 'block';
-        $nickname.focus();
     });
     // ==================== 匹配 ====================
 
@@ -600,7 +540,7 @@
         }
     }
 
-    function doMatchRequest(name, recoveryCode) {
+    function doMatchRequest(name) {
         if (matching) {
             onMatchCancelled();
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -616,20 +556,14 @@
         $matchStatus.textContent = '正在匹配中...';
         $matchStatus.className = 'whoisai-match-status info';
         startMatchTips();
-        // 同时更新两个按钮状态
-        $matchBtn.textContent = '取消匹配';
-        $matchBtn.classList.add('danger');
-        $matchBtn.classList.remove('success');
         if ($matchBtnAuthed) {
             $matchBtnAuthed.textContent = '取消匹配';
             $matchBtnAuthed.classList.add('danger');
             $matchBtnAuthed.classList.remove('success');
         }
-        $nickname.disabled = true;
         var msg = { type: 'WhoisAI_match', nickname: name, fp: getFingerprint() };
-        if (recoveryCode) msg.player_id = recoveryCode;
-        var rc = getUserRecoveryCode();
-        if (rc) msg.recovery_code = rc;
+        var tok = getUserToken();
+        if (tok) msg.player_token = tok;
 
         if (ws && ws.readyState === WebSocket.OPEN) {
             send(msg);
@@ -639,20 +573,10 @@
         }
     }
 
-    // 填写昵称后点击匹配
-    $matchBtn.addEventListener('click', function () {
-        var name = $nickname.value.trim();
-        if (!name) { showTopToast('请输入昵称', true); return; }
-        if (name.length < 1 || name.length > 12) { showTopToast('昵称 1~12 个字符', true); return; }
-        myNickname = name;
-        doMatchRequest(name, '');
-    });
-
     // 有身份时点击匹配
     if ($matchBtnAuthed) {
         $matchBtnAuthed.addEventListener('click', function () {
-            var pid = getUserPlayerId();
-            doMatchRequest(myNickname, pid);
+            doMatchRequest(myNickname);
         });
     }
 
@@ -665,15 +589,11 @@
         matching = false;
         $matchStatus.textContent = '';
         $matchStatus.className = 'whoisai-match-status';
-        $matchBtn.textContent = '开始匹配';
-        $matchBtn.classList.remove('danger');
-        $matchBtn.classList.add('success');
         if ($matchBtnAuthed) {
             $matchBtnAuthed.textContent = '开始匹配';
             $matchBtnAuthed.classList.remove('danger');
             $matchBtnAuthed.classList.add('success');
         }
-        $nickname.disabled = false;
         $poolList.innerHTML = '';
     }
 
@@ -959,15 +879,11 @@
         $inputArea.style.display = 'none';
         $votePanel.style.display = 'none';
 
-        // 保存服务器返回的恢复码（仅在 player_id 与本地一致或本地无数据时写入，防止数据被其他玩家覆盖）
-        if (data.player_id && myNickname) {
-            var localPid = getUserPlayerId();
-            if (!localPid || String(localPid) === String(data.player_id)) {
-                setUserNickname(myNickname);
-                if (!localPid) setUserPlayerId(data.player_id);
-                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
-                showIdentityState();
-            }
+        // 保存服务器返回的token
+        if (data.token && !getUserToken()) {
+            setUserToken(data.token);
+            setUserNickname(myNickname);
+            showIdentityState();
         }
 
         var isDisconnect = data.reason === 'disconnect';
@@ -1068,8 +984,7 @@
             myIdentity = '';
 
             // 重新匹配
-            var pid = getUserPlayerId();
-            doMatchRequest(myNickname, pid);
+            doMatchRequest(myNickname);
         });
         btnGroup.appendChild(againBtn);
 
@@ -1174,14 +1089,11 @@
     }
 
     // ==================== 初始化 ====================
+    autoUpgradeOldUserdata();
     showIdentityState();
     // 返回首页恢复后回来时，重新检查身份
     window.addEventListener('pageshow', function () {
         showIdentityState();
-    });
-    // Enter 键快捷（fill-name 状态）
-    $nickname.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') $matchBtn.click();
     });
     // ==================== 举报 ====================
     function showWhoisAIReportDialog(targetName, messageContent) {

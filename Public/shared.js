@@ -104,10 +104,16 @@ function dequeueAnnounce() {
 // ================================================================
 // 主题管理（默认 / 暗色 / 跟随系统）
 // ================================================================
-const THEME_KEY = 'theme';
 
 function getStoredTheme() {
-    return localStorage.getItem(THEME_KEY) || 'default';
+    // 迁移旧格式：独立的 'theme' key → userdata
+    const oldTheme = localStorage.getItem('theme');
+    if (oldTheme) {
+        const d = getUserdata();
+        if (!d.theme) { d.theme = oldTheme; saveUserdata(d); }
+        localStorage.removeItem('theme');
+    }
+    return getUserdata().theme || 'default';
 }
 
 function applyTheme(theme) {
@@ -122,7 +128,9 @@ function applyTheme(theme) {
 }
 
 function setTheme(theme) {
-    localStorage.setItem(THEME_KEY, theme);
+    const d = getUserdata();
+    d.theme = theme;
+    saveUserdata(d);
     applyTheme(theme);
     updateThemeIcon(theme);
 }
@@ -139,6 +147,9 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 // DOM 就绪后绑定按钮交互
 document.addEventListener('DOMContentLoaded', () => {
+    // 重新应用主题（兜底，防止其他脚本覆盖后未恢复）
+    applyTheme(getStoredTheme());
+
     const themeBtn = document.getElementById('btn-theme');
     if (!themeBtn) return;
 
@@ -187,10 +198,33 @@ function saveUserdata(d) {
 
 function getUserNickname() { return getUserdata().nickname || ''; }
 function setUserNickname(name) { const d = getUserdata(); d.nickname = name; saveUserdata(d); }
-function getUserPlayerId() { return getUserdata().player_id || ''; }
-function setUserPlayerId(pid) { const d = getUserdata(); d.player_id = pid; saveUserdata(d); }
-function getUserRecoveryCode() { return getUserdata().recovery_code || ''; }
-function setUserRecoveryCode(code) { const d = getUserdata(); d.recovery_code = code; saveUserdata(d); }
+function getUserToken() { return getUserdata().token || ''; }
+function setUserToken(token) { const d = getUserdata(); d.token = token; saveUserdata(d); }
+function getUserRecoveryCode() { return getUserToken(); }
+function setUserRecoveryCode(code) { setUserToken(code); }
+
+/**
+ * 自动将旧用户数据（有 recovery_code 但无 token）升级为新格式。
+ * 旧玩家的恢复码 = 密码（迁移脚本已用 bcrypt(恢复码) 存入 password_hash）。
+ */
+async function autoUpgradeOldUserdata() {
+    const d = getUserdata();
+    if (!d || !d.recovery_code || d.token) return; // 不需升级
+    const nickname = d.nickname;
+    if (!nickname) return;
+    try {
+        const resp = await fetch('/api/generate-player-id?action=recover&nickname='
+            + encodeURIComponent(nickname) + '&password=' + encodeURIComponent(d.recovery_code)
+            + '&fp=' + encodeURIComponent(getFingerprint()));
+        const data = await resp.json();
+        if (data.error) return;
+        // 升级成功：保存 token，删除旧 recovery_code
+        d.token = data.token;
+        delete d.recovery_code;
+        saveUserdata(d);
+        console.log('[自动升级] 旧用户数据已升级为新格式');
+    } catch (_) { /* 静默失败，下次重试 */ }
+}
 
 function getStickerFavorites() {
     return getUserdata().stickerFavorites || [];

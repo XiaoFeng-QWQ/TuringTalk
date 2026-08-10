@@ -364,10 +364,10 @@ class GameService
         return $id ?: null;
     }
 
-    public static function setPlayerCode(int $fd, string $code): void
+    public static function setPlayerCode(int $fd, string $token): void
     {
         $redis = RedisService::connect();
-        $redis->setEx(RedisService::KP_RCODE . $fd, 300, $code);
+        $redis->setEx(RedisService::KP_RCODE . $fd, 300, $token);
     }
 
     public static function getPlayerCode(int $fd): ?string

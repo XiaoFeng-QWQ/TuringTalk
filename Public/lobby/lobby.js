@@ -16,7 +16,6 @@
     const $lyrics = document.getElementById('lobby-lyrics');
     const $hasIdentity = document.getElementById('lobby-has-identity');
     const $noIdentity = document.getElementById('lobby-no-identity');
-    const $fillName = document.getElementById('lobby-fill-name');
     const $messages = document.getElementById('lobby-messages');
     const BILI_SPINNER_SVG = '<svg class="bili-spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>';
     const $chatInput = document.getElementById('lobby-chat-input');
@@ -38,14 +37,7 @@
     const $replyPreviewCancel = document.getElementById('lobby-reply-preview-cancel');
     const $btnNotify = document.getElementById('lobby-btn-notify');
     // 身份状态 DOM
-    const $recoverNickname = document.getElementById('lobby-recover-nickname');
-    const $recoverInput = document.getElementById('lobby-recover-input');
-    const $btnRecover = document.getElementById('lobby-btn-recover');
-    const $recoverMsg = document.getElementById('lobby-recover-msg');
     const $btnGoHome = document.getElementById('lobby-btn-go-home');
-    const $btnNewName = document.getElementById('lobby-btn-new-name');
-    const $nicknameInput = document.getElementById('lobby-nickname-input');
-    const $btnJoin = document.getElementById('lobby-btn-join');
     // 点歌系统
     const $btnSong = document.getElementById('lobby-btn-song');
     const $songPanel = document.getElementById('lobby-song-panel');
@@ -74,7 +66,6 @@
     let intentionalClose = false;
     let banned = false;
     let myNickname = '';
-    let myPlayerId = '';          // player_data.id，用于消息归属判断（防止昵称冒用）
     let lastSentStickerId = '';   // 本地渲染去重，防止服务端广播回传导致重复
     let replyTarget = null;      // { id, name, text }
     let stickyScroll = false;
@@ -221,24 +212,20 @@
     // ==================== 身份检测与面板切换 ====================
     function showIdentityState() {
         var nickname = getUserNickname();
-        var pid = getUserPlayerId();
+        var token = getUserToken();
 
-        if (nickname && pid) {
-            // 有身份：建立连接，显示聊天界面
+        if (nickname && token) {
             myNickname = nickname;
             document.getElementById('lobby-match-panel').style.display = 'none';
             document.getElementById('lobby-main').style.removeProperty('display');
             $hasIdentity.style.display = 'flex';
             $noIdentity.style.display = 'none';
-            $fillName.style.display = 'none';
             connect();
         } else {
-            // 无身份：不建立连接
             document.getElementById('lobby-match-panel').style.display = '';
             document.getElementById('lobby-main').style.display = 'none';
             $hasIdentity.style.display = 'none';
             $noIdentity.style.display = 'flex';
-            $fillName.style.display = 'none';
         }
     }
 
@@ -246,35 +233,23 @@
         send({
             type: 'lobby_join',
             nickname: myNickname,
-            player_id: getUserPlayerId() || '',
-            recovery_code: getUserRecoveryCode() || ''
+            player_token: getUserToken() || ''
         });
     }
 
     function handleJoined(data) {
-        var localPid = getUserPlayerId();
-        // 仅在本地无 player_id 或服务端返回的 player_id 与本地一致时才写入，防止数据被其他玩家覆盖
-        var pidMatch = !localPid || String(localPid) === String(data.player_id || '');
-        if (data.player_id && pidMatch) {
-            if (!localPid) setUserPlayerId(data.player_id);
-            myPlayerId = String(data.player_id);
+        if (data.token && !getUserToken()) {
+            setUserToken(data.token);
         }
-        if (data.recovery_code && pidMatch) {
-            if (!getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
-        }
-        // 仅在 player_id 一致时使用服务端昵称，否则保留本地昵称
-        if (pidMatch && data.nickname && data.nickname !== myNickname) {
+        if (data.nickname && data.nickname !== myNickname) {
             myNickname = data.nickname;
             setUserNickname(myNickname);
         }
         if (!getUserNickname()) {
             setUserNickname(myNickname);
         }
-        // 切换到聊天界面
         $hasIdentity.style.display = 'flex';
         $noIdentity.style.display = 'none';
-        $fillName.style.display = 'none';
-        // 请求当前播放状态和歌单
         send({ type: 'lobby_song_current' });
         send({ type: 'lobby_song_list' });
     }
@@ -282,77 +257,6 @@
     // 返回首页
     $btnGoHome.addEventListener('click', function () {
         leaveLobbyGracefully('/');
-    });
-
-    // 恢复码恢复
-    function doRecover() {
-        var pid = $recoverInput.value.trim();
-        if (!pid) { showRecoverMsg('请输入恢复码'); return; }
-        var nickname = $recoverNickname.value.trim();
-        if (!nickname) { showRecoverMsg('请先填写昵称'); return; }
-        $recoverMsg.style.display = 'none';
-        $btnRecover.disabled = true;
-        $btnRecover.textContent = '恢复中...';
-        fetch('/api/player-stats?recovery_code=' + encodeURIComponent(pid) + '&nickname=' + encodeURIComponent(nickname))
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                $btnRecover.disabled = false;
-                $btnRecover.textContent = '恢复';
-                if (data.error) { showRecoverMsg(data.error); return; }
-                setUserNickname(nickname);
-                setUserPlayerId(data.player_id);
-                if (data.code) setUserRecoveryCode(data.code);
-                $recoverInput.value = '';
-                $recoverNickname.value = '';
-                showIdentityState();
-            })
-            .catch(function () {
-                $btnRecover.disabled = false;
-                $btnRecover.textContent = '恢复';
-                showRecoverMsg('网络错误，请稍后重试');
-            });
-    }
-    function showRecoverMsg(msg) {
-        $recoverMsg.textContent = msg;
-        $recoverMsg.style.display = 'block';
-    }
-    $btnRecover.addEventListener('click', doRecover);
-    $recoverNickname.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') $recoverInput.focus();
-    });
-    $recoverInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') doRecover();
-    });
-
-    // 直接填写昵称
-    $btnNewName.addEventListener('click', function () {
-        document.getElementById('lobby-main').style.display = 'none';
-        $hasIdentity.style.display = 'none';
-        $noIdentity.style.display = 'none';
-        $fillName.style.display = 'flex';
-        $nicknameInput.focus();
-    });
-
-    // 昵称提交 → 进入聊天室
-    function doJoinChat() {
-        var nickname = $nicknameInput.value.trim();
-        if (!nickname || nickname.length < 1 || nickname.length > 12) {
-            showTopToast('昵称 1~12 字符', true);
-            return;
-        }
-        myNickname = nickname;
-        setUserNickname(myNickname);
-        // 立即显示聊天界面，不等待服务端
-        document.getElementById('lobby-match-panel').style.display = 'none';
-        document.getElementById('lobby-main').style.removeProperty('display');
-        $hasIdentity.style.display = 'flex';
-        $noIdentity.style.display = 'none';
-        $fillName.style.display = 'none';
-        connect();
-    }
-    $btnJoin.addEventListener('click', doJoinChat);
-    $nicknameInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') doJoinChat();
     });
 
     // ==================== 心跳 ====================
@@ -665,11 +569,7 @@
         }
     }
 
-    // 消息归属判断：优先用 player_data.id，防止昵称冒用导致消息归属错误
     function isMineMessage(data) {
-        if (myPlayerId && data.sender_id) {
-            return String(data.sender_id) === myPlayerId;
-        }
         return data.sender_name === myNickname;
     }
 
@@ -818,7 +718,7 @@
         var senderName = data.sender || '';
         var stickerId = data.id || '';
         var stickerUrl = resolveStickerUrl(stickerId, data.url, stickerMap);
-        var isMine = data.sender_id ? String(data.sender_id) === myPlayerId : senderName === myNickname;
+        var isMine = senderName === myNickname;
 
         var wrapper = document.createElement('div');
         wrapper.className = 'lobby-msg-row';
@@ -1493,7 +1393,7 @@
             // 立即本地渲染，不等服务端广播回传（防止表情被吞）
             appendStickerMessage({
                 id: id, url: st ? st.url : '', name: st ? st.name : '',
-                sender: myNickname, sender_id: myPlayerId
+                sender: myNickname
             });
             // 记录已渲染的表情，防止服务端广播回报时重复追加
             lastSentStickerId = id;
@@ -1504,7 +1404,7 @@
     bindStickerPickerTabs('lobby-sticker-picker', renderStickerPicker, repositionStickerPicker);
 
     function requestStickers() {
-        send({ type: 'get_stickers', version: getStickerCacheVersion(), player_id: myPlayerId });
+        send({ type: 'get_stickers', version: getStickerCacheVersion(), player_token: getUserToken() });
     }
 
     function showStickerLightbox(url) {
@@ -2314,6 +2214,7 @@
     });
 
     // ==================== 初始化 ====================
+    autoUpgradeOldUserdata();
     showIdentityState();
     updateNotifyUI();
     if (notifyEnabled && 'Notification' in window && Notification.permission !== 'granted') {

@@ -19,178 +19,6 @@ class PlayerStatsRepository
 {
     private static bool $initialized = false;
 
-    // 恢复码单词池
-    private const WORD_POOL = [
-        'ace', 'air', 'ape', 'arc', 'art', 'ash', 'ate', 'bad', 'bag', 'bat',
-        'bed', 'bet', 'bit', 'box', 'bud', 'bug', 'bus', 'cab', 'cam', 'can',
-        'cap', 'cat', 'cog', 'cop', 'cow', 'cry', 'cub', 'cue', 'cup', 'cut',
-        'dad', 'dam', 'day', 'den', 'dew', 'did', 'dig', 'dim', 'dip', 'dog',
-        'dot', 'dry', 'dug', 'duo', 'ear', 'eat', 'egg', 'ego', 'elf', 'elm',
-        'emu', 'end', 'era', 'eve', 'eye', 'fan', 'far', 'fat', 'fax', 'fee',
-        'few', 'fig', 'fin', 'fir', 'fit', 'fix', 'fly', 'foe', 'fog', 'for',
-        'fox', 'fun', 'fur', 'gag', 'gap', 'gel', 'gem', 'get', 'gin', 'gnu',
-        'got', 'gum', 'gun', 'gut', 'guy', 'gym', 'had', 'ham', 'has', 'hat',
-        'hay', 'hen', 'hew', 'hid', 'him', 'hip', 'his', 'hit', 'hog', 'hop',
-        'hot', 'how', 'hub', 'hue', 'hug', 'hut', 'ice', 'icy', 'ill', 'imp',
-        'ink', 'inn', 'ion', 'ire', 'irk', 'its', 'ivy', 'jab', 'jag', 'jam',
-        'jar', 'jaw', 'jay', 'jet', 'jig', 'job', 'jog', 'jot', 'joy', 'jug',
-        'jut', 'keg', 'ken', 'key', 'kid', 'kin', 'kit', 'lab', 'lad', 'lag',
-        'lap', 'law', 'lax', 'lay', 'lea', 'led', 'leg', 'let', 'lid', 'lie',
-        'lip', 'lit', 'log', 'lot', 'low', 'lug', 'mad', 'man', 'map', 'mar',
-        'mat', 'maw', 'may', 'men', 'met', 'mid', 'mix', 'mob', 'mod', 'mom',
-        'mop', 'mow', 'mud', 'mug', 'mum', 'nab', 'nag', 'nap', 'net', 'new',
-        'nil', 'nip', 'nit', 'nod', 'nor', 'not', 'now', 'nun', 'nut', 'oak',
-        'oar', 'oat', 'odd', 'ode', 'off', 'oft', 'oil', 'old', 'one', 'opt',
-        'orb', 'ore', 'our', 'out', 'ova', 'owe', 'owl', 'own', 'pad', 'pal',
-        'pan', 'pap', 'par', 'pat', 'paw', 'pay', 'pea', 'peg', 'pen', 'pep',
-        'per', 'pet', 'pie', 'pig', 'pin', 'pit', 'ply', 'pod', 'pop', 'pot',
-        'pow', 'pry', 'pub', 'pug', 'pun', 'pup', 'put', 'rag', 'ram', 'ran',
-        'rap', 'rat', 'raw', 'ray', 'red', 'ref', 'rib', 'rid', 'rig', 'rim',
-        'rip', 'rob', 'rod', 'roe', 'rot', 'row', 'rub', 'rug', 'rum', 'run',
-        'rut', 'rye', 'sad', 'sag', 'sap', 'sat', 'saw', 'say', 'sea', 'set',
-        'sew', 'she', 'shy', 'sin', 'sip', 'sir', 'sis', 'sit', 'six', 'ski',
-        'sky', 'sly', 'sob', 'sod', 'son', 'sop', 'sot', 'sow', 'soy', 'spa',
-        'spy', 'sub', 'sue', 'sum', 'sun', 'tab', 'tad', 'tag', 'tan', 'tap',
-        'tar', 'tat', 'tax', 'tea', 'ted', 'tee', 'ten', 'the', 'thy', 'tic',
-        'tie', 'tin', 'tip', 'toe', 'ton', 'too', 'top', 'tot', 'tow', 'toy',
-        'try', 'tub', 'tug', 'two', 'urn', 'use', 'van', 'vat', 'vet', 'vex',
-        'via', 'vie', 'vim', 'vow', 'war', 'was', 'wax', 'way', 'web', 'wet',
-        'who', 'why', 'wig', 'win', 'wit', 'woe', 'wok', 'won', 'woo', 'wow',
-        'yak', 'yam', 'yap', 'yaw', 'yea', 'yes', 'yet', 'yew', 'you', 'zap',
-        'zed', 'zen', 'zig', 'zip', 'zoo',
-        // A
-        'ado', 'aft', 'aid', 'ail', 'aim', 'ala', 'alb', 'ale', 'all', 'alp',
-        'als', 'alt', 'ama', 'ami', 'amp', 'amu', 'ana', 'and', 'ane', 'ani',
-        'ant', 'any', 'ape', 'apt', 'arb', 'arc', 'are', 'ark', 'arm', 'ars',
-        'art', 'ary', 'ash', 'ask', 'asp', 'ass', 'ate', 'att', 'auk', 'ava',
-        'ave', 'awe', 'awl', 'awn', 'axe', 'aye', 'ays',
-        // B
-        'baa', 'bad', 'bag', 'bah', 'bam', 'ban', 'bap', 'bar', 'bat', 'bay',
-        'bed', 'bee', 'beg', 'bel', 'ben', 'bet', 'bib', 'bid', 'big', 'bin',
-        'bio', 'bit', 'biz', 'boa', 'bob', 'bod', 'bog', 'bok', 'bop', 'bot',
-        'bow', 'box', 'boy', 'bra', 'bro', 'bub', 'bud', 'bug', 'bum', 'bun',
-        'bup', 'bur', 'bus', 'but', 'buy', 'bye',
-        // C
-        'cab', 'cad', 'cam', 'can', 'cap', 'car', 'cat', 'caw', 'cay', 'cep',
-        'cha', 'che', 'chi', 'cis', 'cob', 'cod', 'cog', 'col', 'con', 'coo',
-        'cop', 'cor', 'cos', 'cot', 'cow', 'cox', 'coy', 'coz', 'cry', 'cub',
-        'cud', 'cue', 'cum', 'cup', 'cur', 'cut', 'cuz',
-        // D
-        'dad', 'dag', 'dah', 'dak', 'dal', 'dam', 'dan', 'dap', 'dar', 'daw',
-        'day', 'deb', 'dee', 'del', 'den', 'dev', 'dew', 'dex', 'dey', 'dib',
-        'did', 'die', 'dig', 'dim', 'din', 'dip', 'dis', 'dit', 'doc', 'doe',
-        'dog', 'doh', 'dol', 'dom', 'don', 'dor', 'dos', 'dot', 'dow', 'dry',
-        'dub', 'dud', 'due', 'dug', 'duh', 'dun', 'duo', 'dup', 'dux',
-        // E
-        'ear', 'eat', 'eau', 'ebb', 'ecu', 'edh', 'eel', 'eff', 'eft', 'egg',
-        'ego', 'eke', 'eld', 'elf', 'elk', 'ell', 'elm', 'els', 'eme', 'emu',
-        'end', 'eng', 'ens', 'eon', 'era', 'ere', 'erg', 'err', 'ers', 'ess',
-        'eta', 'eth', 'eve', 'ewe', 'eye',
-        // F
-        'fad', 'fag', 'fah', 'fan', 'far', 'fas', 'fat', 'fay', 'fed', 'fee',
-        'feh', 'fem', 'fen', 'fer', 'fet', 'feu', 'few', 'fey', 'fez', 'fib',
-        'fid', 'fie', 'fig', 'fin', 'fir', 'fit', 'fix', 'fiz', 'flu', 'fly',
-        'fob', 'foe', 'fog', 'foh', 'fon', 'foo', 'fop', 'for', 'fou', 'fox',
-        'foy', 'fro', 'fry', 'fub', 'fud', 'fug', 'fun', 'fur',
-        // G
-        'gab', 'gad', 'gae', 'gag', 'gal', 'gam', 'gan', 'gap', 'gar', 'gas',
-        'gat', 'gau', 'gay', 'ged', 'gee', 'gel', 'gem', 'gen', 'geo', 'ger',
-        'get', 'gey', 'ghi', 'gib', 'gid', 'gie', 'gif', 'gig', 'gin', 'gip',
-        'git', 'gnu', 'goa', 'gob', 'god', 'goo', 'gor', 'gos', 'got', 'gow',
-        'gox', 'goy', 'gul', 'gum', 'gun', 'gut', 'guy', 'gym', 'gyp',
-        // H
-        'had', 'hae', 'hag', 'hah', 'haj', 'ham', 'hao', 'hap', 'has', 'hat',
-        'haw', 'hay', 'heh', 'hem', 'hen', 'hep', 'her', 'het', 'hew', 'hex',
-        'hey', 'hic', 'hid', 'hie', 'him', 'hin', 'hip', 'his', 'hit', 'hob',
-        'hoc', 'hod', 'hoe', 'hog', 'hoh', 'hoi', 'hom', 'hoo', 'hop', 'hor',
-        'hos', 'hot', 'how', 'hub', 'hue', 'hug', 'huh', 'hum', 'hun', 'hup',
-        'hut', 'hye',
-        // I
-        'ice', 'ich', 'ick', 'icy', 'ide', 'ids', 'iff', 'ifs', 'igg', 'ilk',
-        'ill', 'imp', 'ink', 'inn', 'ins', 'ion', 'ire', 'irk', 'ish', 'ism',
-        'its', 'ivy',
-        // J
-        'jab', 'jag', 'jam', 'jar', 'jaw', 'jay', 'jee', 'jet', 'jeu', 'jew',
-        'jib', 'jig', 'jin', 'jiz', 'job', 'joe', 'jog', 'jot', 'joy', 'jug',
-        'jun', 'jus', 'jut',
-        // K
-        'kab', 'kae', 'kaf', 'kas', 'kat', 'kay', 'kea', 'keg', 'ken', 'kep',
-        'kex', 'key', 'khi', 'kid', 'kif', 'kin', 'kip', 'kir', 'kit', 'koa',
-        'kob', 'koi', 'kop', 'kor', 'kos', 'kow', 'kue', 'kwa',
-        // L
-        'lab', 'lac', 'lad', 'lag', 'lam', 'lap', 'lar', 'las', 'lat', 'lav',
-        'law', 'lax', 'lay', 'lea', 'led', 'lee', 'leg', 'lei', 'lek', 'let',
-        'leu', 'lev', 'lew', 'lex', 'ley', 'lib', 'lid', 'lie', 'lin', 'lip',
-        'lis', 'lit', 'lob', 'log', 'loo', 'lop', 'lot', 'low', 'lox', 'lug',
-        'lum', 'luv', 'lux', 'lye',
-        // M
-        'mac', 'mad', 'mae', 'mag', 'man', 'map', 'mar', 'mas', 'mat', 'maw',
-        'max', 'may', 'med', 'mee', 'meg', 'mem', 'men', 'met', 'mew', 'mho',
-        'mib', 'mic', 'mid', 'mig', 'mil', 'mim', 'mir', 'mis', 'mix', 'miz',
-        'moa', 'mob', 'mod', 'mog', 'moi', 'mol', 'mom', 'mon', 'moo', 'mop',
-        'mor', 'mos', 'mot', 'mow', 'mud', 'mug', 'mum', 'mun', 'mus', 'mut',
-        'mux', 'myc',
-        // N
-        'nab', 'nad', 'nae', 'nag', 'nah', 'nam', 'nan', 'nap', 'naw', 'nay',
-        'neb', 'ned', 'nee', 'neg', 'net', 'new', 'nib', 'nil', 'nim', 'nip',
-        'nit', 'nix', 'nob', 'nod', 'nog', 'noh', 'nom', 'noo', 'nor', 'nos',
-        'not', 'now', 'nth', 'nub', 'nun', 'nus', 'nut',
-        // O
-        'oaf', 'oak', 'oar', 'oat', 'oba', 'obe', 'obi', 'oca', 'odd', 'ode',
-        'ods', 'oes', 'off', 'oft', 'ohm', 'oho', 'ohs', 'oil', 'oka', 'oke',
-        'old', 'ole', 'olm', 'olt', 'oma', 'one', 'ono', 'ons', 'oof', 'ooh',
-        'oot', 'ope', 'ops', 'opt', 'ora', 'orb', 'orc', 'ore', 'ort', 'ose',
-        'our', 'out', 'ova', 'owe', 'owl', 'own', 'oxo',
-        // P
-        'pac', 'pad', 'pah', 'pal', 'pam', 'pan', 'pap', 'par', 'pas', 'pat',
-        'paw', 'pax', 'pay', 'pea', 'pec', 'ped', 'pee', 'peg', 'peh', 'pen',
-        'pep', 'per', 'pes', 'pet', 'pew', 'phi', 'pht', 'pia', 'pic', 'pie',
-        'pig', 'pin', 'pip', 'pir', 'pis', 'pit', 'piu', 'ply', 'pod', 'poi',
-        'pol', 'pom', 'pop', 'pot', 'pow', 'pox', 'pry', 'psi', 'pub', 'pug',
-        'pul', 'pun', 'pup', 'pur', 'pus', 'put', 'pya', 'pye',
-        // Q
-        'qat', 'qis', 'qua',
-        // R
-        'rad', 'rag', 'rah', 'ram', 'ran', 'rap', 'ras', 'rat', 'raw', 'rax',
-        'ray', 'reb', 'rec', 'red', 'ree', 'ref', 'reg', 'rei', 'rem', 'rep',
-        'res', 'ret', 'rev', 'rew', 'rex', 'rho', 'rib', 'rid', 'rig', 'rim',
-        'rin', 'rip', 'rob', 'roc', 'rod', 'roe', 'rot', 'row', 'rub', 'rug',
-        'rum', 'run', 'rut', 'rya', 'rye',
-        // S
-        'sac', 'sad', 'sae', 'sag', 'sal', 'sam', 'san', 'sap', 'sar', 'sat',
-        'saw', 'sax', 'say', 'sea', 'sec', 'sed', 'see', 'seg', 'sei', 'sen',
-        'ser', 'set', 'sew', 'sex', 'sha', 'she', 'shy', 'sic', 'sin', 'sip',
-        'sir', 'sis', 'sit', 'six', 'ski', 'sky', 'sly', 'sob', 'sod', 'son',
-        'sop', 'sot', 'sow', 'soy', 'spa', 'spy', 'sub', 'sue', 'sum', 'sun',
-        'sup', 'sus', 'syn',
-        // T
-        'tab', 'tad', 'tae', 'tag', 'taj', 'tam', 'tan', 'tao', 'tap', 'tar',
-        'tas', 'tat', 'tau', 'tav', 'taw', 'tax', 'tay', 'tea', 'ted', 'tee',
-        'teg', 'ten', 'tep', 'tet', 'tew', 'the', 'tho', 'thy', 'tic', 'tie',
-        'til', 'tin', 'tip', 'tis', 'tit', 'toc', 'toe', 'tog', 'tom', 'ton',
-        'too', 'top', 'tor', 'tot', 'tow', 'toy', 'try', 'tsk', 'tub', 'tug',
-        'tui', 'tun', 'tup', 'tut', 'tux', 'two', 'tye',
-        // U
-        'ugh', 'uke', 'ulu', 'umm', 'ump', 'uns', 'upo', 'ups', 'urb', 'urd',
-        'urn', 'urp', 'use', 'uta', 'uts',
-        // V
-        'vac', 'van', 'var', 'vas', 'vat', 'vau', 'vaw', 'vee', 'veg', 'vet',
-        'vex', 'via', 'vic', 'vie', 'vim', 'vis', 'voe', 'vow', 'vox', 'vug',
-        // W
-        'wab', 'wad', 'wae', 'wag', 'wan', 'wap', 'war', 'was', 'wat', 'waw',
-        'wax', 'way', 'web', 'wed', 'wee', 'wen', 'wet', 'wha', 'who', 'why',
-        'wig', 'win', 'wit', 'wiz', 'woe', 'wok', 'won', 'woo', 'wop', 'wos',
-        'wot', 'wow', 'wry', 'wud', 'wye',
-        // X
-        'xen', 'xis',
-        // Y
-        'yad', 'yah', 'yak', 'yam', 'yap', 'yar', 'yaw', 'yay', 'yea', 'yeh',
-        'yen', 'yep', 'yes', 'yet', 'yew', 'yid', 'yin', 'yip', 'yis', 'yon',
-        'you', 'yow', 'yuh',
-        // Z
-        'zap', 'zed', 'zee', 'zen', 'zig', 'zin', 'zip', 'zit', 'zoo', 'zuz',
-    ];
-
     /**
      * 初始化玩家数据仓库
      */
@@ -206,7 +34,7 @@ class PlayerStatsRepository
     {
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_data (
             id VARCHAR(64) PRIMARY KEY,
-            code VARCHAR(32) NOT NULL UNIQUE,
+            password_hash VARCHAR(255) NOT NULL DEFAULT "",
             nickname VARCHAR(32) NOT NULL DEFAULT "",
             discriminator INT NOT NULL DEFAULT 0,
             ip VARCHAR(45) NOT NULL DEFAULT "",
@@ -318,58 +146,7 @@ class PlayerStatsRepository
     }
 
     /**
-     * 通过恢复码查找玩家（仅用于找回身份）
-     */
-    public static function findByCode(string $code): ?array
-    {
-        $pdo = Database::connect();
-        $stmt = $pdo->prepare('SELECT * FROM player_data WHERE code = ? LIMIT 1');
-        $stmt->execute([$code]);
-        $row = $stmt->fetch();
-        return $row ?: null;
-    }
-
-    /**
-     * 生成 12 位恢复码（cat-dog-sun-sky 格式）
-     */
-    public static function generateCode(): string
-    {
-        $pool = self::WORD_POOL;
-        $keys = array_rand($pool, 4);
-        return $pool[$keys[0]] . '-' . $pool[$keys[1]] . '-' . $pool[$keys[2]] . '-' . $pool[$keys[3]];
-    }
-
-    /**
-     * 重新生成指定玩家的恢复码（需旧恢复码通过验证）。
-     * @throws \RuntimeException 玩家/旧恢复码不匹配或生成失败
-     */
-    public static function regenerateCode(string $playerId, string $oldCode): string
-    {
-        $newCode = self::generateCode();
-        $pdo = Database::connect();
-
-        for ($i = 0; $i < 3; $i++) {
-            try {
-                $stmt = $pdo->prepare('UPDATE player_data SET code = ? WHERE id = ? AND code = ?');
-                $stmt->execute([$newCode, $playerId, $oldCode]);
-                if ($stmt->rowCount() === 0) {
-                    throw new \RuntimeException('玩家ID或旧恢复码不匹配');
-                }
-                return $newCode;
-            } catch (\PDOException $e) {
-                if ($e->getCode() === '23000') {
-                    $newCode = self::generateCode();
-                    continue;
-                }
-                throw $e;
-            }
-        }
-
-        throw new \RuntimeException('生成恢复码失败，请重试');
-    }
-
-    /**
-     * 通过 IP + 指纹查找已有玩家（防止同设备重复生成恢复码）
+     * 通过昵称 + IP + 指纹查找已有玩家（防止同设备重复生成恢复码）
      */
     public static function findByIpFingerprint(string $ip, string $fp): ?array
     {
@@ -456,11 +233,56 @@ class PlayerStatsRepository
         if (empty($nickname)) return null;
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'SELECT id, code, nickname, ip, fp FROM player_data WHERE LOWER(nickname) = LOWER(?) LIMIT 1'
+            'SELECT id, password_hash, nickname, ip, fp FROM player_data WHERE LOWER(nickname) = LOWER(?) LIMIT 1'
         );
         $stmt->execute([trim($nickname)]);
         $row = $stmt->fetch();
         return $row ?: null;
+    }
+
+    /**
+     * 获取玩家的 password_hash（供 Token 验证时查询签名密钥）
+     */
+    public static function getPasswordHash(string $playerId): ?string
+    {
+        // 优先从 Redis 缓存读取，避免每次验签都查 DB
+        $redis = \App\Services\Infrastructure\RedisService::connect();
+        $cacheKey = \App\Services\Infrastructure\RedisService::KP_TOKEN_KEY . $playerId;
+        $cached = $redis->get($cacheKey);
+        if ($cached !== false) {
+            return $cached;
+        }
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT password_hash FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
+        $hash = $stmt->fetchColumn();
+        if ($hash !== false && $hash !== null) {
+            $redis->setEx($cacheKey, 3600, (string)$hash);
+            return (string)$hash;
+        }
+        return null;
+    }
+
+    /**
+     * 修改密码（需旧密码验证）
+     */
+    public static function changePassword(string $playerId, string $oldPassword, string $newPassword): bool
+    {
+        $hash = self::getPasswordHash($playerId);
+        if (!$hash || !password_verify($oldPassword, $hash)) {
+            return false;
+        }
+        $pdo = Database::connect();
+        $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
+        $stmt = $pdo->prepare('UPDATE player_data SET password_hash = ? WHERE id = ?');
+        $stmt->execute([$newHash, $playerId]);
+
+        // 同步刷新 Redis 缓存，否则旧缓存会导致新 token 验签失败
+        $redis = \App\Services\Infrastructure\RedisService::connect();
+        $redis->setEx(\App\Services\Infrastructure\RedisService::KP_TOKEN_KEY . $playerId, 3600, $newHash);
+
+        return true;
     }
 
     /**
@@ -507,31 +329,31 @@ class PlayerStatsRepository
     // ================================================================
 
     /**
-     * 创建新玩家，同时生成恢复码
+     * 创建新玩家
      */
-    public static function createPlayer(string $nickname, string $ip, string $fp): array
+    public static function createPlayer(string $nickname, string $ip, string $fp, string $password): array
     {
         $id = bin2hex(random_bytes(16));
-        $code = self::generateCode();
+        $passwordHash = password_hash($password, PASSWORD_BCRYPT);
         $discriminator = random_int(1000, 9999);
         $now = time();
 
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'INSERT INTO player_data (id, code, nickname, discriminator, ip, fp, turing_test, created_at, last_played_at)
+            'INSERT INTO player_data (id, password_hash, nickname, discriminator, ip, fp, turing_test, created_at, last_played_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $id, $code, $nickname, $discriminator, $ip, $fp,
+            $id, $passwordHash, $nickname, $discriminator, $ip, $fp,
             serialize(self::getEmptyStats('turing_test')),
             $now, $now,
         ]);
 
         Logger::debug('Player created', [
-            'id' => $id, 'code' => $code, 'nickname' => $nickname,
+            'id' => $id, 'nickname' => $nickname,
         ]);
 
-        return ['id' => $id, 'code' => $code];
+        return ['id' => $id, 'password_hash' => $passwordHash];
     }
 
     /**

@@ -9,12 +9,20 @@
     max-width: 700px;
 }
 
-#page-menu, #page-setup, #page-wait, #page-join, #page-game {
-    display: flex;
+#page-menu,
+#page-setup,
+#page-wait,
+#page-join,
+#page-game {
+    display: none;
     justify-content: center;
     align-items: center;
-    min-height: calc(100vh - 80px);
-    padding: 20px 16px;
+    min-height: calc(100vh - 190px);
+    /* padding: 20px 16px; */
+}
+
+#page-menu {
+    display: flex;
 }
 
 /* 菜单页 */
@@ -359,7 +367,7 @@
 #gameover-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.45);
+    background: rgba(0, 0, 0, 0.45);
     z-index: 1000;
     display: flex;
     align-items: center;

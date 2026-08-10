@@ -42,7 +42,7 @@ let pongTimer = null;
 let reconnectTimer = null;
 let reconnecting = false;
 let intentionalClose = false;
-let _pendingRecoveryCode = '';
+let _pendingToken = '';
 let _pendingNickname = '';
 
 // ================= 音效 =================
@@ -294,21 +294,6 @@ function endGame(winner, msg) {
     const btnRematch = document.getElementById('btn-rematch');
     if (btnSurrender) btnSurrender.style.display = 'none';
     if (btnRematch) { btnRematch.style.display = isSpectator ? 'none' : 'inline-flex'; btnRematch.textContent = '再弈一局'; }
-
-    const overlay = document.getElementById('gameover-overlay');
-    const titleEl = document.getElementById('gameover-title');
-    const reasonEl = document.getElementById('gameover-reason');
-    if (overlay && titleEl && reasonEl) {
-        overlay.style.display = 'flex';
-        titleEl.textContent = msg;
-        reasonEl.textContent = '';
-        if (!isOnline) {
-            document.getElementById('btn-gameover-rematch').onclick = () => {
-                overlay.style.display = 'none';
-                initGame();
-            };
-        }
-    }
 }
 
 // ================= 判定 =================
@@ -617,7 +602,6 @@ function initGame() {
 
     document.getElementById('btn-surrender').style.display = isSpectator ? 'none' : 'inline-flex';
     document.getElementById('btn-rematch').style.display = 'none';
-    document.getElementById('gameover-overlay').style.display = 'none';
 
     // 聊天区控制
     const chatArea = document.getElementById('chat-area');
@@ -702,8 +686,8 @@ function connectWs(afterOpen) {
         ws.send(JSON.stringify({
             type: 'gomoku_join',
             fp: getFingerprint(),
-            player_id: getUserPlayerId() || '',
-            recovery_code: getUserRecoveryCode() || _pendingRecoveryCode || '',
+            player_token: getUserToken() || '',
+            password: _pendingToken || '',
             nickname: _pendingNickname || getUserNickname() || ''
         }));
         // 启动心跳
@@ -764,24 +748,18 @@ function scheduleReconnect() {
 function handleWsMsg(msg) {
     const { type, data } = msg;
     switch (type) {
-        case 'gomoku_connected':
-            break;
-
         case 'gomoku_joined':
-            if (data && data.player_id && !getUserPlayerId()) {
-                setUserPlayerId(data.player_id);
+            if (data && data.token && !getUserToken()) {
+                setUserToken(data.token);
             }
-            if (data && data.recovery_code && !getUserRecoveryCode()) {
-                setUserRecoveryCode(data.recovery_code);
-            }
-            _pendingRecoveryCode = '';
+            _pendingToken = '';
             _pendingNickname = '';
             break;
 
         case 'gomoku_error':
-            showTopToast(data || '未知错误', true);
-            _pendingRecoveryCode = '';
+            _pendingToken = '';
             _pendingNickname = '';
+            showTopToast(data || '未知错误', true);
             showIdentityState();
             break;
 
@@ -970,114 +948,49 @@ function appendChat(msg, side) {
 
 // ================= 身份检测 =================
 function showIdentityState() {
-    const pid = getUserPlayerId();
+    const token = getUserToken();
     const idCard = document.getElementById('identity-card');
     const menu = document.getElementById('page-menu');
 
-    if (pid) {
-        // 有身份：隐藏match面板，显示主菜单，自动连接
-        document.getElementById('gomoku-match-panel').style.display = 'none';
-        if (idCard) idCard.style.display = 'none';
-        if (menu) menu.style.display = 'flex';
-        connectWs(() => {});
-    } else {
-        // 无身份：显示match面板，隐藏主菜单
-        document.getElementById('gomoku-match-panel').style.display = '';
-        if (idCard) idCard.style.display = 'flex';
-        if (menu) menu.style.display = 'none';
-    }
-}
-
-function hideIdentityCard() {
+    // 隐藏 match-panel 和身份卡，始终显示菜单
     document.getElementById('gomoku-match-panel').style.display = 'none';
-    const idCard = document.getElementById('identity-card');
-    const fillName = document.getElementById('identity-fill-name');
-    const menu = document.getElementById('page-menu');
     if (idCard) idCard.style.display = 'none';
-    if (fillName) fillName.style.display = 'none';
     if (menu) menu.style.display = 'flex';
-    document.getElementById('identity-recover-nickname').value = '';
-    document.getElementById('identity-recover-input').value = '';
-    document.getElementById('identity-recover-msg').style.display = 'none';
+
+    // 有身份时自动连接 WS（在线对弈需要）
+    if (token) {
+        connectWs(() => {});
+    }
 }
 
-function doRecover() {
-    const nickname = document.getElementById('identity-recover-nickname').value.trim();
-    const code = document.getElementById('identity-recover-input').value.trim();
-    const msgEl = document.getElementById('identity-recover-msg');
-    if (!nickname) {
-        msgEl.textContent = '请输入昵称';
-        msgEl.style.display = 'block';
-        return;
-    }
-    if (!code) {
-        msgEl.textContent = '请输入恢复码';
-        msgEl.style.display = 'block';
-        return;
-    }
-    // 格式校验：恢复码为 xxx-xxx-xxx-xxx（英文单词）格式
-    if (!/^[a-zA-Z]+-[a-zA-Z]+-[a-zA-Z]+-[a-zA-Z]+$/.test(code)) {
-        msgEl.textContent = '恢复码格式错误';
-        msgEl.style.display = 'block';
-        return;
-    }
-    msgEl.style.display = 'none';
-    // 不立即存本地，等服务端 gomoku_joined 确认后再存
-    _pendingRecoveryCode = code;
-    _pendingNickname = nickname;
-    connectWs(() => {
-        hideIdentityCard();
-    });
-}
-
-function doNewPlayer() {
+function showIdentityCard() {
     const idCard = document.getElementById('identity-card');
-    const fillName = document.getElementById('identity-fill-name');
-    const input = document.getElementById('identity-nickname-input');
-    if (idCard) idCard.style.display = 'none';
-    if (fillName) fillName.style.display = 'flex';
-    if (input) setTimeout(() => input.focus(), 0);
-}
-
-function doJoinWithNickname() {
-    const nickname = document.getElementById('identity-nickname-input').value.trim();
-    if (!nickname || nickname.length > 12) {
-        showTopToast('昵称 1~12 字符', true);
-        return;
-    }
-    _pendingNickname = nickname;
-    connectWs(() => {
-        hideIdentityCard();
-    });
+    const menu = document.getElementById('page-menu');
+    document.getElementById('gomoku-match-panel').style.removeProperty('display');
+    if (idCard) idCard.style.display = 'flex';
+    if (menu) menu.style.display = 'none';
 }
 
 // ================= 事件绑定 =================
 document.addEventListener('DOMContentLoaded', () => {
 
+    // 自动升级旧格式用户数据
+    autoUpgradeOldUserdata();
+
     // 检测已有身份并自动连接
     showIdentityState();
 
-    // 身份卡片事件
-    document.getElementById('identity-btn-recover').addEventListener('click', doRecover);
-    document.getElementById('identity-recover-nickname').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            document.getElementById('identity-recover-input').focus();
-        }
-    });
-    document.getElementById('identity-recover-input').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') doRecover();
-    });
+    // 前往首页
     document.getElementById('identity-btn-go-home').addEventListener('click', () => {
         stopHeartbeat();
         intentionalClose = true;
         if (ws) ws.close();
         setTimeout(() => { window.location.href = '/'; }, 50);
     });
-    document.getElementById('identity-btn-new').addEventListener('click', doNewPlayer);
-    document.getElementById('identity-btn-join').addEventListener('click', doJoinWithNickname);
-    document.getElementById('identity-nickname-input').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') doJoinWithNickname();
+
+    // 返回菜单（无身份时点在线对弈后可返回）
+    document.getElementById('identity-btn-back').addEventListener('click', () => {
+        showIdentityState();
     });
 
     // 主菜单
@@ -1100,6 +1013,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.getElementById('btn-online').addEventListener('click', () => {
+        if (!getUserToken()) {
+            showIdentityCard();
+            return;
+        }
         isOnline = true;
         showPage('setup');
         document.getElementById('ai-difficulty-group').style.display = 'none';
@@ -1178,20 +1095,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 对局结束覆盖层
-    document.getElementById('btn-gameover-rematch').addEventListener('click', () => {
-        document.getElementById('gameover-overlay').style.display = 'none';
-        onlineRematch();
-    });
-    document.getElementById('btn-gameover-leave').addEventListener('click', () => {
-        clearInterval(timerInterval);
-        document.getElementById('gameover-overlay').style.display = 'none';
-        intentionalClose = true;
-        if (isOnline && ws) { try { ws.close(); } catch (_) {} ws = null; }
-        isOnline = false;
-        isSpectator = false;
-        showPage('menu');
-    });
-
     // 聊天
     document.getElementById('btn-chat-send').addEventListener('click', sendChat);
     document.getElementById('chat-input').addEventListener('keydown', (e) => {

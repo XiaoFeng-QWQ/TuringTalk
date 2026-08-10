@@ -184,8 +184,8 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 统一身份验证（昵称唯一性 + 玩家ID校验，跨模式共用）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
+        // 统一身份验证（Token/密码验证，cross模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
         if (!$valid['success']) {
             $this->sendToPlayer($server, $fd, ['type' => 'WhoisAI_error', 'text' => $valid['error']]);
             return;
@@ -208,7 +208,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         }
 
         // 获取/创建玩家身份（含在线唯一性检查）
-        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
         if (!$playerId) return;
 
         // 检查匹配池中是否已有同名玩家（防止绕过数据库检查，WhoisAI 特有）
@@ -239,8 +239,7 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             'type'          => 'WhoisAI_matched',
             'pool_count'    => $poolCount,
             'nickname'      => $nickname,
-            'player_id'     => $playerId ?: null,
-            'recovery_code' => $valid['recovery_code'] ?? GameService::getPlayerCode($fd) ?? null,
+            'token'         => $valid['token'] ?? GameService::getPlayerCode($fd) ?? null,
         ]);
 
         // 广播匹配池人数
@@ -890,5 +889,10 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
             $resolved[$seat] = array_merge($p, ['nickname' => $nickname]);
         }
         return $resolved;
+    }
+
+    protected function getPlayerIdFromFd(int $fd): ?string
+    {
+        return $this->clientInfo[(string)$fd]['player_id'] ?? null;
     }
 }

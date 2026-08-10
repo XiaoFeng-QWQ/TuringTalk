@@ -312,7 +312,10 @@ class LobbyChatService
                 for ($i = 0; $i < $unionCount; $i++) {
                     $allParams = array_merge($allParams, $likeParams);
                 }
-                $sql = implode(' UNION ALL ', $unions) . ' ORDER BY id DESC';
+                // 避免 fetchAll 加载全量数据导致内存溢出：
+                // 用子查询包装 UNION ALL 后加 LIMIT，只取足够覆盖当前页 + Redis 去重的行数
+                $sql = 'SELECT * FROM (' . implode(' UNION ALL ', $unions) . ') AS merged ORDER BY id DESC LIMIT ?';
+                $allParams[] = ($page * $pageSize) + count($allMessages);
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($allParams);
                 $rows = $stmt->fetchAll() ?: [];
@@ -595,6 +598,41 @@ class LobbyChatService
 
         $redis->hSet(RedisService::KP_LOBBY_LAST_SEND, $playerId, $now);
 
+        // 智能清理：每 100 次写入触发一次，删除超过 1 小时的过期条目
+        if (mt_rand(1, 100) === 1) {
+            $this->pruneStaleLastSend($redis, $now);
+        }
+
         return 0;
+    }
+
+    /**
+     * 清理 last_send hash 中超过 1 小时的过期记录
+     */
+    private function pruneStaleLastSend(\Redis $redis, int $now): void
+    {
+        $key = RedisService::KP_LOBBY_LAST_SEND;
+        $cursor = null;
+        $deleted = 0;
+
+        do {
+            $result = $redis->hScan($key, $cursor, '*', 100);
+            $cursor = $result !== false ? (int)$result : 0;
+            if (!is_array($result) || empty($result)) break;
+
+            // hScan 返回 [cursor, [field1, value1, field2, value2, ...]]
+            $pairs = is_array($result[1] ?? null) ? $result[1] : [];
+            for ($i = 0; $i + 1 < count($pairs); $i += 2) {
+                $ts = (int)$pairs[$i + 1];
+                if ($now - $ts > 3600) {
+                    $redis->hDel($key, $pairs[$i]);
+                    $deleted++;
+                }
+            }
+        } while ($cursor > 0);
+
+        if ($deleted > 0) {
+            Logger::debug('Pruned stale last_send entries', ['count' => $deleted]);
+        }
     }
 }

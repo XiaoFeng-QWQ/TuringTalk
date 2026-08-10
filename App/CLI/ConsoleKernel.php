@@ -28,9 +28,6 @@ class ConsoleKernel
         Logger::initialize();
 
         $this->register(new CleanupInactivePlayers());
-        $this->register(new MigratePlayerIdentity());
-        $this->register(new MigrateReports());
-        $this->register(new MigrateStickers());
     }
 
     public function register(Command $command): void

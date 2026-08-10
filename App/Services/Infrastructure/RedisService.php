@@ -20,19 +20,19 @@ class RedisService
     private const CTX_KEY = '__redis_conn';
 
     // Key 前缀，防止与其他应用冲突
-    public const PREFIX = 'tg:';
+    public const PREFIX = 'xqf:turing:';
 
-    // 各业务 key 前缀
+    // ====== 各业务 = ======
     public const KP_SESSION    = self::PREFIX . 'sess:';     // sess:{id}        → hash
     public const KP_PLAYER     = self::PREFIX . 'player:';   // player:{fd}      → hash
     public const KP_MSG        = self::PREFIX . 'msg:';      // msg:{sessId}     → list
     public const KP_CODE       = self::PREFIX . 'code:';     // code:{fd}          → string (player_id)
-    public const KP_RCODE      = self::PREFIX . 'rcode:';    // rcode:{fd}         → string (recovery_code, TTL 300s)
+    public const KP_RCODE      = self::PREFIX . 'rcode:';    // rcode:{fd}         → string (player_token, TTL 300s)
     public const KP_SPECTATOR  = self::PREFIX . 'spec:';     // spec:{sessId}    → set
     public const KP_MATCH_Q    = self::PREFIX . 'queue';     // queue            → list
     public const KP_MATCH_TIMER= self::PREFIX . 'timer:';    // timer:{fd}       → string
 
-    // 人类 vs AI 模式 key 前缀
+    // ====== 人类 vs AI 模式 = ======
     public const WHOIS_AI_PREFIX       = self::PREFIX . 'whoisai:';
     public const KP_WHOIS_AI_POOL      = self::WHOIS_AI_PREFIX . 'pool';           // pool              → hash 匹配池
     public const KP_WHOIS_AI_ROOM      = self::WHOIS_AI_PREFIX . 'room:';       // room:{id}            → hash
@@ -44,10 +44,10 @@ class RedisService
     public const KP_WHOIS_AI_ROOMS     = self::WHOIS_AI_PREFIX . 'rooms';         // rooms              → set
     public const KP_WHOIS_AI_REPORTED  = self::WHOIS_AI_PREFIX . 'reported';      // reported           → set 已举报的房间
 
-    // 全服公告
+    // ====== 全服公告 = ======
     public const KP_BROADCAST   = self::PREFIX . 'broadcast';  // broadcast → string (带 TTL)
 
-    // 公共聊天室
+    // ====== 公共聊天室 = ======
     public const LOBBY_PREFIX      = self::PREFIX . 'lobby:';
     public const KP_LOBBY_MSGS     = self::LOBBY_PREFIX . 'msgs';       // msgs      → list  最新 100 条消息 JSON
     public const KP_LOBBY_WRITE_Q  = self::LOBBY_PREFIX . 'write_q';    // write_q   → list  异步写 MySQL 队列
@@ -57,7 +57,7 @@ class RedisService
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
     public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send';  // last_send → hash  fd => 最后发言时间戳
 
-    // 点歌系统
+    // ====== 点歌系统 = ======
     public const KP_LOBBY_SONG_POOL    = self::LOBBY_PREFIX . 'song:pool';       // zset   投票池 {songId: votes}
     public const KP_LOBBY_SONG_META    = self::LOBBY_PREFIX . 'song:meta:';      // hash   歌曲元数据前缀
     public const KP_LOBBY_SONG_VOTERS  = self::LOBBY_PREFIX . 'song:voters:';    // set    投票人前缀
@@ -74,6 +74,7 @@ class RedisService
     public const KP_STICKER_DEFAULT = self::PREFIX . 'sticker:default';           // json   默认表情列表缓存
     public const KP_STICKER_USER    = self::PREFIX . 'sticker:user:';             // json   用户自定义表情缓存（后缀 userId）
     public const KP_PLAYER_ONLINE   = self::PREFIX . 'ponline:';                  // ponline:{playerId} → hash {fd,ts} 全局在线锁（TTL 120s）
+    public const KP_TOKEN_KEY      = self::PREFIX . 'token_key:';               // token_key:{playerId} → string(password_hash) 缓存 TTL 3600s
     public const STICKER_CACHE_TTL  = 3600;
 
     /**

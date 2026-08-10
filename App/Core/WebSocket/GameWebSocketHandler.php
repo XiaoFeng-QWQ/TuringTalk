@@ -782,8 +782,8 @@ class GameWebSocketHandler extends BaseGameHandler
             }
         }
 
-        // 统一身份验证（昵称唯一性 + 恢复码校验，跨模式共用）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
+        // 统一身份验证（Token/密码验证，跨模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
         if (!$valid['success']) {
             $this->sendError($server, $fd, $valid['error']);
             return;
@@ -791,7 +791,7 @@ class GameWebSocketHandler extends BaseGameHandler
         $nickname = $valid['nickname'];
 
         // 获取/创建玩家身份（含在线唯一性检查）
-        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+        $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
         if (!$playerId) return;
 
         $this->matchService->enqueue($fd, $nickname, $duration);
@@ -1686,7 +1686,7 @@ class GameWebSocketHandler extends BaseGameHandler
             'duration' => $duration,
             'session_id' => $sessionId,
             'player_id' => GameService::getPlayerId($session['player1_fd']),
-            'recovery_code' => GameService::getPlayerCode($session['player1_fd']),
+            'token' => GameService::getPlayerCode($session['player1_fd']),
         ]);
 
         if ($session['player2_fd'] > 0) {
@@ -1696,7 +1696,7 @@ class GameWebSocketHandler extends BaseGameHandler
                 'duration' => $duration,
                 'session_id' => $sessionId,
                 'player_id' => GameService::getPlayerId($session['player2_fd']),
-                'recovery_code' => GameService::getPlayerCode($session['player2_fd']),
+                'token' => GameService::getPlayerCode($session['player2_fd']),
             ]);
         }
 
@@ -2281,7 +2281,7 @@ class GameWebSocketHandler extends BaseGameHandler
             'duration' => (int)$session['duration'],
             'session_id' => $sessionId,
             'player_id' => GameService::getPlayerId($newFd),
-            'recovery_code' => GameService::getPlayerCode($newFd),
+            'token' => GameService::getPlayerCode($newFd),
         ]);
 
         // 重放历史消息
@@ -2325,7 +2325,7 @@ class GameWebSocketHandler extends BaseGameHandler
      */
     private function handleUpdateNickname(Server $server, int $fd, array $data): void
     {
-        $playerId = Sanitizer::identifier($data['player_id'] ?? '');
+        $playerId = GameService::getPlayerId($fd);
         $nickname = Sanitizer::text($data['nickname'] ?? '', 16);
         $fp = Sanitizer::identifier($data['fp'] ?? '');
 

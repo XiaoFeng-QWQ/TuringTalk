@@ -122,18 +122,21 @@ abstract class BaseGameHandler
 
         $this->clientInfo[(string)$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
 
-        // IP 去重：同一 IP 已存在活跃连接时，关闭旧连接、放行新连接
-        // 避免前端重连时旧 fd onClose 尚未触发导致新连接被误拒的竞态问题
+        // IP 去重：同一 IP 已存在活跃连接时，拒绝新连接
         if (Config::get('Server.DenyMultiConnection', true)) {
             $existingFd = $this->ipToFd[$clientIp] ?? null;
             if ($existingFd !== null && $existingFd !== $fd && $server->isEstablished($existingFd)) {
-                Logger::info(static::class . ' WS: closing old connection for same IP', [
+                Logger::info(static::class . ' WS: rejected duplicate connection from same IP', [
                     'fd' => $fd,
                     'ip' => $clientIp,
                     'existing_fd' => $existingFd,
                 ]);
-                $server->close($existingFd);
-                unset($this->ipToFd[$clientIp]);
+                $server->push($fd, json_encode([
+                    'type' => 'error',
+                    'message' => '该 IP 已有活跃连接，请勿重复打开页面',
+                ]));
+                $server->close($fd);
+                return false;
             }
         }
 
@@ -402,49 +405,68 @@ abstract class BaseGameHandler
     // ==================== 玩家身份验证 ====================
 
     /**
-     * 统一玩家身份验证（昵称 + 玩家 ID + 恢复码）。
+     * 统一玩家身份验证（昵称 + Token/password）。
      * 所有游戏模式共用，确保跨模式昵称唯一性和设备绑定。
      *
      * 逻辑：
-     *   1. 有恢复码（无玩家 ID）→ 恢复码找回身份，返回对应 player_id
-     *   2. 有玩家 ID → 按 ID 查找，返回已绑定的昵称（ID 无效返回失败）
-     *   3. 无玩家 ID 无恢复码 → 查昵称唯一性，若同昵称存在：
-     *      a. 同设备（IP+FP匹配）→ 允许，返回已有玩家 ID
+     *   1. 有 Token → 验证 Token，提取 player_id，返回对应昵称
+     *   2. 有密码 → 按昵称查找 + password_verify 验证
+     *   3. 仅昵称（无 password 无 token）→ 查昵称唯一性，若同昵称存在：
+     *      a. 同设备（IP+FP匹配）→ 允许，返回已有玩家 ID（旧迁移兼容）
      *      b. 不同设备 → 拒绝
      *
-     * @param int    $fd           客户端 fd
-     * @param string $nickname     玩家输入昵称
-     * @param string $playerId     可选玩家 ID（player_data.id，空字符串表示无）
-     * @param string $recoveryCode 可选恢复码（用于找回身份，空字符串表示无）
-     * @return array{success: bool, error: ?string, nickname: string, player_id: ?string}
+     * @param int    $fd       客户端 fd
+     * @param string $nickname 玩家输入昵称
+     * @param string $password 密码（新玩家/恢复），空字符串表示无
+     * @param string $token    玩家 Token（老玩家），空字符串表示无
+     * @return array{success: bool, error: ?string, nickname: string, player_id: ?string, token: ?string}
      */
-    protected function validatePlayerIdentity(int $fd, string $nickname, string $playerId, string $recoveryCode = ''): array
+    protected function validatePlayerIdentity(int $fd, string $nickname, string $password = '', string $token = ''): array
     {
         $row = $this->clientInfo[(string)$fd] ?? [];
         $fp = Sanitizer::identifier($row['fingerprint'] ?? '');
         $ip = $row['ip'] ?? '';
 
-        // player_id + recovery_code 必须同时匹配才确认身份
-        if (!empty($playerId) && !empty($recoveryCode)) {
-            $existing = PlayerStatsRepository::findById($playerId);
-            if ($existing && $existing['code'] === $recoveryCode) {
-                GameService::setPlayerCode($fd, $recoveryCode);
-                return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'recovery_code' => $recoveryCode];
+        // Token 验证（老玩家）
+        if (!empty($token)) {
+            $payload = \App\Controllers\GameController::verifyPlayerToken($token);
+            if ($payload) {
+                $playerId = $payload['player_id'];
+                $player = PlayerStatsRepository::findById($playerId);
+                if ($player) {
+                    GameService::setPlayerCode($fd, $token);
+                    return ['success' => true, 'error' => null, 'nickname' => $player['nickname'] ?: $nickname, 'player_id' => $playerId, 'token' => $token];
+                }
             }
-            return ['success' => false, 'error' => '身份验证失败，请检查玩家ID和恢复码', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
+            return ['success' => false, 'error' => 'Token 无效或已过期，请重新登录', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
         }
 
-        // 无身份信息 → 检查昵称唯一性
+        // 密码验证（新玩家或换设备恢复）
+        if (!empty($password)) {
+            $existing = PlayerStatsRepository::findByNickname($nickname);
+            if ($existing && password_verify($password, $existing['password_hash'])) {
+                $newToken = \App\Controllers\GameController::generatePlayerToken($existing['id'], $existing['password_hash']);
+                GameService::setPlayerCode($fd, $newToken);
+                return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'token' => $newToken];
+            }
+            if ($existing) {
+                return ['success' => false, 'error' => '密码不正确', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
+            }
+            // 昵称不存在 = 新玩家注册，继续往下走
+        }
+
+        // 仅昵称 → 检查唯一性（兼容旧迁移：同设备允许复用）
         $existing = PlayerStatsRepository::findByNickname($nickname);
         if ($existing) {
             if ($existing['fp'] !== $fp || $existing['ip'] !== $ip) {
-                return ['success' => false, 'error' => '该昵称已被占用，请换一个', 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
+                return ['success' => false, 'error' => '该昵称已被占用，请换一个或输入密码', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
             }
-            GameService::setPlayerCode($fd, $existing['code'] ?? '');
-            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => $existing['id'], 'recovery_code' => $existing['code'] ?? null];
+            $newToken = \App\Controllers\GameController::generatePlayerToken($existing['id'], $existing['password_hash']);
+            GameService::setPlayerCode($fd, $newToken);
+            return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => $existing['id'], 'token' => $newToken];
         }
 
-        return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => null, 'recovery_code' => null];
+        return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => null, 'token' => null];
     }
 
     // ==================== 表情 ====================
@@ -455,7 +477,14 @@ abstract class BaseGameHandler
     protected function handleGetStickers(Server $server, int $fd, array $data): void
     {
         $sinceVersion = (int)($data['version'] ?? 0);
-        $userId = $data['player_id'] ?? '';
+        $userId = $this->getPlayerIdFromFd($fd) ?? '';
+        // 兜底：如果连接上下文中没有 player_id，尝试从消息中的 token 解析
+        if ($userId === '' && !empty($data['player_token'])) {
+            $payload = \App\Controllers\GameController::verifyPlayerToken($data['player_token']);
+            if ($payload && !empty($payload['player_id'])) {
+                $userId = $payload['player_id'];
+            }
+        }
         $diff = \App\Services\Repository\StickerRepository::getDiff($sinceVersion, $userId);
 
         if (!empty($diff['unchanged'])) {
@@ -494,13 +523,22 @@ abstract class BaseGameHandler
         return \App\Services\Repository\StickerRepository::getById($stickerId, $playerId) ?: null;
     }
 
+    /**
+     * 从连接 fd 获取 player_id，子类可按需覆写。
+     * 默认使用 GameService（GameWebSocketHandler / GomokuWebSocketHandler）。
+     */
+    protected function getPlayerIdFromFd(int $fd): ?string
+    {
+        return \App\Services\Game\GameService::getPlayerId($fd);
+    }
+
     // ==================== 玩家 ID ====================
     /**
      * 获取或创建玩家的 ID（与昵称绑定）。
      * 首次对局结束后自动生成，后续对局直接复用。
      * $server 传入时执行在线唯一性检查（仅登录流程传，其他流程不传）。
      */
-    public function getOrCreatePlayerId(int $fd, string $nickname, ?Server $server = null): ?string
+    public function getOrCreatePlayerId(int $fd, string $nickname, ?Server $server = null, string $password = ''): ?string
     {
         if (empty($nickname)) return null;
 
@@ -528,11 +566,11 @@ abstract class BaseGameHandler
             return null;
         }
 
-        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp);
+        $pwd = !empty($password) ? $password : bin2hex(random_bytes(8));
+        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, $pwd);
         $playerId = $result['id'];
         GameService::setPlayerId($fd, $playerId);
-        GameService::setPlayerCode($fd, $result['code'] ?? '');
-        Logger::info(static::class . ' player ID created', ['fd' => $fd, 'player_id' => $playerId, 'code' => $result['code'], 'nickname' => $nickname]);
+        Logger::info(static::class . ' player ID created', ['fd' => $fd, 'player_id' => $playerId, 'nickname' => $nickname]);
         if ($server !== null) $this->claimOnlineLock($server, $fd, $playerId);
         return $playerId;
     }

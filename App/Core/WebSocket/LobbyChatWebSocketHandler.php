@@ -23,6 +23,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     private SongService $songService;
     private string $lastOnlineHash = '';
 
+    /** @var array<string, array{admin_id:int, username:string, role:string}> fd => info 通过 lobby_admin_verify 验证的管理员 */
+    private array $lobbyAdminFds = [];
+
     public function __construct()
     {
         $this->lobbyService = new LobbyChatService();
@@ -74,6 +77,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
     public function onClose(Server $server, int $fd): void
     {
+        // 清理本地管理员记录
+        unset($this->lobbyAdminFds[(string)$fd]);
+
         // 在清理前获取昵称和玩家ID
         $nickname = $this->clientInfo[(string)$fd]['nickname'] ?? '';
         $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
@@ -233,8 +239,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 统一身份验证（昵称唯一性 + 玩家ID校验，与谁是AI模式共用）
-        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['player_id'] ?? ''), Sanitizer::identifier($data['recovery_code'] ?? ''));
+        // 统一身份验证（Token/密码验证，cross模式共用）
+        $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
         if (!$valid['success']) {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $valid['error']]);
             return;
@@ -244,7 +250,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
         // 新玩家：立即创建 player_data 记录（聊天室没有"对局结束"时机）
         if (!$playerId) {
-            $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server);
+            $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
             if (!$playerId) return;
         }
 
@@ -270,8 +276,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $this->sendToPlayer($server, $fd, [
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
-            'player_id'     => $playerId ?: null,
-            'recovery_code' => $valid['recovery_code'] ?? GameService::getPlayerCode($fd) ?? null,
+            'token'         => $valid['token'] ?? GameService::getPlayerCode($fd) ?? null,
         ]);
 
         // 广播更新后的在线列表（去重：仅列表变化时发送）
@@ -674,15 +679,24 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     {
         $token = $data['token'] ?? '';
         if ($token === '') {
+            unset($this->lobbyAdminFds[(string)$fd]);
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_admin_verified', 'is_admin' => false]);
             return;
         }
 
         $payload = GameController::verifyAdminTokenPayload($token);
         if (!$payload) {
+            unset($this->lobbyAdminFds[(string)$fd]);
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_admin_verified', 'is_admin' => false]);
             return;
         }
+
+        // 注册为本地管理员 fd，使聊天室内 \\ 指令可被识别
+        $this->lobbyAdminFds[(string)$fd] = [
+            'admin_id' => (int)($payload['admin_id'] ?? 0),
+            'username' => $payload['username'] ?? '',
+            'role'     => $payload['role'] ?? 'admin',
+        ];
 
         $this->sendToPlayer($server, $fd, [
             'type'        => 'lobby_admin_verified',
@@ -1129,6 +1143,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
      */
     private function isAdmin(int $fd): bool
     {
+        // 优先检查通过 lobby_admin_verify 本地验证的管理员
+        if (isset($this->lobbyAdminFds[(string)$fd])) return true;
+
         if (!$this->tracker) return false;
 
         // 直接通过 fd 判断（admin 可能通过 /ws/lobby 连接）
@@ -1150,6 +1167,11 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             }
         }
         return null;
+    }
+
+    protected function getPlayerIdFromFd(int $fd): ?string
+    {
+        return $this->clientInfo[(string)$fd]['player_id'] ?? null;
     }
 
 }

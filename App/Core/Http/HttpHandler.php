@@ -26,6 +26,22 @@ class HttpHandler
     {
         $startTime = microtime(true);
 
+        if (\App\Config\Config::get('Server.MaintenanceMode', false)) {
+            $requestPath = $swooleRequest->server['request_uri'] ?? '/';
+            $staticExts = ['.css', '.js', '.svg', '.png', '.jpg', '.ico', '.woff2'];
+            $isStatic = false;
+            foreach ($staticExts as $ext) {
+                if (str_ends_with($requestPath, $ext)) { $isStatic = true; break; }
+            }
+            if (!$isStatic) {
+                $maintFile = __DIR__ . '/../../../Public/maintenance.html';
+                $swooleResponse->header('Content-Type', 'text/html; charset=utf-8');
+                $swooleResponse->header('Cache-Control', 'no-cache, no-store, must-revalidate');
+                $swooleResponse->end(file_exists($maintFile) ? file_get_contents($maintFile) : '<h1>维护中</h1>');
+                return;
+            }
+        }
+
         try {
             // 转换Swoole请求为框架请求
             $request = new HttpRequest($swooleRequest);

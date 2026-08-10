@@ -28,7 +28,6 @@ class Router
                 '/lobby' => [GameController::class, 'lobbyIndex'],
                 '/gomoku' => [GameController::class, 'gomokuIndex'],
                 '/api/generate-player-id' => [GameController::class, 'generatePlayerId'],
-                '/api/regenerate-code' => [GameController::class, 'regenerateCode'],
                 '/api/player-stats' => [GameController::class, 'playerStats'],
                 '/api/chat-history' => [GameController::class, 'chatHistoryList'],
                 '/api/chat-history/detail' => [GameController::class, 'chatHistoryDetail'],

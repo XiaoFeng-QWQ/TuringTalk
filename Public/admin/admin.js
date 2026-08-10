@@ -1624,20 +1624,20 @@ function renderReportsList(reports, total, page, pageSize) {
         if (left > 2) {
             pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
         } else if (left === 2) {
-            pageHtml += _reportPageBtn(2, page === 2);
+            pageHtml += _reportPageBtn(2, page);
         }
 
         for (var j = left; j <= right; j++) {
             if (j === 1 || j === totalPages) continue;
             if (j === 2 && left <= 2) continue;
-            pageHtml += _reportPageBtn(j, page === j);
+            pageHtml += _reportPageBtn(j, page);
         }
 
         if (right < totalPages - 1) {
             pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
         }
 
-        pageHtml += _reportPageBtn(totalPages, page === totalPages);
+        pageHtml += _reportPageBtn(totalPages, page);
     }
 
     reportsPagination.innerHTML = pageHtml;
@@ -2126,7 +2126,7 @@ function _renderStickerReviewPagination() {
 }
 
 function _reviewPageBtn(pg, current) {
-    if (pg === current) {
+    if (current) {
         return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
     }
     return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-review-pg="' + pg + '">' + pg + '</span>';
@@ -2379,20 +2379,20 @@ function renderLogList(logs, total, page, pageSize, logType) {
         if (left > 2) {
             pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
         } else if (left === 2) {
-            pageHtml += _logPageBtn(2, page === 2);
+            pageHtml += _logPageBtn(2, page);
         }
 
         for (var j = left; j <= right; j++) {
             if (j === 1 || j === totalPages) continue;
             if (j === 2 && left <= 2) continue;
-            pageHtml += _logPageBtn(j, page === j);
+            pageHtml += _logPageBtn(j, page);
         }
 
         if (right < totalPages - 1) {
             pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
         }
 
-        pageHtml += _logPageBtn(totalPages, page === totalPages);
+        pageHtml += _logPageBtn(totalPages, page);
     }
 
     adminLogPaginationEl.innerHTML = pageHtml;

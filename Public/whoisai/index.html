@@ -78,50 +78,15 @@
             <div id="whoisai-no-identity" class="lobby-identity-card" style="display:none;">
                 <div class="id-card-inner">
                     <div class="id-icon">?</div>
-                    <h2>您还没有身份记录</h2>
-                    <p>输入昵称和恢复码可以立即恢复您的战绩和身份</p>
-                    <input type="text" id="whoisai-recover-nickname" class="tag-input" maxlength="12" placeholder="你的昵称"
-                        autocomplete="off">
-                    <div class="recover-row">
-                        <input type="text" id="whoisai-recover-input" placeholder="输入恢复码..." maxlength="32">
-                        <button id="whoisai-btn-recover" class="doodle-btn"
-                            style="flex-shrink:0;font-size:14px;">恢复</button>
-                    </div>
-                    <div id="whoisai-recover-msg" class="recover-msg" style="display:none;"></div>
-                    <div class="divider">或者</div>
+                    <h2>未检测到身份</h2>
+                    <p>请先前往首页创建或恢复您的账号</p>
                     <button id="whoisai-btn-go-home" class="doodle-btn btn-full"
-                        style="margin-bottom:12px;font-size:15px;">
-                        返回首页创建身份
-                    </button>
-                    <button id="whoisai-btn-new-name" class="doodle-btn btn-full"
-                        style="font-size:15px;border-style:dashed;">
-                        直接填写昵称
+                        style="margin-top:16px;font-size:16px;">
+                        前往首页
                     </button>
                 </div>
             </div>
 
-
-            <div id="whoisai-fill-name" class="lobby-identity-card" style="display:none;">
-                <div class="id-card-inner">
-                    <svg class="icon" viewBox="0 0 24 24"
-                        style="width:48px;height:48px;stroke:var(--ink-blue);margin-bottom:8px;">
-                        <circle cx="12" cy="8" r="4" />
-                        <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
-                    </svg>
-                    <h2>设定你的昵称</h2>
-                    <p>对局结束后会自动生成恢复码</p>
-                    <input type="text" id="whoisai-nickname" class="tag-input" maxlength="12" placeholder="你的昵称"
-                        autocomplete="off">
-                    <button id="whoisai-match-btn" class="doodle-btn success btn-full"
-                        style="margin-top:12px;font-size:16px;">
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M22 2L11 13" />
-                            <path d="M22 2l-7 20-4-9-9-4 20-7z" />
-                        </svg>
-                        开始匹配
-                    </button>
-                </div>
-            </div>
 
             <div id="whoisai-match-status" class="whoisai-match-status"></div>
             <div id="whoisai-match-tips" class="whoisai-match-tips"></div>

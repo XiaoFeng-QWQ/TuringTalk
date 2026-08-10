@@ -149,7 +149,7 @@ class GameClient {
 
     // ---- 公开方法 ----
 
-    start(nickname) {
+    start(nickname, password) {
         if (this._banned) return;
 
         this._nickname = nickname || 'You';
@@ -177,7 +177,7 @@ class GameClient {
         const duration = parseInt(durationSelect?.value) || 600;
         DebugLogger.log('match', '开始匹配', { duration: duration, wsState: this._transport._ws ? this._transport._ws.readyState : 'null', online: navigator.onLine, ts: Date.now() });
         window._matchStartTs = Date.now();
-        this._transport.reconnect(this._nickname, duration);
+        this._transport.reconnect(this._nickname, duration, password);
     }
 
     sendMessage() {
@@ -832,6 +832,9 @@ const nicknameInput = document.getElementById('nickname-input');
 let _chatHistoryPage = 1;
 migrateLegacyData();
 
+// 自动将旧格式用户数据（recovery_code → token）升级为新格式
+autoUpgradeOldUserdata();
+
 const savedNickname = getUserNickname();
 if (savedNickname) {
     nicknameInput.value = savedNickname;
@@ -851,50 +854,56 @@ if (savedNickname) {
         document.getElementById('id-card-fingerprint').textContent = browserFingerprint;
     }
 
-    // 有恢复码时隐藏首页恢复码输入框（数据已在本地，无需恢复）
+    // 有 token 时隐藏密码输入和找回区
     const recoverLine = document.getElementById('recover-line');
-    if (recoverLine && getPlayerId()) {
+    if (recoverLine && getUserToken()) {
         recoverLine.style.display = 'none';
     }
+} else {
+    // 首次访问：显示密码输入框
+    const passwordLine = document.getElementById('password-input-line');
+    if (passwordLine) passwordLine.style.display = '';
 }
 
-// 首页恢复码入口
+// 首页密码找回入口
 document.getElementById('btn-recover-main').addEventListener('click', () => {
     const input = document.getElementById('recover-input-main');
-    const pid = input.value.trim();
-    if (!pid) { showTopToast('请输入恢复码'); return; }
+    const password = input.value.trim();
+    if (!password || password.length < 6) { showTopToast('请输入密码（6位以上）'); return; }
     const nickname = nicknameInput.value.trim();
     if (!nickname) { showTopToast('请先填写昵称'); return; }
-    fetch('/api/player-stats?recovery_code=' + encodeURIComponent(pid) + '&nickname=' + encodeURIComponent(nickname))
+    document.getElementById('btn-recover-main').disabled = true;
+    fetch('/api/generate-player-id?action=recover&nickname=' + encodeURIComponent(nickname) + '&password=' + encodeURIComponent(password) + '&fp=' + encodeURIComponent(browserFingerprint))
             .then(r => r.json())
             .then(data => {
+                document.getElementById('btn-recover-main').disabled = false;
                 if (data.error) { showTopToast(data.error); return; }
-                savePlayerId(data.player_id);
-            if (data.code) setUserRecoveryCode(data.code);
+            if (data.token) setUserToken(data.token);
             updateLbUI();
-            updateLbMyStats(data.stats);
-            mergeServerStats(data.stats);
+            if (data.stats) { updateLbMyStats(data.stats); mergeServerStats(data.stats); }
             input.value = '';
-            showTopToast('战绩已恢复！', false);
+            showTopToast('账号已找回！', false);
 
             // 切换到 ID 卡展示模式（与页面加载时有数据时一致）
             setUserNickname(nickname);
-            const inputLine = document.getElementById('nickname-input-line');
-            const systemIdLine = document.getElementById('system-id-line');
-            const idCardDisplay = document.getElementById('id-card-display');
-            if (inputLine) inputLine.style.display = 'none';
-            if (systemIdLine) systemIdLine.style.display = 'none';
-            if (idCardDisplay) {
-                idCardDisplay.style.display = 'block';
+            const nLine = document.getElementById('nickname-input-line');
+            const sLine = document.getElementById('system-id-line');
+            const idCardDisp = document.getElementById('id-card-display');
+            if (nLine) nLine.style.display = 'none';
+            if (sLine) sLine.style.display = 'none';
+            if (idCardDisp) {
+                idCardDisp.style.display = 'block';
                 document.getElementById('id-card-nickname').textContent = nickname;
                 document.getElementById('id-card-fingerprint').textContent = browserFingerprint;
             }
 
-            // 恢复成功后隐藏首页恢复码输入框
-            const recoverLine = document.getElementById('recover-line');
-            if (recoverLine) recoverLine.style.display = 'none';
+            // 找回成功后隐藏找回区和密码输入
+            const recLine = document.getElementById('recover-line');
+            const pwdLine = document.getElementById('password-input-line');
+            if (recLine) recLine.style.display = 'none';
+            if (pwdLine) pwdLine.style.display = 'none';
         })
-        .catch(() => showTopToast('网络错误，请稍后重试'));
+        .catch(() => { showTopToast('网络错误，请稍后重试'); document.getElementById('btn-recover-main').disabled = false; });
 });
 
 document.getElementById('recover-input-main').addEventListener('keydown', (e) => {
@@ -922,8 +931,8 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
     if (trimmed === getUserNickname()) return;
 
     // 如果有恢复码，通过 WS 同步更新到后端，等待响应后再决定是否本地更新
-    const pid = getPlayerId();
-    if (pid) {
+    const tok = getUserToken();
+    if (tok) {
         try {
             const onResult = (e) => {
                 document.removeEventListener('nickname_update_result', onResult);
@@ -938,7 +947,7 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
                 showTopToast('昵称已修改为：' + trimmed, false);
             };
             document.addEventListener('nickname_update_result', onResult);
-            transport.send('update_nickname', { player_id: pid, nickname: trimmed, fp: browserFingerprint });
+            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint });
             return;
         } catch (e) {
             // WS 未连接时静默降级，仅更新本地
@@ -997,7 +1006,9 @@ function startMatching() {
         return;
     }
     const nickname = nicknameInput.value.trim() || 'You';
-    game.start(nickname);
+    const passwordInput = document.getElementById('password-input');
+    const password = passwordInput ? passwordInput.value : '';
+    game.start(nickname, password);
 }
 
 const chatBody = document.getElementById('chat-body');
@@ -1393,9 +1404,8 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
 
         const title = document.getElementById('collection-title-input').value.trim();
         const isPublic = document.getElementById('collection-public-check').checked;
-        const pid = getUserPlayerId();
-
-        if (!pid) {
+        const tok = getUserToken();
+        if (!tok) {
             const statusEl = document.getElementById('collection-status');
             statusEl.style.display = 'block';
             statusEl.style.color = 'var(--danger)';
@@ -1409,8 +1419,11 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
 
         fetch('/api/chat-history/collect', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: savedId, player_id: pid, title: title || null, is_public: isPublic }),
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + tok
+            },
+            body: JSON.stringify({ id: savedId, title: title || null, is_public: isPublic }),
         })
         .then(r => r.json())
         .then(result => {
@@ -1536,10 +1549,10 @@ function migrateLegacyData() {
         migrated = true;
     }
 
-    // 迁移恢复码
+    // 迁移恢复码（旧格式不再兼容，需要通过密码恢复）
     const oldCode = localStorage.getItem('turing_player_code');
-    if (oldCode && !ud.player_id) {
-        ud.player_id = oldCode;
+    if (oldCode && !ud.recovery_code) {
+        ud.recovery_code = oldCode;
         migrated = true;
     }
 
@@ -1564,8 +1577,6 @@ function migrateLegacyData() {
 // ---- 用户数据便捷读写 ----
 function getUserNickname() { return getUserdata().nickname || ''; }
 function setUserNickname(name) { const d = getUserdata(); d.nickname = name; saveUserdata(d); }
-function getUserPlayerId() { return getUserdata().player_id || ''; }
-function setUserPlayerId(pid) { const d = getUserdata(); d.player_id = pid; saveUserdata(d); }
 function getUserStats() { return getUserdata().stats || null; }
 function setUserStats(s) { const d = getUserdata(); d.stats = s; saveUserdata(d); }
 function getUserNicknameUpdatedAt() { return getUserdata().nickname_updated_at || ''; }
@@ -1887,8 +1898,8 @@ btnClearLocalData.addEventListener('click', () => {
 // 上传本地数据到服务器按钮
 btnUploadUserData.addEventListener('click', async () => {
     const btn = document.getElementById('btn-upload-userdata');
-    const pid = getUserPlayerId();
-    if (!pid) {
+    const tok = getUserToken();
+    if (!tok) {
         showTopToast('请先在首页创建或恢复您的恢复码', true);
         return;
     }
@@ -1896,7 +1907,6 @@ btnUploadUserData.addEventListener('click', async () => {
     const ud = getUserdata();
     const payload = {
         nickname: ud.nickname || '',
-        player_id: pid,
         fp: browserFingerprint,
         stats: Object.assign({ stickerFavorites: ud.stickerFavorites || [] }, ud.stats || {}),
     };
@@ -1907,7 +1917,10 @@ btnUploadUserData.addEventListener('click', async () => {
     try {
         const resp = await fetch('/api/upload-userdata', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + tok
+            },
             body: JSON.stringify(payload),
         });
         const data = await resp.json();
@@ -2004,11 +2017,14 @@ stickerUploadInput.addEventListener('change', () => {
     reader.onload = function () {
         const base64 = reader.result;
         const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-        const pid = getUserPlayerId();
+        const tok = getUserToken();
         fetch('/api/sticker/upload', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ player_id: pid, image_data: base64, file_ext: ext }),
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + tok
+            },
+            body: JSON.stringify({ image_data: base64, file_ext: ext }),
         })
             .then(r => r.json())
             .then(res => {
@@ -2035,9 +2051,11 @@ document.querySelectorAll('.sticker-manager-tab').forEach(tab => {
 });
 
 function loadStickerManager() {
-    const pid = getUserPlayerId();
+    const tok = getUserToken();
     stickerManagerStatus.textContent = '加载中...';
-    fetch('/api/sticker/list?player_id=' + encodeURIComponent(pid))
+    fetch('/api/sticker/list', {
+        headers: { 'Authorization': 'Bearer ' + tok }
+    })
         .then(r => r.json())
         .then(res => {
             if (res.stickers) {
@@ -2086,11 +2104,14 @@ function renderStickerManagerGrid() {
             del.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (!confirm('确认删除这个表情？')) return;
-                const pid = getUserPlayerId();
+                const tok = getUserToken();
                 fetch('/api/sticker/delete', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ player_id: pid, sticker_id: s.id }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + tok
+                    },
+                    body: JSON.stringify({ sticker_id: s.id }),
                 })
                     .then(r => r.json())
                     .then(res => {
@@ -2322,12 +2343,13 @@ function showBanReasonDialog(targetLabel, callback, defaultReason = '', onCancel
 // WebSocket Transport 原型增强（注入 token + fingerprint + 新消息处理）
 // ================================================================
 const origConnect = WebSocketTransport.prototype.connect;
-WebSocketTransport.prototype.connect = function (nickname, duration) {
+WebSocketTransport.prototype.connect = function (nickname, duration, password) {
     const wsUrl = this._url;
 
     // 保存参数供自动重连使用
     this._lastNickname = nickname || '';
     this._lastDuration = duration || 600;
+    this._lastPassword = password || '';
 
     // 取消pending的重连timer，避免onclose和visibilitychange双重触发
     if (this._reconnectTimer) {
@@ -2394,8 +2416,8 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                     duration: duration || 600,
                     token: adminToken,
                     fingerprint: browserFingerprint,
-                    player_id: getUserPlayerId() || undefined,
-                    recovery_code: getUserRecoveryCode() || undefined,
+                    player_token: getUserToken() || undefined,
+                    password: this._lastPassword || undefined,
                 };
                 // 重连时带上旧会话 ID，后端可恢复而非重新匹配
                 if (this._lastSessionId) {
@@ -2424,10 +2446,9 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
             case 'matched':
                 DebugLogger.log('match', '收到matched事件', { opponent: data.opponent_name, session_id: data.session_id, duration: data.duration, elapsed_ms: window._matchStartTs ? Date.now() - window._matchStartTs : -1 });
                 this._lastSessionId = data.session_id || '';
-                if (data.player_id && !getUserPlayerId()) savePlayerId(data.player_id);
-                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
+                if (data.token && !getUserToken()) setUserToken(data.token);
                 // 每次进入对局（首次匹配 / 重连恢复）拉取最新表情列表
-                ws.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion(), player_id: getUserPlayerId() }));
+                ws.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion(), player_token: getUserToken() }));
                 this._emit('connected', {
                     opponent_name: data.opponent_name,
                     duration: data.duration,
@@ -2457,8 +2478,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'judged':
                 DebugLogger.log('game', '对方已判定', { truth: data.truth, session_id: data.session_id });
-                if (data.player_id && !getUserPlayerId()) savePlayerId(data.player_id);
-                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
+                if (data.token && !getUserToken()) setUserToken(data.token);
                 this._emit('opponent_judged', {
                     truth: data.truth,
                     opponent_guess: data.opponent_guess,
@@ -2473,8 +2493,7 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
                 break;
             case 'timeout':
                 DebugLogger.log('game', '收到timeout事件', { reason: data.reason, session_id: data.session_id });
-                if (data.player_id && !getUserPlayerId()) savePlayerId(data.player_id);
-                if (data.recovery_code && !getUserRecoveryCode()) setUserRecoveryCode(data.recovery_code);
+                if (data.token && !getUserToken()) setUserToken(data.token);
                 this._emit('opponent_timeout', {
                     reason: data.reason,
                     session_id: data.session_id,
@@ -2615,8 +2634,9 @@ WebSocketTransport.prototype.connect = function (nickname, duration) {
 };
 
 // reconnect: 复用现有 WS 连接发 join；WS 已断则重新计算 PoW 参数后再建连
-WebSocketTransport.prototype.reconnect = function (nickname, duration) {
+WebSocketTransport.prototype.reconnect = function (nickname, duration, password) {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+        this._lastPassword = password || '';
         DebugLogger.log('match', '复用现有WS发送join', { nickname: nickname, readyState: this._ws.readyState });
         this._ws.send(JSON.stringify({
             type: 'join',
@@ -2624,13 +2644,13 @@ WebSocketTransport.prototype.reconnect = function (nickname, duration) {
             duration: duration || 600,
             token: adminToken,
             fingerprint: browserFingerprint,
-            player_id: getUserPlayerId() || undefined,
-            recovery_code: getUserRecoveryCode() || undefined,
+            player_token: getUserToken() || undefined,
+            password: password || undefined,
         }));
         return;
     }
     DebugLogger.log('ws', 'WS已断开，直接重连', { readyState: this._ws ? this._ws.readyState : 'null' });
-    this.connect(nickname, duration);
+    this.connect(nickname, duration, password);
 };
 
 // preconnect: 页面加载即建立 WS 并启动心跳，不发送 join
@@ -2745,8 +2765,8 @@ let transport, game;
 //  个人战绩记录
 // ================================================================
 
-function getPlayerId() { return getUserPlayerId(); }
-function savePlayerId(pid) { setUserPlayerId(pid); }
+function getPlayerId() { return getUserToken(); }
+function savePlayerId(pid) { }
 
 function updateLbUI() {
     const pid = getPlayerId();
@@ -2758,7 +2778,6 @@ function updateLbUI() {
     if (pid) {
         recoverArea.style.display = 'none';
         myStatsEl.style.display = '';
-        document.getElementById('lb-my-code').textContent = getUserRecoveryCode() || '（点击恢复身份查看）';
 
         // 用本地存储的数据刷新战绩数字
         const localStats = getUserStats();
@@ -2785,7 +2804,7 @@ function updateLbUI() {
     // 聊天记录回顾区域
     var historySection = document.getElementById('chat-history-section');
     if (historySection) {
-        if (getUserRecoveryCode()) {
+        if (getUserToken()) {
             historySection.style.display = '';
             loadChatHistoryList(1);
         } else {
@@ -2809,7 +2828,6 @@ function updateLbMyStats(stats) {
     if (!stats) return;
     const tt = stats.turing_test || {};
     const hva = stats.WhoisAI || {};
-    document.getElementById('lb-my-code').textContent = getUserRecoveryCode() || '（点击恢复身份查看）';
     document.getElementById('lb-my-wins').textContent = (tt.wins || 0) + (hva.wins || 0);
     document.getElementById('lb-my-losses').textContent = (tt.losses || 0) + (hva.losses || 0);
     document.getElementById('lb-my-games').textContent = stats.total_games || 0;
@@ -2915,47 +2933,76 @@ async function exportStatsImage() {
     }
 }
 
-// ---- 自动初始化恢复码 ----
+// ---- 自动初始化 token ----
 
 function autoInitPlayerId() {
     if (getPlayerId()) {
         updateLbUI();
         return;
     }
-    const nickname = getUserNickname() || '';
-    if (!nickname) return; // 首次访问，等用户填写昵称后由 validateNickname 触发
-
-    fetch('/api/generate-player-id?fp=' + encodeURIComponent(browserFingerprint) + '&nickname=' + encodeURIComponent(nickname))
-        .then(r => r.json())
-        .then(data => {
-            if (data.error) return;
-            savePlayerId(data.player_id);
-            if (data.code) setUserRecoveryCode(data.code);
-            updateLbUI();
-            if (data.stats) { updateLbMyStats(data.stats); mergeServerStats(data.stats); }
-        })
-        .catch(() => { });
+    updateLbUI();
 }
 
 document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
 
-// 重新生成恢复码
-document.getElementById('btn-regen-code').addEventListener('click', () => {
-    const pid = getPlayerId();
-    const oldCode = getUserRecoveryCode();
-    if (!pid) { showTopToast('请先获取恢复码'); return; }
-    if (!oldCode) { showTopToast('您还没有恢复码，请先在服务端生成身份'); return; }
-    if (!confirm('重新生成后旧恢复码将立即失效，确定继续？')) return;
+// 改密码
+document.getElementById('btn-change-password').addEventListener('click', () => {
+    const form = document.getElementById('change-password-form');
+    form.style.display = form.style.display === 'none' ? '' : 'none';
+});
 
-    fetch('/api/regenerate-code?player_id=' + encodeURIComponent(pid) + '&old_code=' + encodeURIComponent(oldCode))
+document.getElementById('btn-cp-cancel').addEventListener('click', () => {
+    document.getElementById('change-password-form').style.display = 'none';
+    document.getElementById('cp-msg').style.display = 'none';
+    document.getElementById('cp-old-password').value = '';
+    document.getElementById('cp-new-password').value = '';
+});
+
+document.getElementById('btn-cp-submit').addEventListener('click', () => {
+    const oldPwd = document.getElementById('cp-old-password').value;
+    const newPwd = document.getElementById('cp-new-password').value;
+    const msgEl = document.getElementById('cp-msg');
+
+    if (!oldPwd || !newPwd) {
+        msgEl.textContent = '请填写旧密码和新密码';
+        msgEl.style.display = '';
+        return;
+    }
+    if (newPwd.length < 6) {
+        msgEl.textContent = '新密码至少6位';
+        msgEl.style.display = '';
+        return;
+    }
+
+    const token = getPlayerId();
+    if (!token) {
+        msgEl.textContent = '请先开始一局游戏获取身份';
+        msgEl.style.display = '';
+        return;
+    }
+
+    fetch('/api/generate-player-id?action=change_password&old_password=' + encodeURIComponent(oldPwd) + '&new_password=' + encodeURIComponent(newPwd) + '&fp=' + encodeURIComponent(browserFingerprint), {
+        headers: { 'Authorization': 'Bearer ' + token }
+    })
         .then(r => r.json())
         .then(data => {
-            if (data.error) { showTopToast(data.error); return; }
-            setUserRecoveryCode(data.code);
-            updateLbUI();
-            showTopToast('恢复码已刷新');
+            if (data.error) {
+                msgEl.textContent = data.error;
+                msgEl.style.display = '';
+                return;
+            }
+            if (data.token) setUserToken(data.token);
+            msgEl.textContent = '密码修改成功';
+            msgEl.style.color = '#28a745';
+            msgEl.style.display = '';
+            document.getElementById('change-password-form').style.display = 'none';
+            document.getElementById('cp-old-password').value = '';
+            document.getElementById('cp-new-password').value = '';
         })
-        .catch(() => showTopToast('网络错误，请重试'));
+        .catch(() => {
+            msgEl.textContent = '网络错误，请重试';
+            msgEl.style.display = '';
+        });
 });
 
 // 查看公开资料
@@ -2973,12 +3020,12 @@ document.getElementById('btn-open-profile').addEventListener('click', function (
     settingsOverlay.style.display = 'none';
 });
 
-// ---- 恢复码输入事件 ----
+// ---- 密码找回输入事件 ----
 
 document.getElementById('btn-recover-lb').addEventListener('click', () => {
-    const pid = document.getElementById('lb-recover-input').value.trim();
-    if (!pid) {
-        alert('请输入恢复码');
+    const password = document.getElementById('lb-recover-input').value;
+    if (!password || password.length < 6) {
+        alert('请输入密码（6位以上）');
         return;
     }
     const nickname = getUserNickname();
@@ -2986,18 +3033,16 @@ document.getElementById('btn-recover-lb').addEventListener('click', () => {
         alert('请先在首页填写昵称');
         return;
     }
-    fetch('/api/player-stats?recovery_code=' + encodeURIComponent(pid) + '&nickname=' + encodeURIComponent(nickname))
+    fetch('/api/generate-player-id?action=recover&nickname=' + encodeURIComponent(nickname) + '&password=' + encodeURIComponent(password) + '&fp=' + encodeURIComponent(browserFingerprint))
         .then(r => r.json())
         .then(data => {
             if (data.error) {
                 alert(data.error);
                 return;
             }
-            savePlayerId(data.player_id);
-            if (data.code) setUserRecoveryCode(data.code);
+            if (data.token) setUserToken(data.token);
             updateLbUI();
-            updateLbMyStats(data.stats);
-            mergeServerStats(data.stats);
+            if (data.stats) { updateLbMyStats(data.stats); mergeServerStats(data.stats); }
             document.getElementById('lb-recover-input').value = '';
         })
         .catch(() => alert('网络错误，请稍后重试'));
@@ -3013,7 +3058,7 @@ document.getElementById('lb-recover-input').addEventListener('keydown', (e) => {
 
 /** 加载聊天记录列表 */
 function loadChatHistoryList(page) {
-    const pid = getUserPlayerId();
+    const pid = getPlayerId();
     if (!pid) return;
 
     _chatHistoryPage = page || 1;
@@ -3021,7 +3066,9 @@ function loadChatHistoryList(page) {
     const listEl = document.getElementById('chat-history-list');
     listEl.innerHTML = '<div style="text-align:center;color:#999;padding:10px;">加载中...</div>';
 
-    fetch('/api/chat-history?player_id=' + encodeURIComponent(pid) + '&page=' + _chatHistoryPage)
+    fetch('/api/chat-history?page=' + _chatHistoryPage, {
+        headers: { 'Authorization': 'Bearer ' + pid }
+    })
         .then(r => r.json())
         .then(data => {
             if (data.error) {
@@ -3101,7 +3148,7 @@ function renderChatHistoryList(data) {
 }
 
 /** 对手留言管理：加载留言列表 */
-function loadMessageManageList(pid) {
+function loadMessageManageList(token) {
     const listEl = document.getElementById('message-manage-list');
     const allowLabel = document.getElementById('message-allow-label');
     const allowToggle = document.getElementById('message-allow-toggle');
@@ -3109,7 +3156,9 @@ function loadMessageManageList(pid) {
 
     listEl.innerHTML = '<div style="text-align:center;color:#999;padding:10px;font-size:12px;">加载中...</div>';
 
-    fetch('/api/player-messages?player_id=' + encodeURIComponent(pid))
+    fetch('/api/player-messages', {
+        headers: { 'Authorization': 'Bearer ' + token }
+    })
         .then(r => r.json())
         .then(data => {
             if (data.error) {
@@ -3127,8 +3176,11 @@ function loadMessageManageList(pid) {
                 allowToggle.onchange = function () {
                     fetch('/api/player-message/settings', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ player_id: pid, allow_messages: allowToggle.checked }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        },
+                        body: JSON.stringify({ allow_messages: allowToggle.checked }),
                     });
                 };
             }
@@ -3163,13 +3215,16 @@ function loadMessageManageList(pid) {
 
                     fetch('/api/player-message/hide', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ player_id: pid, message_id: msgId, hidden: isHidden }),
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        },
+                        body: JSON.stringify({ message_id: msgId, hidden: isHidden }),
                     })
                     .then(r => r.json())
                     .then(result => {
                         if (result.success) {
-                            loadMessageManageList(pid);
+                            loadMessageManageList(token);
                         } else {
                             this.disabled = false;
                             this.textContent = isHidden ? '隐藏' : '显示';
@@ -3189,8 +3244,8 @@ function loadMessageManageList(pid) {
 
 /** 显示聊天记录详情 */
 function showChatHistoryDetail(id) {
-    const pid = getUserPlayerId();
-    if (!pid) return;
+    const token = getUserToken();
+    if (!token) return;
 
     const overlay = document.getElementById('chat-history-detail-overlay');
     const titleEl = document.getElementById('chat-detail-title');
@@ -3204,7 +3259,9 @@ function showChatHistoryDetail(id) {
     changelogOverlay.style.display = 'none';
     overlay.style.display = 'flex';
 
-    fetch('/api/chat-history/detail?id=' + id + '&player_id=' + encodeURIComponent(pid))
+    fetch('/api/chat-history/detail?id=' + id, {
+        headers: { 'Authorization': 'Bearer ' + token }
+    })
         .then(r => r.json())
         .then(data => {
             if (data.error) {
@@ -3289,8 +3346,11 @@ function showChatHistoryDetail(id) {
 
                 fetch('/api/chat-history/collect', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id, player_id: getUserPlayerId(), is_public: isPublic }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ id, is_public: isPublic }),
                 })
                 .then(r => r.json())
                 .then(result => {
@@ -3341,8 +3401,11 @@ function showChatHistoryDetail(id) {
 
                 fetch('/api/chat-history/collect', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id, player_id: getUserPlayerId(), title: title || null }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + token
+                    },
+                    body: JSON.stringify({ id, title: title || null }),
                 })
                 .then(r => r.json())
                 .then(result => {
@@ -3503,8 +3566,8 @@ async function showPublicCollection(token) {
         }
 
         // 点赞按钮（仅登录用户可见）
-        var userCode = getUserPlayerId();
-        if (userCode && data.id) {
+        var userTok = getUserToken();
+        if (userTok && data.id) {
             var likeDiv = document.createElement('div');
             likeDiv.style.cssText = 'text-align:center;margin-top:16px;';
             likeDiv.innerHTML = '<button class="doodle-btn" id="pc-btn-like" style="font-size:13px;padding:6px 16px;">&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span></button>';
@@ -3516,8 +3579,11 @@ async function showPublicCollection(token) {
                 btn.textContent = '...';
                 fetch('/api/collection/like', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: data.id, player_id: userCode }),
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + userTok
+                    },
+                    body: JSON.stringify({ id: data.id }),
                 })
                 .then(function (r) { return r.json(); })
                 .then(function (result) {

@@ -4,6 +4,7 @@ namespace App\Admin\Handlers;
 
 use Swoole\WebSocket\Server;
 use App\Core\WebSocket\BaseGameHandler;
+use App\Core\WebSocket\GameWebSocketHandler;
 use App\Admin\Tracker;
 use App\Admin\Repository\AdminRepository;
 use App\Services\Repository\BanRepository;
@@ -169,13 +170,21 @@ class UserHandler
         $banText = '你已被管理员封禁';
         if ($reason) $banText .= '，原因：' . $reason;
 
+        // 获取主游戏 Handler（用于查询对局 session、通知对手和旁观者）
+        $gameHandler = $this->handlers[0] instanceof GameWebSocketHandler
+            ? $this->handlers[0] : null;
+
         foreach ($server->connections as $clientFd) {
             if (!$server->isEstablished($clientFd)) continue;
 
+            $matchedHandler = null;
             $info = null;
             foreach ($this->handlers as $handler) {
                 $info = $handler->getClientInfo($clientFd);
-                if ($info && !empty($info['ip'])) break;
+                if ($info && !empty($info['ip'])) {
+                    $matchedHandler = $handler;
+                    break;
+                }
             }
             if (!$info) continue;
 
@@ -185,12 +194,45 @@ class UserHandler
             if (!$match && !empty($fp) && ($info['fingerprint'] ?? '') === $fp) $match = true;
 
             if ($match) {
-                foreach ($this->handlers as $handler) {
-                    $handler->sendToPlayer($server, $clientFd, ['type' => 'error', 'message' => $banText]);
+                // 和 BanHandler 一致：发送 type: 'banned' 事件
+                $matchedHandler->sendToPlayer($server, $clientFd, ['type' => 'banned', 'text' => $banText]);
+
+                // 通知对手 + 旁观者（仅主游戏模式，其他模式无对局 session 概念）
+                if ($gameHandler) {
+                    $banSession = $gameHandler->getGameService()->getSessionByPlayerFd($clientFd);
+                    if ($banSession) {
+                        $opponentFd = $banSession['player1_fd'] === $clientFd
+                            ? $banSession['player2_fd']
+                            : $banSession['player1_fd'];
+                        if ($opponentFd > 0 && $server->isEstablished($opponentFd)) {
+                            $bannedTruth = ($banSession['player1_fd'] === $clientFd)
+                                ? ($banSession['player1_truth'] ?? 'ai')
+                                : ($banSession['player2_truth'] ?? 'ai');
+                            $gameHandler->sendToPlayer($server, $opponentFd, [
+                                'type' => 'opponent_banned',
+                                'text' => '对方因违规被管理员封禁，对局结束',
+                                'opponent_truth' => $bannedTruth,
+                            ]);
+                        }
+
+                        // 通知旁观此对局的管理员
+                        $gameHandler->sendToSpectators($server, $banSession['id'], [
+                            'type'       => 'spectate_ended',
+                            'session_id' => $banSession['id'],
+                            'reason'     => '该对局玩家已被管理员封禁，观战结束',
+                        ]);
+                    }
                 }
+
                 if ($server->isEstablished($clientFd)) {
                     $server->close($clientFd);
                 }
+
+                Logger::info('Admin kicked online player from user list', [
+                    'fd' => $clientFd,
+                    'player_id' => $playerId,
+                    'ip' => $ip,
+                ]);
             }
         }
     }
