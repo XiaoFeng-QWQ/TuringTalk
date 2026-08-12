@@ -947,7 +947,7 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
                 showTopToast('昵称已修改为：' + trimmed, false);
             };
             document.addEventListener('nickname_update_result', onResult);
-            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint });
+            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint, player_token: getUserToken() });
             return;
         } catch (e) {
             // WS 未连接时静默降级，仅更新本地

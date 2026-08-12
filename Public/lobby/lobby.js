@@ -1504,10 +1504,16 @@
      * 异步解析由 resolveBilibiliEmbeds 完成（同一 API 支持多平台）。
      */
     function parseBilibiliLinks(text) {
-        var regex = /https?:\/\/(?:www\.)?bilibili\.com\/video\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/b23\.tv\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/v\.douyin\.com\/[^\s<>"'，。！？、；：》\)\]]+/gi;
+        var regex = /https?:\/\/(?:www\.)?bilibili\.com\/video\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/b23\.tv\/[^\s<>"'，。！？、；：》\)\]]+|https?:\/\/v\.douyin\.com\/[^\s<>"'，。！？、；：》\)\]]+|\bBV[a-zA-Z0-9]{10}\b/gi;
         return text.replace(regex, function (match) {
-            // 剥离 GET 参数
-            var cleanUrl = match.replace(/\?.*$/, '');
+            var cleanUrl;
+            if (/^BV/i.test(match)) {
+                // 纯 BV 号，补全为 B站完整链接
+                cleanUrl = 'https://www.bilibili.com/video/' + match;
+            } else {
+                // 剥离 GET 参数
+                cleanUrl = match.replace(/\?.*$/, '');
+            }
             return '<div class="bili-embed" data-bili-url="' + encodeURIComponent(cleanUrl) + '">' +
                 '<div class="bili-loading">' + BILI_SPINNER_SVG + '解析中...</div>' +
                 '</div>';

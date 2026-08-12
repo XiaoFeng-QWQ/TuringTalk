@@ -34,12 +34,29 @@ class GameController
         '/lobby/lobby.js'         => ['lobby/lobby.js',               'application/javascript'],
         '/gomoku/gomoku.css'      => ['gomoku/gomoku.css',            'text/css'],
         '/gomoku/gomoku.js'       => ['gomoku/gomoku.js',             'application/javascript'],
+        '/weekly-report/weekly-report.css' => ['weekly-report/weekly-report.css', 'text/css'],
+        '/weekly-report/weekly-report.js'  => ['weekly-report/weekly-report.js',  'application/javascript'],
     ];
 
     public function index(Request $request, Response $response): void
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
         $files = ['/style.css', '/shared.js', '/script.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
+        $response->setContent($html);
+        $response->send();
+    }
+
+    public function weeklyReportIndex(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'weekly-report/index.html');
+        $files = ['/style.css', '/weekly-report/weekly-report.css', '/shared.js', '/weekly-report/weekly-report.js'];
         foreach ($files as $file) {
             $html = str_replace(
                 $file . '?v=',
@@ -614,6 +631,122 @@ class GameController
         $stickers = StickerService::listForUser($playerId);
         $response->setContent(json_encode(['stickers' => $stickers], JSON_UNESCAPED_UNICODE));
         $response->send();
+    }
+
+    /**
+     * GET /api/weekly-report?week=2026-W33&sort=total_games&page=1&limit=20&min_games=0
+     * 查询周榜数据，支持分页和多维度排序
+     */
+    public function weeklyReport(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+
+        $week  = $request->get('week', '');
+        $sort  = $request->get('sort', 'total_games');
+        $page  = max(1, (int)($request->get('page', '1')));
+        $limit = max(1, min(100, (int)($request->get('limit', '20'))));
+        $minGames = max(0, (int)($request->get('min_games', '0')));
+
+        // 允许的排序字段白名单
+        $allowedSorts = [
+            'total_games', 'total_wins', 'win_rate',
+            'turing_games', 'turing_guess_accuracy', 'turing_best_streak',
+            'whoisai_games', 'gomoku_games',
+        ];
+        if (!in_array($sort, $allowedSorts, true)) {
+            $sort = 'total_games';
+        }
+
+        $dbPath = __DIR__ . '/../../Storage/weekly_reports.db';
+        if (!file_exists($dbPath)) {
+            $response->json(['error' => '暂无周榜数据']);
+            return;
+        }
+
+        try {
+            $db = new \PDO('sqlite:' . $dbPath, null, null, [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+            ]);
+        } catch (\Throwable) {
+            $response->json(['error' => '无法读取周榜数据']);
+            return;
+        }
+
+        // 未指定周 → 取最新
+        if (empty($week)) {
+            $row = $db->query('SELECT week FROM weekly_reports ORDER BY week DESC LIMIT 1')->fetch();
+            if (!$row) {
+                $response->json(['error' => '暂无周榜数据']);
+                return;
+            }
+            $week = $row['week'];
+        }
+
+        // 总览
+        $overview = $db->prepare('SELECT * FROM weekly_reports WHERE week = ?');
+        $overview->execute([$week]);
+        $overviewRow = $overview->fetch();
+
+        if (!$overviewRow) {
+            $response->json(['error' => "周榜 {$week} 不存在"]);
+            return;
+        }
+
+        // 总数
+        $countSql = 'SELECT COUNT(*) FROM weekly_player_stats WHERE week = ?';
+        if ($minGames > 0) {
+            $countSql .= ' AND total_games >= ?';
+        }
+        $countStmt = $db->prepare($countSql);
+        if ($minGames > 0) {
+            $countStmt->execute([$week, $minGames]);
+        } else {
+            $countStmt->execute([$week]);
+        }
+        $total = (int)$countStmt->fetchColumn();
+
+        // 分页查询玩家数据
+        $offset = ($page - 1) * $limit;
+        $sql = "SELECT * FROM weekly_player_stats WHERE week = :week";
+        if ($minGames > 0) {
+            $sql .= ' AND total_games >= :min_games';
+        }
+        $sql .= " ORDER BY {$sort} DESC LIMIT :limit OFFSET :offset";
+
+        $stmt = $db->prepare($sql);
+        $stmt->bindValue(':week', $week, \PDO::PARAM_STR);
+        if ($minGames > 0) {
+            $stmt->bindValue(':min_games', $minGames, \PDO::PARAM_INT);
+        }
+        $stmt->bindValue(':limit', $limit, \PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, \PDO::PARAM_INT);
+        $stmt->execute();
+        $players = $stmt->fetchAll();
+
+        // 解码 peak_hours JSON
+        foreach ($players as &$p) {
+            $p['peak_hours'] = json_decode($p['peak_hours'], true) ?? [];
+            $p['discriminator'] = (int)$p['discriminator'];
+        }
+        unset($p);
+
+        // 可用周列表
+        $weeksStmt = $db->query('SELECT week, generated_at, total_players, active_players FROM weekly_reports ORDER BY week DESC');
+        $availableWeeks = $weeksStmt->fetchAll();
+
+        $response->json([
+            'week'            => $week,
+            'overview'        => $overviewRow,
+            'players'         => $players,
+            'pagination'      => [
+                'page'        => $page,
+                'limit'       => $limit,
+                'total'       => $total,
+                'total_pages' => (int)ceil($total / $limit),
+            ],
+            'available_weeks' => $availableWeeks,
+        ]);
     }
 
     /**

@@ -1,0 +1,249 @@
+/* ========== 周报页面 ========== */
+
+.report-loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+}
+.report-loading .spinner {
+    width: 36px;
+    height: 36px;
+    margin: 0 auto 16px;
+    border: 3px solid var(--border-lighter);
+    border-top-color: var(--ink-blue);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.report-error {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--danger);
+    font-size: 15px;
+}
+
+/* ---- 周选择器 ---- */
+.week-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 25px;
+}
+.week-label {
+    font-weight: 600;
+    color: var(--ink-black);
+}
+.doodle-select {
+    padding: 8px 14px;
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background: var(--surface-white);
+    color: var(--ink-black);
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    outline: none;
+    min-width: 160px;
+}
+
+/* ---- 总览卡片 ---- */
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 16px;
+    margin-bottom: 30px;
+}
+.overview-card {
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 18px 20px;
+    text-align: center;
+    box-shadow: 3px 4px 0px var(--shadow-md);
+}
+.overview-card .oc-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    line-height: 1.2;
+}
+.overview-card .oc-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* ---- 排序标签 ---- */
+.sort-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.sort-tab {
+    padding: 7px 16px;
+    border: 2px dashed var(--border-light);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.sort-tab:hover {
+    border-style: solid;
+    color: var(--ink-black);
+}
+.sort-tab.active {
+    border-style: solid;
+    border-color: var(--ink-black);
+    background: var(--note-yellow);
+    color: var(--ink-black);
+    font-weight: 600;
+}
+
+/* ---- 玩家列表 ---- */
+.player-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.player-row {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    background: var(--surface-white);
+    transition: background 0.15s;
+}
+.player-row:hover {
+    background: var(--note-yellow);
+}
+.player-row:nth-child(odd) {
+    background: var(--paper-bg);
+}
+.player-row:nth-child(odd):hover {
+    background: var(--note-yellow);
+}
+
+.player-rank {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    text-align: center;
+}
+.player-rank.top1 { color: #e6b422; }
+.player-rank.top2 { color: #8899aa; }
+.player-rank.top3 { color: #c47a4a; }
+
+.player-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.player-name {
+    font-weight: 600;
+    color: var(--ink-black);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.player-name .disc {
+    color: var(--text-subtle);
+    font-weight: 400;
+    font-size: 13px;
+}
+.player-detail {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 2px;
+}
+.player-detail span {
+    white-space: nowrap;
+}
+.player-detail .highlight {
+    color: var(--ink-blue);
+    font-weight: 600;
+}
+
+.player-score {
+    text-align: right;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink-black);
+}
+.player-score .score-label {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-subtle);
+}
+
+/* ---- 分页 ---- */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    margin-top: 25px;
+    flex-wrap: wrap;
+}
+.pagination button {
+    min-width: 36px;
+    padding: 6px 12px;
+}
+.pagination .page-info {
+    color: var(--text-secondary);
+    font-size: 13px;
+    padding: 0 8px;
+}
+
+/* ---- 响应式 ---- */
+@media (max-width: 768px) {
+    .overview-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+    }
+    .overview-card {
+        padding: 12px 10px;
+    }
+    .overview-card .oc-value {
+        font-size: 22px;
+    }
+    .player-row {
+        grid-template-columns: 32px 1fr auto;
+        padding: 8px 10px;
+        gap: 8px;
+    }
+    .player-rank {
+        font-size: 16px;
+    }
+    .player-score {
+        font-size: 15px;
+    }
+    .player-detail {
+        font-size: 11px;
+        gap: 4px;
+    }
+}
+
+@media (max-width: 480px) {
+    .overview-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .sort-tabs {
+        gap: 4px;
+    }
+    .sort-tab {
+        padding: 5px 10px;
+        font-size: 12px;
+    }
+}

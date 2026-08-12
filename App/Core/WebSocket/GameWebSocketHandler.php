@@ -2326,6 +2326,13 @@ class GameWebSocketHandler extends BaseGameHandler
     private function handleUpdateNickname(Server $server, int $fd, array $data): void
     {
         $playerId = GameService::getPlayerId($fd);
+        // token 兜底：未进对局时 tg:code:{fd} 可能不存在，从消息中的 token 解析
+        if (empty($playerId) && !empty($data['player_token'])) {
+            $payload = GameController::verifyPlayerToken($data['player_token']);
+            if ($payload && !empty($payload['player_id'])) {
+                $playerId = $payload['player_id'];
+            }
+        }
         $nickname = Sanitizer::text($data['nickname'] ?? '', 16);
         $fp = Sanitizer::identifier($data['fp'] ?? '');
 
