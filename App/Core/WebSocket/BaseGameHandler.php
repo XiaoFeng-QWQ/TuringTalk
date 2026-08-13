@@ -122,21 +122,21 @@ abstract class BaseGameHandler
 
         $this->clientInfo[(string)$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
 
-        // IP 去重：同一 IP 已存在活跃连接时，拒绝新连接
+        // IP 去重：同一 IP 已存在活跃连接时，踢掉旧连接放行新连接（last-wins）
         if (Config::get('Server.DenyMultiConnection', true)) {
             $existingFd = $this->ipToFd[$clientIp] ?? null;
             if ($existingFd !== null && $existingFd !== $fd && $server->isEstablished($existingFd)) {
-                Logger::info(static::class . ' WS: rejected duplicate connection from same IP', [
+                Logger::info(static::class . ' WS: kicking stale connection for new one', [
                     'fd' => $fd,
                     'ip' => $clientIp,
                     'existing_fd' => $existingFd,
                 ]);
-                $server->push($fd, json_encode([
-                    'type' => 'error',
-                    'message' => '该 IP 已有活跃连接，请勿重复打开页面',
-                ]));
-                $server->close($fd);
-                return false;
+                // 释放旧连接的在线锁，避免新连接 claimOnlineLock 失败
+                $oldPlayerId = \App\Services\Game\GameService::getPlayerId($existingFd);
+                if ($oldPlayerId) {
+                    \App\Services\Game\GameService::releasePlayerOnline($oldPlayerId, $existingFd);
+                }
+                $server->close($existingFd);
             }
         }
 
@@ -566,9 +566,41 @@ abstract class BaseGameHandler
             return null;
         }
 
+        // 同指纹最多允许 3个账号（防清 IP 换代理后用同一设备批量注册）
+        if (!empty($fp) && PlayerStatsRepository::countByFp($fp) >= 3) {
+            Logger::warning(static::class . ' FP account limit hit', ['fd' => $fd, 'fp' => substr($fp, 0, 16), 'nickname' => $nickname]);
+            if ($server !== null) {
+                $this->sendToPlayer($server, $fd, [
+                    'type' => 'error',
+                    'message' => '不允许创建多个账号！',
+                ]);
+            }
+            return null;
+        }
+
+        // 创建频率限制：同指纹 10 分钟内最多创建 1 个；同 IP 60 秒内最多创建 1 个（防批量脚本，但不误伤 NAT 多用户）
+        $redis = RedisService::connect();
+        $regIpKey = RedisService::KP_LOBBY_REG_LIMIT . ':ip:' . $ip;
+        $regFpKey = RedisService::KP_LOBBY_REG_LIMIT . ':fp:' . $fp;
+        $lastIp = (int)$redis->get($regIpKey);
+        $lastFp = (int)$redis->get($regFpKey);
+        if (($ip !== '' && $lastIp > 0) || ($fp !== '' && $lastFp > 0)) {
+            Logger::warning(static::class . ' register rate limited', ['fd' => $fd, 'ip' => $ip, 'fp' => substr($fp, 0, 16)]);
+            if ($server !== null) {
+                $this->sendToPlayer($server, $fd, [
+                    'type' => 'error',
+                    'message' => '账号创建过于频繁，请稍后再试',
+                ]);
+            }
+            return null;
+        }
+
         $pwd = !empty($password) ? $password : bin2hex(random_bytes(8));
         $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, $pwd);
         $playerId = $result['id'];
+        // 记录创建时间（IP 60 秒 / 指纹 10 分钟自动过期）
+        if ($ip !== '') $redis->setex($regIpKey, 60, (string)time());
+        if ($fp !== '') $redis->setex($regFpKey, 600, (string)time());
         GameService::setPlayerId($fd, $playerId);
         Logger::info(static::class . ' player ID created', ['fd' => $fd, 'player_id' => $playerId, 'nickname' => $nickname]);
         if ($server !== null) $this->claimOnlineLock($server, $fd, $playerId);
@@ -581,7 +613,10 @@ abstract class BaseGameHandler
      */
     protected function claimOnlineLock(Server $server, int $fd, string $playerId): void
     {
-        if (!GameService::tryClaimPlayerOnline($playerId, $fd)) {
+        $row = $this->clientInfo[(string)$fd] ?? [];
+        $ip = $row['ip'] ?? '';
+        $fp = $row['fingerprint'] ?? '';
+        if (!GameService::tryClaimPlayerOnline($playerId, $fd, $ip, $fp)) {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'system',
                 'text' => '该账号已在其他地方登录，请先退出后再重试',

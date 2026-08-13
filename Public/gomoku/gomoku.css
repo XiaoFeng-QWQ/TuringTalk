@@ -564,3 +564,405 @@
     justify-content: center;
     font-size: 15px;
 }
+/* ==================== 等待页半屏聊天窗口 ==================== */
+#gomoku-chat-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 300;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+#gomoku-chat-panel {
+    width: 100%;
+    max-width: 680px;
+    height: 80vh;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -6px 0 var(--shadow-md);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: gcSlideUp 0.25s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+@keyframes gcSlideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+}
+
+.gomoku-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--note-yellow);
+    border-bottom: 2px solid var(--ink-black);
+    flex-shrink: 0;
+}
+
+.gomoku-chat-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink-blue);
+}
+
+.gomoku-chat-close {
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-subtle);
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.gomoku-chat-close:hover {
+    background: var(--note-pink);
+    color: var(--ink-blue);
+}
+
+#gomoku-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    background: var(--paper-bg);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.gc-empty {
+    text-align: center;
+    color: var(--text-subtle);
+    font-size: 13px;
+    padding: 30px 0;
+}
+
+.gc-msg {
+    display: flex;
+    flex-direction: column;
+    max-width: 82%;
+}
+
+.gc-msg.self {
+    align-self: flex-end;
+    align-items: flex-end;
+}
+
+.gc-msg.system {
+    align-self: center;
+    max-width: 90%;
+    align-items: center;
+}
+
+.gc-msg.card {
+    align-self: flex-start;
+    max-width: 90%;
+}
+
+.gc-sender {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-bottom: 2px;
+    padding: 0 4px;
+}
+
+.gc-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--surface-white);
+    border: 1.5px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-right: 6px;
+}
+
+.gc-bubble {
+    padding: 8px 12px;
+    border-radius: 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+    max-width: 100%;
+    background: var(--surface-white);
+    border: 1.5px solid var(--border-light);
+    border-bottom-left-radius: 4px;
+}
+
+.gc-msg.self .gc-bubble {
+    background: var(--note-blue);
+    border-color: var(--ink-black);
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 4px;
+}
+
+.gc-msg.system .gc-bubble {
+    background: rgba(0, 0, 0, 0.05);
+    border: none;
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 4px 12px;
+    border-radius: 999px;
+}
+
+.gc-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.gomoku-chat-input-row {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 2px solid var(--ink-black);
+    background: var(--surface-white);
+    flex-shrink: 0;
+}
+
+.gomoku-chat-input-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border: 2px solid var(--border-light);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    font-size: 14px;
+    outline: none;
+    background: var(--surface-white);
+    color: var(--ink-blue);
+}
+
+.gomoku-chat-input-row input:focus {
+    border-color: var(--ink-blue);
+}
+
+.gomoku-chat-input-row button {
+    flex-shrink: 0;
+}
+
+/* 邀请卡片 */
+.gc-card {
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+    width: 240px;
+}
+
+.gc-card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    margin-bottom: 6px;
+}
+
+.gc-card-room {
+    font-size: 13px;
+    color: var(--ink-black);
+    margin-bottom: 10px;
+}
+
+.gc-card-room b {
+    color: var(--ink-black);
+    font-weight: 700;
+}
+
+.gc-card-stats {
+    display: flex;
+    gap: 12px;
+    margin: 8px 0;
+    flex-wrap: wrap;
+}
+
+.gc-card-stats span {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.gc-card-stats b {
+    color: var(--ink-black);
+    font-weight: 700;
+}
+
+.gc-card-footer {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 6px;
+    text-align: right;
+}
+
+.gc-card-btn {
+    width: 100%;
+    justify-content: center;
+    font-size: 13px;
+    padding: 6px 12px;
+    background: var(--note-green);
+}
+
+/* 聊天窗口表情/菜单 */
+#gomoku-chat-stickers {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border-light);
+    background: var(--surface-white);
+    max-height: 120px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.gc-sticker-opt {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--bg-input);
+    border: 1.5px solid transparent;
+}
+
+.gc-sticker-opt:hover {
+    border-color: var(--ink-blue);
+}
+
+.gc-sticker-btn {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+}
+
+.gc-sticker-btn:hover {
+    background: var(--bg-input);
+    color: var(--ink-blue);
+}
+
+.gc-sticker-img {
+    max-width: 90px;
+    max-height: 90px;
+    border-radius: 10px;
+    display: block;
+    background: var(--surface-white);
+}
+
+.gomoku-chat-menu {
+    position: fixed;
+    z-index: 400;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    box-shadow: 3px 4px 0 var(--shadow-md);
+    min-width: 100px;
+    overflow: hidden;
+    display: none;
+}
+
+.gomoku-chat-menu .gcm-item {
+    padding: 9px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.gomoku-chat-menu .gcm-item:last-child {
+    border-bottom: none;
+}
+
+.gomoku-chat-menu .gcm-item:hover {
+    background: var(--note-yellow);
+}
+
+.gomoku-chat-menu .gcm-item.danger {
+    color: var(--danger);
+}
+
+/* 邀请卡片美化（聊天窗口版） */
+.gc-card .gc-card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    margin-bottom: 4px;
+    word-break: break-all;
+}
+
+.gc-card .gc-card-room {
+    font-size: 13px;
+    color: var(--ink-black);
+    margin-bottom: 8px;
+}
+
+.gc-card .gc-card-room b {
+    font-family: monospace;
+    font-size: 15px;
+    letter-spacing: 2px;
+    background: var(--note-yellow);
+    padding: 1px 7px;
+    border-radius: 5px;
+    border: 1.5px solid var(--ink-black);
+}
+
+.gc-card .gc-card-btn {
+    background: var(--note-green);
+    color: var(--ink-black);
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+}
+
+.gc-card .gc-card-btn:hover {
+    background: var(--ink-blue);
+    color: #fff;
+}
+
+#gomoku-chat-messages .lobby-msg-row {
+    display: flex; gap: 8px; align-items: flex-start;
+    animation: lobby-msg-in 0.2s ease;
+}
+#gomoku-chat-messages .lobby-msg-row.mine { flex-direction: row-reverse; }
+#gomoku-chat-messages .lobby-msg-row.system { justify-content: center; }
+#gomoku-chat-messages .lobby-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--note-blue); display: flex; align-items: center;
+    justify-content: center; font-size: 13px; font-weight: 600;
+    color: #fff; flex-shrink: 0;
+}
+#gomoku-chat-messages .lobby-msg-content { flex: 1; min-width: 0; max-width: 75%; }
+#gomoku-chat-messages .lobby-msg-row.mine .lobby-msg-content { align-items: flex-end; }
+#gomoku-chat-messages .lobby-msg-meta { display: flex; gap: 6px; margin-bottom: 2px; padding: 0 4px; }
+#gomoku-chat-messages .lobby-msg-sender { font-size: 11px; color: var(--text-subtle); }
+#gomoku-chat-messages .lobby-msg-time { font-size: 10px; color: var(--text-muted); }
+#gomoku-chat-messages .lobby-msg {
+    padding: 8px 12px; border-radius: 14px; font-size: 13px; line-height: 1.45;
+    word-break: break-word; background: var(--surface-white);
+    border: 1.5px solid var(--border-light); border-bottom-left-radius: 4px;
+}
+#gomoku-chat-messages .lobby-msg.mine {
+    background: var(--note-blue); border-color: var(--ink-black);
+    border-bottom-left-radius: 14px; border-bottom-right-radius: 4px;
+}
+#gomoku-chat-messages .lobby-msg.revoked { opacity: 0.5; font-style: italic; }
+#gomoku-chat-messages .lobby-msg-text { white-space: pre-wrap; }
+#gomoku-chat-messages .sticker-img { max-width: 120px; max-height: 120px; border-radius: 8px; cursor: pointer; }
+#gomoku-chat-messages .md-btn {
+    display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px;
+    text-decoration: none; cursor: pointer; border: 1.5px solid var(--ink-black);
+    background: var(--surface-white); color: var(--ink-black); margin: 2px;
+}

@@ -69,25 +69,38 @@ class PlayerStatsRepository
     {
         return match ($gameMode) {
             'turing_test' => [
-                'wins' => 0, 'losses' => 0, 'timeouts' => 0,
-                'guess_human' => 0, 'guess_ai' => 0,
-                'opp_human' => 0, 'opp_ai' => 0,
-                'total_msgs' => 0, 'total_duration' => 0, 'total_games' => 0,
+                'wins' => 0,
+                'losses' => 0,
+                'timeouts' => 0,
+                'guess_human' => 0,
+                'guess_ai' => 0,
+                'opp_human' => 0,
+                'opp_ai' => 0,
+                'total_msgs' => 0,
+                'total_duration' => 0,
+                'total_games' => 0,
                 'guess_correct' => 0,
-                'guess_ai_correct' => 0, 'guess_human_correct' => 0,
-                'exposure_correct' => 0, 'exposure_total' => 0,
-                'judge_duration_ms' => 0, 'judge_count' => 0,
+                'guess_ai_correct' => 0,
+                'guess_human_correct' => 0,
+                'exposure_correct' => 0,
+                'exposure_total' => 0,
+                'judge_duration_ms' => 0,
+                'judge_count' => 0,
                 'active_hours' => [],
                 'wins_by_hour' => [],
                 'current_streak' => 0,
                 'best_win_streak' => 0,
             ],
             'WhoisAI' => [
-                'total_games' => 0, 'wins' => 0, 'losses' => 0,
+                'total_games' => 0,
+                'wins' => 0,
+                'losses' => 0,
                 'active_hours' => [],
             ],
             'gomoku' => [
-                'total_games' => 0, 'wins' => 0, 'losses' => 0,
+                'total_games' => 0,
+                'wins' => 0,
+                'losses' => 0,
                 'draws' => 0,
                 'active_hours' => [],
             ],
@@ -102,6 +115,20 @@ class PlayerStatsRepository
             'gomoku'  => 'gomoku',
             default   => 'turing_test',
         };
+    }
+
+    /**
+     * 获取玩家战绩摘要（供战绩卡片分享使用，服务端权威数据）
+     * 返回 ['wins','losses','games','rate']
+     */
+    public static function getRecordStats(string $playerId): array
+    {
+        $stats = self::getGameStats($playerId, 'turing_test');
+        $games = max(0, (int)($stats['total_games'] ?? 0));
+        $wins  = max(0, (int)($stats['wins'] ?? 0));
+        $loss  = max(0, (int)($stats['losses'] ?? 0));
+        $rate  = $games > 0 ? (int)round($wins / $games * 100) : 0;
+        return ['wins' => $wins, 'losses' => $loss, 'games' => $games, 'rate' => $rate];
     }
 
     private static function getGameStats(string $playerId, string $gameMode): array
@@ -215,9 +242,18 @@ class PlayerStatsRepository
      */
     private static function mergeStats(array $existing, array $incoming): array
     {
-        $keys = ['total_games', 'wins', 'losses', 'timeouts',
-                 'guess_human', 'guess_ai', 'opp_human', 'opp_ai',
-                 'total_msgs', 'total_duration'];
+        $keys = [
+            'total_games',
+            'wins',
+            'losses',
+            'timeouts',
+            'guess_human',
+            'guess_ai',
+            'opp_human',
+            'opp_ai',
+            'total_msgs',
+            'total_duration'
+        ];
         foreach ($keys as $key) {
             $existing[$key] = max((int)($existing[$key] ?? 0), (int)($incoming[$key] ?? 0));
         }
@@ -324,6 +360,18 @@ class PlayerStatsRepository
         return (int)$stmt->fetchColumn();
     }
 
+    /**
+     * 统计同指纹的账号数（防批量注册）
+     */
+    public static function countByFp(string $fp): int
+    {
+        if (empty($fp)) return 0;
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM player_data WHERE fp = ?');
+        $stmt->execute([$fp]);
+        return (int)$stmt->fetchColumn();
+    }
+
     // ================================================================
     //  玩家管理
     // ================================================================
@@ -344,13 +392,20 @@ class PlayerStatsRepository
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $id, $passwordHash, $nickname, $discriminator, $ip, $fp,
+            $id,
+            $passwordHash,
+            $nickname,
+            $discriminator,
+            $ip,
+            $fp,
             serialize(self::getEmptyStats('turing_test')),
-            $now, $now,
+            $now,
+            $now,
         ]);
 
         Logger::debug('Player created', [
-            'id' => $id, 'nickname' => $nickname,
+            'id' => $id,
+            'nickname' => $nickname,
         ]);
 
         return ['id' => $id, 'password_hash' => $passwordHash];
@@ -392,9 +447,12 @@ class PlayerStatsRepository
         // 兼容旧数据，补齐新增字段默认值
         $stats += [
             'guess_correct' => 0,
-            'guess_ai_correct' => 0, 'guess_human_correct' => 0,
-            'exposure_correct' => 0, 'exposure_total' => 0,
-            'judge_duration_ms' => 0, 'judge_count' => 0,
+            'guess_ai_correct' => 0,
+            'guess_human_correct' => 0,
+            'exposure_correct' => 0,
+            'exposure_total' => 0,
+            'judge_duration_ms' => 0,
+            'judge_count' => 0,
             'active_hours' => [],
             'wins_by_hour' => [],
             'current_streak' => 0,
@@ -486,8 +544,10 @@ class PlayerStatsRepository
         $stmt->execute([time(), $playerId]);
 
         Logger::debug('Game recorded', [
-            'player_id' => $playerId, 'guess' => $userGuess,
-            'truth' => $opponentTruth, 'timeout' => $timeoutReason,
+            'player_id' => $playerId,
+            'guess' => $userGuess,
+            'truth' => $opponentTruth,
+            'timeout' => $timeoutReason,
         ]);
     }
 

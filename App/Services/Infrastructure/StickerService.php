@@ -154,7 +154,7 @@ class StickerService
         }
 
         // 不转换格式，保留原始图片数据
-        imagedestroy($img);
+        unset($img);
         $mimeMap = [
             'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif',
             'webp' => 'image/webp', 'bmp' => 'image/bmp',
@@ -244,7 +244,7 @@ class StickerService
         imagealphablending($tc, false);
         imagesavealpha($tc, true);
         imagecopy($tc, $img, 0, 0, 0, 0, $w, $h);
-        imagedestroy($img);
+        unset($img);
         return $tc;
     }
 

@@ -7,6 +7,13 @@
     <meta name="theme-color" content="#2c3e50">
     <title>五子棋</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="description" content="黑白交错演乾坤，在线五子棋对弈。">
+    <meta property="og:title" content="五子棋 - 更好的图灵测试">
+    <meta property="og:description" content="黑白交错演乾坤，在线五子棋对弈。">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/favicon.svg">
+    <meta name="twitter:card" content="summary">
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
 
 
@@ -162,7 +169,8 @@
                 <p>对局凭证：</p>
                 <div class="room-code" id="wait-code">-----</div>
                 <p class="hint">将此凭证告知对手，双方即可对弈。</p>
-                <button class="doodle-btn" id="btn-wait-cancel" style="margin-top:20px;color:var(--danger);border-color:var(--danger);">撤去棋盘</button>
+                <button class="doodle-btn" id="btn-wait-share" style="margin-top:20px;color:var(--success);border-color:var(--success);">发送到聊天室</button>
+                <button class="doodle-btn" id="btn-wait-cancel" style="margin-top:10px;color:var(--danger);border-color:var(--danger);">撤去棋盘</button>
             </div>
     </section>
 
@@ -221,6 +229,27 @@
 
     <script src="/shared.js?v="></script>
     <script src="/gomoku/gomoku.js?v="></script>
+    <!-- 等待页半屏聊天窗口 -->
+    <div id="gomoku-chat-overlay" style="display:none;">
+        <div id="gomoku-chat-panel">
+            <div class="gomoku-chat-header">
+                <span class="gomoku-chat-title">聊天大厅</span>
+                <button class="gomoku-chat-close" title="关闭">&times;</button>
+            </div>
+            <div id="gomoku-chat-messages"></div>
+            <div class="gomoku-chat-input-row">
+                <button class="gc-sticker-btn" onclick="toggleGomokuSticker()" title="表情">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                </button>
+                <input type="text" id="gomoku-chat-input" placeholder="输入消息...  @可提及" maxlength="1500"
+                    onkeydown="if(event.key==='Enter')sendGomokuChat()">
+                <button class="doodle-btn" onclick="sendGomokuChat()">发送</button>
+            </div>
+            <div id="gomoku-chat-stickers" style="display:none;"></div>
+            <div id="gomoku-chat-at" style="display:none;"></div>
+        </div>
+    </div>
+
 </body>
 
 </html>

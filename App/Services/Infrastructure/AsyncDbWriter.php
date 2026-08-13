@@ -334,7 +334,7 @@ class AsyncDbWriter
             sender_ip     VARCHAR(45)  NOT NULL DEFAULT '',
             sender_fp     VARCHAR(64)  NOT NULL DEFAULT '',
             content       TEXT         NOT NULL,
-            type          VARCHAR(16)  NOT NULL DEFAULT '' COMMENT '消息类型：空=文本, sticker=表情',
+            type          VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '消息类型：空=文本, sticker=表情, card.*=卡片',
             sticker_id    VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '表情ID',
             sticker_name  VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '表情名称',
             sticker_url   TEXT         NULL DEFAULT NULL COMMENT '表情URL',
@@ -346,6 +346,13 @@ class AsyncDbWriter
             INDEX idx_created (created_at),
             INDEX idx_ip     (sender_ip)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // 兼容旧表：type 列扩展为 VARCHAR(32)（支持 card.* 卡片类型）
+        try {
+            $pdo->exec("ALTER TABLE `{$tableName}` MODIFY COLUMN type VARCHAR(32) NOT NULL DEFAULT ''");
+        } catch (\Throwable $e) {
+            // 列不存在或已是最新时忽略
+        }
 
         return $tableName;
     }

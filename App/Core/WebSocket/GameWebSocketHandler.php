@@ -716,9 +716,10 @@ class GameWebSocketHandler extends BaseGameHandler
 
             $clientInfo = $this->clientInfo[(string)$fd];
             $clientIp = $clientInfo['ip'] ?? 'unknown';
+            $playerId = $clientInfo['player_id'] ?? '';
 
-            if (BanRepository::isBanned($clientIp, $fingerprint)) {
-                $banReason = BanRepository::getBanReason($clientIp, $fingerprint);
+            if (BanRepository::isBanned($clientIp, $fingerprint, (string)$playerId)) {
+                $banReason = BanRepository::getBanReason($clientIp, $fingerprint, (string)$playerId);
                 $banMsg = '您已被管理员封禁';
                 if ($banReason) {
                     $banMsg .= '，原因：' . $banReason;
@@ -2326,13 +2327,6 @@ class GameWebSocketHandler extends BaseGameHandler
     private function handleUpdateNickname(Server $server, int $fd, array $data): void
     {
         $playerId = GameService::getPlayerId($fd);
-        // token 兜底：未进对局时 tg:code:{fd} 可能不存在，从消息中的 token 解析
-        if (empty($playerId) && !empty($data['player_token'])) {
-            $payload = GameController::verifyPlayerToken($data['player_token']);
-            if ($payload && !empty($payload['player_id'])) {
-                $playerId = $payload['player_id'];
-            }
-        }
         $nickname = Sanitizer::text($data['nickname'] ?? '', 16);
         $fp = Sanitizer::identifier($data['fp'] ?? '');
 

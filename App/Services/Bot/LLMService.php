@@ -131,7 +131,6 @@ class LLMService
             $client = new Client($connHost, $port, $ssl);
             $client->set(['timeout' => $timeout,]);
 
-            // 设置请求头
             $headers = [
                 'Content-Type' => 'application/json',
                 'Authorization' => 'Bearer ' . $apiKey,

@@ -10,6 +10,7 @@ use App\Services\Game\GomokuService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Repository\PlayerStatsRepository;
+use App\Services\Repository\BanRepository;
 
 /**
  * 五子棋 WebSocket 处理器
@@ -56,6 +57,8 @@ class GomokuWebSocketHandler extends BaseGameHandler
     public function onOpen(Server $server, \Swoole\Http\Request $request): void
     {
         $this->initConnection($server, $request);
+        // 通知客户端连接就绪
+        $this->sendToPlayer($server, $request->fd, ['type' => 'gomoku_connected']);
     }
 
     public function onMessage(Server $server, Frame $frame): void
@@ -204,16 +207,36 @@ class GomokuWebSocketHandler extends BaseGameHandler
         }
         $this->clientInfo[$key]['fingerprint'] = $fp;
 
+        // 封禁检查（IP + 指纹）
+        $clientIp = $this->clientInfo[$key]['ip'] ?? '';
+        if (BanRepository::isBanned($clientIp, $fp)) {
+            $banReason = BanRepository::getBanReason($clientIp, $fp);
+            $this->sendError($server, $fd, '您已被管理员封禁' . ($banReason ? '，原因：' . $banReason : ''));
+            $server->close($fd);
+            return;
+        }
+
         $nickname = Sanitizer::nickname($data['nickname'] ?? '') ?: '玩家';
 
         // 统一身份验证（Token/密码验证）
         $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
+        if (!$valid['success']) {
+            $this->sendError($server, $fd, $valid['error']);
+            return;
+        }
         if ($valid['player_id']) {
+            // 玩家ID级封禁检查
+            if (BanRepository::isBanned($clientIp, $fp, (string)$valid['player_id'])) {
+                $banReason = BanRepository::getBanReason($clientIp, $fp, (string)$valid['player_id']);
+                $this->sendError($server, $fd, '您已被管理员封禁' . ($banReason ? '，原因：' . $banReason : ''));
+                $server->close($fd);
+                return;
+            }
             GameService::setPlayerId($fd, $valid['player_id']);
             $this->claimOnlineLock($server, $fd, $valid['player_id']);
             $this->sendToPlayer($server, $fd, [
                 'type' => 'gomoku_joined',
-                'data' => ['token' => $valid['token'] ?? null],
+                'data' => ['token' => $valid['token'] ?? null, 'player_id' => $valid['player_id']],
             ]);
             Logger::info("Gomoku player joined (existing)", ['fd' => $fd, 'player_id' => $valid['player_id']]);
             return;
@@ -222,7 +245,15 @@ class GomokuWebSocketHandler extends BaseGameHandler
         // 未通过双重验证 → 新建玩家
         $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
         if (!$playerId) {
-            $this->sendError($server, $fd, '身份验证失败');
+            // getOrCreatePlayerId 内部已发送具体原因（同IP/指纹上限、频率限制等），不重复提示
+            return;
+        }
+
+        // 玩家ID级封禁检查（新账号一般不在封禁表，但保险）
+        if (BanRepository::isBanned($clientIp, $fp, (string)$playerId)) {
+            $banReason = BanRepository::getBanReason($clientIp, $fp, (string)$playerId);
+            $this->sendError($server, $fd, '您已被管理员封禁' . ($banReason ? '，原因：' . $banReason : ''));
+            $server->close($fd);
             return;
         }
 
@@ -230,7 +261,7 @@ class GomokuWebSocketHandler extends BaseGameHandler
         $token = \App\Controllers\GameController::generatePlayerToken($playerId, $player['password_hash']);
         $this->sendToPlayer($server, $fd, [
             'type' => 'gomoku_joined',
-            'data' => ['token' => $token],
+            'data' => ['token' => $token, 'player_id' => $playerId],
         ]);
 
         Logger::info("Gomoku player joined (new)", ['fd' => $fd, 'player_id' => $playerId]);
@@ -285,7 +316,7 @@ class GomokuWebSocketHandler extends BaseGameHandler
 
         $this->sendToPlayer($server, $fd, [
             'type' => 'gomoku_room_created',
-            'data' => ['roomId' => $roomId, 'color' => $hostColor],
+            'data' => ['roomId' => $roomId, 'color' => $hostColor, 'player_id' => $playerId],
         ]);
 
         $row = $this->clientInfo[(string)$fd] ?? [];
@@ -399,10 +430,15 @@ class GomokuWebSocketHandler extends BaseGameHandler
             ],
         ];
 
+        $hostPlayerId = GameService::getPlayerId($hostFd);
+        $guestPlayerId = GameService::getPlayerId($fd);
+
         $hostPayload = $startPayload;
         $hostPayload['data']['myColor'] = $hostColor;
+        $hostPayload['data']['player_id'] = $hostPlayerId;
         $guestPayload = $startPayload;
         $guestPayload['data']['myColor'] = $guestColor;
+        $guestPayload['data']['player_id'] = $guestPlayerId;
 
         if ($server->isEstablished($hostFd)) {
             $this->sendToPlayer($server, $hostFd, $hostPayload);
@@ -552,8 +588,10 @@ class GomokuWebSocketHandler extends BaseGameHandler
 
                 $hostPayload = $startPayload;
                 $hostPayload['data']['myColor'] = $newHostColor;
+                $hostPayload['data']['player_id'] = GameService::getPlayerId($hostFd);
                 $guestPayload = $startPayload;
                 $guestPayload['data']['myColor'] = $newGuestColor;
+                $guestPayload['data']['player_id'] = GameService::getPlayerId($guestFd);
 
                 if ($server->isEstablished($hostFd)) {
                     $this->sendToPlayer($server, $hostFd, $hostPayload);

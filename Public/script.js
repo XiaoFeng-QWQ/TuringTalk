@@ -187,7 +187,7 @@ class GameClient {
         appendMessage(text, 'right', this._nickname);
         chatInput.value = '';
         charCount.textContent = '0/300';
-        charCount.style.color = 'var(--text-subtle)';
+        charCount.style.color = 'let(--text-subtle)';
         userMsgCount++;
         updateJudgementState(this._judgementAllowed);
 
@@ -214,7 +214,7 @@ class GameClient {
             timerDisplay.textContent = formatTime(totalSeconds);
             if (totalSeconds <= 10) {
                 timerDisplay.classList.add('urgent');
-                timerDisplay.style.color = 'var(--danger)';
+                timerDisplay.style.color = 'let(--danger)';
             }
             if (totalSeconds <= 0) {
                 clearInterval(timerInterval);
@@ -403,7 +403,7 @@ class GameClient {
         const infoDiv = document.querySelector('.opponent-info > div:nth-of-type(2)');
         if (infoDiv) {
             infoDiv.innerHTML = `
-                        <div style="font-size: 12px; color: var(--text-subtle);">当前对手</div>
+                        <div style="font-size: 12px; color: let(--text-subtle);">当前对手</div>
                         <strong style="font-size: 18px;">???</strong>
                     `;
         }
@@ -440,7 +440,7 @@ class GameClient {
         const ruleDiv = document.createElement('div');
         ruleDiv.className = 'sys-msg anim-fade-in';
         ruleDiv.innerHTML = `
-            <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:var(--ink-blue);stroke-width:2;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:let(--ink-blue);stroke-width:2;flex-shrink:0;">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
@@ -475,7 +475,7 @@ class GameClient {
                 timerDisplay.classList.add('urgent');
             }
             if (totalSeconds <= 10) {
-                timerDisplay.style.color = 'var(--danger)';
+                timerDisplay.style.color = 'let(--danger)';
             }
 
             if (totalSeconds <= 0) {
@@ -517,7 +517,7 @@ class GameClient {
                 timerDisplay.textContent = formatTime(totalSeconds);
                 if (totalSeconds <= 10) {
                     timerDisplay.classList.add('urgent');
-                    timerDisplay.style.color = 'var(--danger)';
+                    timerDisplay.style.color = 'let(--danger)';
                 }
                 if (totalSeconds <= 0) {
                     clearInterval(timerInterval);
@@ -533,7 +533,7 @@ class GameClient {
 
         const notifyDiv = document.createElement('div');
         notifyDiv.className = 'sys-msg anim-pop-in';
-        notifyDiv.style.color = 'var(--danger)';
+        notifyDiv.style.color = 'let(--danger)';
         notifyDiv.style.fontWeight = 'bold';
         notifyDiv.style.fontStyle = 'normal';
         notifyDiv.textContent = '⚠ ' + data.message;
@@ -683,7 +683,7 @@ class GameClient {
             const banner = document.createElement('div');
             banner.id = 'ban-banner';
             banner.className = 'doodle-border';
-            banner.style.cssText = 'padding:14px 20px;margin-bottom:16px;background:var(--danger-light);color:var(--danger-dark);font-size:15px;font-weight:bold;text-align:center;animation:wiggle 0.3s ease;';
+            banner.style.cssText = 'padding:14px 20px;margin-bottom:16px;background:let(--danger-light);color:let(--danger-dark);font-size:15px;font-weight:bold;text-align:center;animation:wiggle 0.3s ease;';
             banner.innerHTML = `
                 <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;vertical-align:-4px;">
                     <circle cx="12" cy="12" r="10" />
@@ -749,7 +749,7 @@ class GameClient {
         const statusEl = document.getElementById('save-history-status');
         statusEl.style.display = 'block';
         if (data.success) {
-            statusEl.style.color = 'var(--success)';
+            statusEl.style.color = 'let(--success)';
             statusEl.textContent = data.message || '聊天记录已保存';
             if (btnSave) btnSave.style.display = 'none';
             if (data.id) {
@@ -758,7 +758,7 @@ class GameClient {
                 if (collectionArea) collectionArea.style.display = 'block';
             }
         } else {
-            statusEl.style.color = 'var(--danger)';
+            statusEl.style.color = 'let(--danger)';
             statusEl.textContent = data.message || '保存失败';
             if (btnSave) {
                 btnSave.disabled = false;
@@ -771,10 +771,10 @@ class GameClient {
         const area = document.getElementById('leave-message-area');
         const statusEl = document.getElementById('leave-message-status');
         if (data.success) {
-            if (area) area.innerHTML = '<div style="text-align:center;font-size:12px;color:var(--success);">留言已发送</div>';
+            if (area) area.innerHTML = '<div style="text-align:center;font-size:12px;color:let(--success);">留言已发送</div>';
         } else {
             statusEl.style.display = 'block';
-            statusEl.style.color = 'var(--danger)';
+            statusEl.style.color = 'let(--danger)';
             statusEl.textContent = data.message || '发送失败';
             const btn = document.getElementById('btn-leave-message');
             if (btn) {
@@ -815,14 +815,14 @@ const origLogoHTML = logoText.innerHTML;
 // ================================================================
 // 浏览器指纹
 // ================================================================
-var browserFingerprint = getFingerprint();
+let browserFingerprint = getFingerprint();
 
 // FingerprintJS 完成初始化后更新全局指纹变量及 UI
 window.onFingerprintReady = function (fp) {
     browserFingerprint = fp;
-    var sysId = document.getElementById('system-id');
+    let sysId = document.getElementById('system-id');
     if (sysId) sysId.textContent = fp;
-    var idFp = document.getElementById('id-card-fingerprint');
+    let idFp = document.getElementById('id-card-fingerprint');
     if (idFp) idFp.textContent = fp;
 };
 
@@ -947,7 +947,7 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
                 showTopToast('昵称已修改为：' + trimmed, false);
             };
             document.addEventListener('nickname_update_result', onResult);
-            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint, player_token: getUserToken() });
+            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint });
             return;
         } catch (e) {
             // WS 未连接时静默降级，仅更新本地
@@ -1142,7 +1142,7 @@ function sendSticker(stickerId, stickerData) {
         id: stickerId
     }));
     // 立即本地渲染（用点击时传入的完整数据，不依赖 stickerMap 缓存状态）
-    var st = stickerData || (stickerMap[stickerId] || null);
+    let st = stickerData || (stickerMap[stickerId] || null);
     if (st) {
         appendSticker(stickerId, st.name, 'right', getNickname(), st.url);
     }
@@ -1270,7 +1270,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                     ${opponentTag ? `
                     <div class="result-row">
                         <span class="label">对方标签</span>
-                        <span class="value" style="background:var(--ink-blue);color:var(--surface-white);padding:2px 10px;border-radius:12px 3px 12px 3px;font-size:13px;">${escapeHtml(opponentTag)}</span>
+                        <span class="value" style="background:let(--ink-blue);color:let(--surface-white);padding:2px 10px;border-radius:12px 3px 12px 3px;font-size:13px;">${escapeHtml(opponentTag)}</span>
                     </div>` : ''}
                     <div class="result-row">
                         <span class="label">对方猜你是</span>
@@ -1309,7 +1309,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                     <div id="leave-message-area" style="margin-bottom:8px;">
                         <div style="display:flex;gap:6px;align-items:center;">
                             <input type="text" id="leave-message-input" placeholder="给对手留句话（可选,20字内）" maxlength="20"
-                                style="flex:1;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:13px;background:var(--bg);color:var(--text);">
+                                style="flex:1;padding:6px 10px;border:2px solid let(--ink-black);border-radius:6px;font-size:13px;background:let(--bg);color:let(--text);">
                             <button class="doodle-btn" id="btn-leave-message" style="padding:6px 14px;font-size:13px;white-space:nowrap;">
                                 发送留言
                             </button>
@@ -1317,9 +1317,9 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                         <div id="leave-message-status" style="display:none;text-align:center;font-size:12px;margin-top:4px;"></div>
                     </div>
                     <div id="collection-area" style="display:none;margin-bottom:8px;">
-                        <div style="font-size:12px;font-weight:bold;margin-bottom:4px;color:var(--text);">收藏此局</div>
+                        <div style="font-size:12px;font-weight:bold;margin-bottom:4px;color:let(--text);">收藏此局</div>
                         <input type="text" id="collection-title-input" placeholder="给这次对局起个标题（选填）" maxlength="100"
-                            style="width:100%;padding:6px 10px;border:2px solid var(--ink-black);border-radius:6px;font-size:13px;margin-bottom:6px;background:var(--bg);color:var(--text);box-sizing:border-box;">
+                            style="width:100%;padding:6px 10px;border:2px solid let(--ink-black);border-radius:6px;font-size:13px;margin-bottom:6px;background:let(--bg);color:let(--text);box-sizing:border-box;">
                         <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:6px;cursor:pointer;">
                             <input type="checkbox" id="collection-public-check" checked>
                             公开到个人资料页
@@ -1391,7 +1391,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
         } catch (e) {
             const statusEl = document.getElementById('leave-message-status');
             statusEl.style.display = 'block';
-            statusEl.style.color = 'var(--danger)';
+            statusEl.style.color = 'let(--danger)';
             statusEl.textContent = '发送失败';
             btn.disabled = false;
             btn.textContent = '发送留言';
@@ -1408,7 +1408,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
         if (!tok) {
             const statusEl = document.getElementById('collection-status');
             statusEl.style.display = 'block';
-            statusEl.style.color = 'var(--danger)';
+            statusEl.style.color = 'let(--danger)';
             statusEl.textContent = '请先获取恢复码';
             return;
         }
@@ -1430,11 +1430,11 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
             const statusEl = document.getElementById('collection-status');
             statusEl.style.display = 'block';
             if (result.success) {
-                statusEl.style.color = 'var(--success)';
+                statusEl.style.color = 'let(--success)';
                 statusEl.textContent = '收藏设置已保存';
                 btn.textContent = '已保存';
             } else {
-                statusEl.style.color = 'var(--danger)';
+                statusEl.style.color = 'let(--danger)';
                 statusEl.textContent = result.message || '保存失败';
                 btn.disabled = false;
                 btn.textContent = '保存收藏设置';
@@ -1443,7 +1443,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
         .catch(() => {
             const statusEl = document.getElementById('collection-status');
             statusEl.style.display = 'block';
-            statusEl.style.color = 'var(--danger)';
+            statusEl.style.color = 'let(--danger)';
             statusEl.textContent = '网络错误';
             btn.disabled = false;
             btn.textContent = '保存收藏设置';
@@ -1762,7 +1762,7 @@ function saveChatHistory() {
     if (!sessionId) {
         const statusEl = document.getElementById('save-history-status');
         statusEl.style.display = 'block';
-        statusEl.style.color = 'var(--danger)';
+        statusEl.style.color = 'let(--danger)';
         statusEl.textContent = '无法获取对局标识，保存失败';
         return;
     }
@@ -1776,7 +1776,7 @@ function saveChatHistory() {
     } catch (e) {
         const statusEl = document.getElementById('save-history-status');
         statusEl.style.display = 'block';
-        statusEl.style.color = 'var(--danger)';
+        statusEl.style.color = 'let(--danger)';
         statusEl.textContent = '发送失败，请稍后再试';
         btnSave.disabled = false;
         btnSave.textContent = '保存聊天记录';
@@ -1798,7 +1798,7 @@ chatInput.addEventListener('keydown', (e) => {
 chatInput.addEventListener('input', () => {
     const len = chatInput.value.length;
     charCount.textContent = len + '/300';
-    charCount.style.color = len > 280 ? 'var(--danger)' : len > 250 ? 'var(--warn)' : 'var(--text-subtle)';
+    charCount.style.color = len > 280 ? 'let(--danger)' : len > 250 ? 'let(--warn)' : 'let(--text-subtle)';
 });
 
 btnBack.addEventListener('click', function (e) {
@@ -2269,7 +2269,7 @@ function addBanButton() {
     const banBtn = document.createElement('button');
     banBtn.id = 'btn-admin-ban';
     banBtn.className = 'doodle-btn';
-    banBtn.style.cssText = 'font-size:13px;padding:4px 10px;color:var(--danger);border-color:var(--danger);margin-left:8px;';
+    banBtn.style.cssText = 'font-size:13px;padding:4px 10px;color:let(--danger);border-color:let(--danger);margin-left:8px;';
     banBtn.innerHTML = `
         <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
             <circle cx="12" cy="12" r="10" />
@@ -2314,10 +2314,10 @@ function showBanReasonDialog(targetLabel, callback, defaultReason = '', onCancel
             </h2>
             <p style="margin:0 0 16px;font-size:13px;color:#555;">将永久禁止该 IP 和浏览器指纹访问</p>
             <textarea id="ban-reason-input" maxlength="200" placeholder="封禁原因（可选，如恶意刷屏、人身攻击等）"
-                style="width:100%;height:80px;padding:12px;border:2px solid var(--ink-black);border-radius:10px;font-size:14px;resize:none;box-sizing:border-box;outline:none;margin-bottom:16px;">${escapeHtml(defaultReason)}</textarea>
+                style="width:100%;height:80px;padding:12px;border:2px solid let(--ink-black);border-radius:10px;font-size:14px;resize:none;box-sizing:border-box;outline:none;margin-bottom:16px;">${escapeHtml(defaultReason)}</textarea>
             <div style="display:flex;gap:10px;justify-content:flex-end;">
                 <button class="doodle-btn" id="ban-reason-cancel" style="font-size:14px;">取消</button>
-                <button class="doodle-btn" id="ban-reason-confirm" style="font-size:14px;background:var(--ink-blue);color:var(--surface-white);border-color:var(--ink-blue);">确认封禁</button>
+                <button class="doodle-btn" id="ban-reason-confirm" style="font-size:14px;background:let(--ink-blue);color:let(--surface-white);border-color:let(--ink-blue);">确认封禁</button>
             </div>
         </div>
     `;
@@ -2731,7 +2731,7 @@ let transport, game;
 
 (async function () {
     // 记录环境信息
-    var conn = (navigator.connection || navigator.mozConnection || navigator.webkitConnection);
+    let conn = (navigator.connection || navigator.mozConnection || navigator.webkitConnection);
     DebugLogger.log('lifecycle', '页面初始化开始', {
         ua: navigator.userAgent.substring(0, 120),
         platform: navigator.platform,
@@ -2802,7 +2802,7 @@ function updateLbUI() {
     }
 
     // 聊天记录回顾区域
-    var historySection = document.getElementById('chat-history-section');
+    let historySection = document.getElementById('chat-history-section');
     if (historySection) {
         if (getUserToken()) {
             historySection.style.display = '';
@@ -2813,7 +2813,7 @@ function updateLbUI() {
     }
 
     // 对手留言管理区域
-    var msgManageSection = document.getElementById('message-manage-section');
+    let msgManageSection = document.getElementById('message-manage-section');
     if (msgManageSection) {
         if (pid) {
             msgManageSection.style.display = '';
@@ -2944,6 +2944,41 @@ function autoInitPlayerId() {
 }
 
 document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
+
+// 战绩分享到聊天室：通过临时聊天室连接发送请求，服务端读取真实战绩生成卡片（防伪造）
+document.getElementById('btn-share-record').addEventListener('click', function () {
+    showTopToast('正在生成战绩卡片...', false);
+    let proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+    let shareWs = new WebSocket(proto + window.location.host + '/ws/lobby');
+    let done = false;
+    let finish = function (msg) {
+        if (done) return;
+        done = true;
+        if (msg) showTopToast(msg, msg.indexOf('失败') !== -1 || msg.indexOf('超时') !== -1 ? true : false);
+        try { shareWs.close(); } catch (e) { }
+    };
+    shareWs.onerror = function () { finish('分享失败，请重试'); };
+    setTimeout(function () { finish('分享超时，请重试'); }, 8000);
+
+    shareWs.onopen = function () {
+        // 设置指纹，确保与首页连接视为同一设备（在线锁允许同设备多连接）
+        shareWs.send(JSON.stringify({ type: 'lobby_set_fp', fingerprint: getFingerprint() }));
+        shareWs.send(JSON.stringify({ type: 'lobby_join', nickname: getNickname(), player_token: getUserToken() || '' }));
+    };
+    shareWs.onmessage = function (e) {
+        let d;
+        try { d = JSON.parse(e.data); } catch (err) { return; }
+        if (d.type === 'lobby_joined') {
+            shareWs.send(JSON.stringify({ type: 'lobby_card_share' }));
+        } else if (d.type === 'lobby_system' && d.text && d.text.indexOf('战绩卡片') !== -1) {
+            finish(d.text);
+        } else if (d.type === 'lobby_error') {
+            finish(d.text || '分享失败');
+        }
+    };
+    shareWs.onerror = function () { finish('分享失败，请重试'); };
+    setTimeout(function () { finish('分享超时，请重试'); }, 8000);
+});
 
 // 改密码
 document.getElementById('btn-change-password').addEventListener('click', () => {
@@ -3103,9 +3138,9 @@ function renderChatHistoryList(data) {
         const resultColor = item.result === 'win' ? '#4caf50' : (item.result === 'lose' ? '#f44336' : '#999');
         const displayTitle = item.title ? escapeHtml(item.title) : (escapeHtml(item.player_name) + ' vs ' + escapeHtml(item.opponent_name));
         const titleIcon = item.title ? '&#128278; ' : '';
-        const publicBadge = item.is_public ? '<span style="font-size:10px;color:var(--ink-blue);margin-left:4px;">公开</span>' : '';
+        const publicBadge = item.is_public ? '<span style="font-size:10px;color:let(--ink-blue);margin-left:4px;">公开</span>' : '';
         html += `
-            <div class="chat-history-row doodle-border" data-id="${item.id}" style="padding:8px 10px;margin-bottom:6px;background:var(--note-green);cursor:pointer;font-size:13px;">
+            <div class="chat-history-row doodle-border" data-id="${item.id}" style="padding:8px 10px;margin-bottom:6px;background:let(--note-green);cursor:pointer;font-size:13px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <span>${titleIcon}<b>${displayTitle}</b>${publicBadge}</span>
                     <span style="color:${resultColor};font-weight:bold;font-size:12px;">${resultBadge}</span>
@@ -3136,9 +3171,9 @@ function renderChatHistoryList(data) {
     let pageHtml = '';
     for (let i = 1; i <= totalPages; i++) {
         if (i === data.page) {
-            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;">' + i + '</span>';
+            pageHtml += '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;">' + i + '</span>';
         } else {
-            pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + i + '">' + i + '</span>';
+            pageHtml += '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + i + '">' + i + '</span>';
         }
     }
     pagEl.innerHTML = pageHtml;
@@ -3230,7 +3265,7 @@ function loadMessageManageList(token) {
                             this.textContent = isHidden ? '隐藏' : '显示';
                         }
                     })
-                    .catch(function () {
+                    .catch(() => {
                         this.disabled = false;
                         this.textContent = isHidden ? '隐藏' : '显示';
                     });
@@ -3278,11 +3313,11 @@ function showChatHistoryDetail(id) {
             // 基本信息行
             infoEl.innerHTML = `
                 <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
-                    <div style="display:flex;align-items:center;gap:4px;background:var(--ink-black);color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:bold;">
+                    <div style="display:flex;align-items:center;gap:4px;background:let(--ink-black);color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:bold;">
                         ${resultLabels[data.result] || '??'}
                     </div>
-                    <span style="font-size:12px;color:var(--text-subtle);">${time}</span>
-                    <span style="font-size:12px;color:var(--text-subtle);">${data.message_count}条消息</span>
+                    <span style="font-size:12px;color:let(--text-subtle);">${time}</span>
+                    <span style="font-size:12px;color:let(--text-subtle);">${data.message_count}条消息</span>
                 </div>
             `;
 
@@ -3290,10 +3325,10 @@ function showChatHistoryDetail(id) {
             const hasPublicToken = data.public_token ? true : false;
             const publicUrl = hasPublicToken ? (window.location.origin + '/collection/' + escapeHtml(data.public_token || '')) : '';
             infoEl.innerHTML += `
-                <div style="background:var(--bg);border:1.5px dashed var(--ink-black);border-radius:8px;padding:12px;">
-                    <div style="font-size:11px;color:var(--text-subtle);margin-bottom:8px;font-weight:bold;">收藏管理</div>
+                <div style="background:let(--bg);border:1.5px dashed let(--ink-black);border-radius:8px;padding:12px;">
+                    <div style="font-size:11px;color:let(--text-subtle);margin-bottom:8px;font-weight:bold;">收藏管理</div>
                     <input type="text" id="detail-title-input" placeholder="为此记录起个名字" maxlength="100"
-                        style="width:100%;padding:6px 10px;border:1.5px solid var(--ink-black);border-radius:6px;font-size:13px;margin-bottom:8px;background:var(--bg);color:var(--text);box-sizing:border-box;"
+                        style="width:100%;padding:6px 10px;border:1.5px solid let(--ink-black);border-radius:6px;font-size:13px;margin-bottom:8px;background:let(--bg);color:let(--text);box-sizing:border-box;"
                         value="${escapeHtml(data.title || '')}">
                     <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px;cursor:pointer;">
                         <input type="checkbox" id="detail-public-check" ${data.is_public ? 'checked' : ''}>
@@ -3302,7 +3337,7 @@ function showChatHistoryDetail(id) {
                     <div id="detail-public-link" style="display:${hasPublicToken ? 'block' : 'none'};margin-bottom:8px;">
                         <div style="display:flex;align-items:center;gap:6px;">
                             <input type="text" id="detail-public-url" readonly
-                                style="flex:1;padding:5px 8px;border:1.5px solid var(--ink-black);border-radius:6px;font-size:11px;background:var(--bg);color:var(--text);"
+                                style="flex:1;padding:5px 8px;border:1.5px solid let(--ink-black);border-radius:6px;font-size:11px;background:let(--bg);color:let(--text);"
                                 value="${publicUrl}">
                             <button class="doodle-btn" id="btn-copy-public-link" style="font-size:11px;padding:5px 12px;">复制</button>
                         </div>
@@ -3358,16 +3393,16 @@ function showChatHistoryDetail(id) {
                         if (isPublic && result.public_url) {
                             urlInput.value = window.location.origin + result.public_url;
                             linkArea.style.display = 'block';
-                            statusEl.style.color = 'var(--success)';
+                            statusEl.style.color = 'let(--success)';
                             statusEl.textContent = '链接已生成';
                         } else {
                             linkArea.style.display = 'none';
-                            statusEl.style.color = 'var(--success)';
+                            statusEl.style.color = 'let(--success)';
                             statusEl.textContent = '已关闭公开';
                         }
                     } else {
                         this.checked = !isPublic;
-                        statusEl.style.color = 'var(--danger)';
+                        statusEl.style.color = 'let(--danger)';
                         statusEl.textContent = result.message || '操作失败';
                     }
                     this.disabled = false;
@@ -3375,7 +3410,7 @@ function showChatHistoryDetail(id) {
                 .catch(() => {
                     this.checked = !isPublic;
                     this.disabled = false;
-                    statusEl.style.color = 'var(--danger)';
+                    statusEl.style.color = 'let(--danger)';
                     statusEl.textContent = '网络错误';
                 });
             });
@@ -3387,7 +3422,7 @@ function showChatHistoryDetail(id) {
                 document.execCommand('copy');
                 const statusEl = document.getElementById('detail-collection-status');
                 statusEl.style.display = 'block';
-                statusEl.style.color = 'var(--success)';
+                statusEl.style.color = 'let(--success)';
                 statusEl.textContent = '链接已复制';
             });
 
@@ -3411,10 +3446,10 @@ function showChatHistoryDetail(id) {
                 .then(result => {
                     statusEl.style.display = 'block';
                     if (result.success) {
-                        statusEl.style.color = 'var(--success)';
+                        statusEl.style.color = 'let(--success)';
                         statusEl.textContent = '已保存';
                     } else {
-                        statusEl.style.color = 'var(--danger)';
+                        statusEl.style.color = 'let(--danger)';
                         statusEl.textContent = result.message || '保存失败';
                     }
                     btn.disabled = false;
@@ -3422,7 +3457,7 @@ function showChatHistoryDetail(id) {
                 })
                 .catch(() => {
                     statusEl.style.display = 'block';
-                    statusEl.style.color = 'var(--danger)';
+                    statusEl.style.color = 'let(--danger)';
                     statusEl.textContent = '网络错误';
                     btn.disabled = false;
                     btn.textContent = '保存';
@@ -3480,13 +3515,13 @@ async function showPublicCollection(token) {
 
     // 改造 chat-page 为公开回顾页
     chatPage.style.display = 'flex';
-    var inputArea = document.querySelector('.chat-input-area');
+    let inputArea = document.querySelector('.chat-input-area');
     if (inputArea) inputArea.style.display = 'none';
-    var reportBtn = document.getElementById('btn-report');
+    let reportBtn = document.getElementById('btn-report');
     if (reportBtn) reportBtn.style.display = 'none';
-    var judgeZone = document.getElementById('judgement-zone');
+    let judgeZone = document.getElementById('judgement-zone');
     if (judgeZone) judgeZone.style.display = 'none';
-    var headerRight = document.querySelector('#chat-page > div > div.chat-header > div:nth-child(2)');
+    let headerRight = document.querySelector('#chat-page > div > div.chat-header > div:nth-child(2)');
     if (headerRight) headerRight.style.display = 'none';
 
     // 标题栏
@@ -3505,10 +3540,10 @@ async function showPublicCollection(token) {
         `;
     }
     // 居中标题
-    var chatHeader = chatPage.querySelector('.chat-header');
-    var existTitle = document.getElementById('pc-header-center-title');
+    let chatHeader = chatPage.querySelector('.chat-header');
+    let existTitle = document.getElementById('pc-header-center-title');
     if (!existTitle && chatHeader) {
-        var centerTitle = document.createElement('strong');
+        let centerTitle = document.createElement('strong');
         centerTitle.id = 'pc-header-center-title';
         centerTitle.style.cssText = 'font-size:16px;position:absolute;left:50%;transform:translateX(-50%);';
         centerTitle.textContent = '公开聊天回顾';
@@ -3538,7 +3573,7 @@ async function showPublicCollection(token) {
         const time = data.created_at ? data.created_at.substring(0, 16).replace('T', ' ') : '';
         const hdr = document.getElementById('pc-header-sub');
         if (hdr) hdr.textContent = escapeHtml(data.player_name) + ' vs ' + escapeHtml(data.opponent_name);
-        var centerTitle = document.getElementById('pc-header-center-title');
+        let centerTitle = document.getElementById('pc-header-center-title');
         if (centerTitle) centerTitle.textContent = data.title || '公开聊天回顾';
 
         // 结果信息
@@ -3566,15 +3601,15 @@ async function showPublicCollection(token) {
         }
 
         // 点赞按钮（仅登录用户可见）
-        var userTok = getUserToken();
+        let userTok = getUserToken();
         if (userTok && data.id) {
-            var likeDiv = document.createElement('div');
+            let likeDiv = document.createElement('div');
             likeDiv.style.cssText = 'text-align:center;margin-top:16px;';
             likeDiv.innerHTML = '<button class="doodle-btn" id="pc-btn-like" style="font-size:13px;padding:6px 16px;">&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span></button>';
             chatBody.appendChild(likeDiv);
 
             document.getElementById('pc-btn-like').addEventListener('click', function () {
-                var btn = this;
+                let btn = this;
                 btn.disabled = true;
                 btn.textContent = '...';
                 fetch('/api/collection/like', {
@@ -3585,10 +3620,10 @@ async function showPublicCollection(token) {
                     },
                     body: JSON.stringify({ id: data.id }),
                 })
-                .then(function (r) { return r.json(); })
-                .then(function (result) {
+                .then((r) => { return r.json(); })
+                .then((result) => {
                     if (result.success) {
-                        var countEl = document.getElementById('pc-like-count');
+                        let countEl = document.getElementById('pc-like-count');
                         countEl.textContent = parseInt(countEl.textContent) + 1;
                         btn.innerHTML = '&#10084; 已赞 <span id="pc-like-count">' + countEl.textContent + '</span>';
                     } else {
@@ -3596,7 +3631,7 @@ async function showPublicCollection(token) {
                         btn.innerHTML = '&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span>';
                     }
                 })
-                .catch(function () {
+                .catch(() => {
                     btn.disabled = false;
                     btn.innerHTML = '&#10084; 点赞 <span id="pc-like-count">' + (parseInt(data.likes) || 0) + '</span>';
                 });
@@ -3607,12 +3642,12 @@ async function showPublicCollection(token) {
         const backDiv = document.createElement('div');
         backDiv.className = 'sys-msg';
         backDiv.style.marginTop = '16px';
-        backDiv.innerHTML = '<a href="/" style="color:var(--ink-blue);font-size:14px;">返回首页</a>';
+        backDiv.innerHTML = '<a href="/" style="color:let(--ink-blue);font-size:14px;">返回首页</a>';
         chatBody.appendChild(backDiv);
     } catch (e) {
         const sys = document.createElement('div');
         sys.className = 'sys-msg anim-fade-in';
-        sys.style.color = 'var(--danger)';
+        sys.style.color = 'let(--danger)';
         sys.textContent = '网络错误，请稍后重试';
         chatBody.appendChild(sys);
         const hdr = document.getElementById('pc-header-sub');
@@ -3644,7 +3679,7 @@ async function loadProfile(nickname) {
     // 加载中 — 复用匹配页的点跳动动画
     keyStats.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;">' +
         '<div class="dot-bounce"><span></span><span></span><span></span></div>' +
-        '<div style="margin-top:10px;font-size:14px;color:var(--text-subtle);">正在翻阅档案...</div>' +
+        '<div style="margin-top:10px;font-size:14px;color:let(--text-subtle);">正在翻阅档案...</div>' +
         '</div>';
 
     try {
@@ -3873,7 +3908,7 @@ document.getElementById('btn-profile-back').addEventListener('click', function (
 });
 
 // 关闭详情弹窗事件（仅管理后台存在这些元素）
-var btnChatDetailClose = document.getElementById('btn-chat-detail-close');
+let btnChatDetailClose = document.getElementById('btn-chat-detail-close');
 if (btnChatDetailClose) {
     btnChatDetailClose.addEventListener('click', function () {
         closeOverlay(document.getElementById('chat-history-detail-overlay'));
@@ -3881,7 +3916,7 @@ if (btnChatDetailClose) {
     });
 }
 
-var chatDetailOverlay = document.getElementById('chat-history-detail-overlay');
+let chatDetailOverlay = document.getElementById('chat-history-detail-overlay');
 if (chatDetailOverlay) {
     chatDetailOverlay.addEventListener('click', function (e) {
         if (e.target === e.currentTarget) {
@@ -3895,14 +3930,14 @@ if (chatDetailOverlay) {
 //  在线人数轮播：数字只在变化时更新，文字每秒轮播
 // ================================================================
 (function initOnlineCarousel() {
-    var phrases = ['🤔🤔', '发癫', '😈😈', '智斗', '😋😋', '激战', '😎😎', '对决', '😱😱', '交锋', '🤯🤯', '切磋', '🤡🤡', '博弈', '😡😡', '比拼', '😋😋', '斗智'];
-    var displayPhrases = phrases.concat(phrases[0]);
-    var currentIndex = 0;
-    var carousel = document.getElementById('online-text-carousel');
+    let phrases = ['🤔🤔', '发癫', '😈😈', '智斗', '😋😋', '激战', '😎😎', '对决', '😱😱', '交锋', '🤯🤯', '切磋', '🤡🤡', '博弈', '😡😡', '比拼', '😋😋', '斗智'];
+    let displayPhrases = phrases.concat(phrases[0]);
+    let currentIndex = 0;
+    let carousel = document.getElementById('online-text-carousel');
     if (!carousel) return;
 
     // 构建文字轮播结构
-    carousel.innerHTML = displayPhrases.map(function (p) {
+    carousel.innerHTML = displayPhrases.map((p) => {
         return '<span>' + p + '</span>';
     }).join('');
 
@@ -3929,7 +3964,7 @@ if (chatDetailOverlay) {
 
     // 数字更新：仅在数值变化时更新
     window.updateOnlineCarousel = function (count) {
-        var numEl = document.getElementById('online-num');
+        let numEl = document.getElementById('online-num');
         if (numEl && numEl.textContent !== String(count)) {
             numEl.textContent = count;
         }

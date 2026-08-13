@@ -24,7 +24,7 @@
 
 .lobby-container {
     width: 100%;
-    max-width: 960px;
+    max-width: 1100px;
     height: 100%;
     background: var(--surface-white);
     border: 2px solid var(--ink-black);
@@ -64,18 +64,25 @@
 }
 
 .lobby-lyrics {
-    flex: 1;
+    flex-shrink: 0;
     text-align: center;
     font-size: 13px;
     color: var(--ink-black);
     opacity: 0.8;
     overflow: hidden;
-    padding: 0 12px;
+    padding: 4px 12px;
     min-width: 0;
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 2px;
+    background: var(--note-yellow);
+    border-bottom: 2px dashed var(--border-light);
+}
+
+/* 无歌词时自动隐藏歌词条 */
+#lobby-lyrics:empty {
+    display: none;
 }
 
 .lyric-line,
@@ -142,13 +149,35 @@
 }
 
 @keyframes nudgeShake {
-    0%, 100% { transform: translateX(0); }
-    15% { transform: translateX(-6px); }
-    30% { transform: translateX(6px); }
-    45% { transform: translateX(-4px); }
-    60% { transform: translateX(4px); }
-    75% { transform: translateX(-2px); }
-    90% { transform: translateX(2px); }
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    15% {
+        transform: translateX(-6px);
+    }
+
+    30% {
+        transform: translateX(6px);
+    }
+
+    45% {
+        transform: translateX(-4px);
+    }
+
+    60% {
+        transform: translateX(4px);
+    }
+
+    75% {
+        transform: translateX(-2px);
+    }
+
+    90% {
+        transform: translateX(2px);
+    }
 }
 
 .lobby-chat-header.nudged {
@@ -159,7 +188,7 @@
 .lobby-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 20px 24px;
+    padding: 24px 32px;
     background-image:
         linear-gradient(transparent 97%, var(--chat-grid) 97%);
     background-size: 100% 32px;
@@ -170,8 +199,9 @@
 .lobby-msg-row {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 10px;
+    margin-bottom: 18px;
+    min-width: 0;
 }
 
 .lobby-msg-row.mine {
@@ -236,7 +266,9 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-width: 75%;
+    max-width: 82%;
+    min-width: 0;
+    align-items: flex-start;
 }
 
 .lobby-msg-row.mine .lobby-msg-content {
@@ -249,7 +281,7 @@
     word-break: break-word;
     border: 2px solid var(--ink-black);
     animation: msgPopIn 0.25s ease-out;
-    padding: 8px 14px;
+    padding: 10px 16px;
     width: fit-content;
     max-width: 100%;
 }
@@ -311,7 +343,7 @@
     font-size: 15px;
     color: var(--ink-black);
     line-height: 1.55;
-    white-space: pre-wrap;
+    white-space: normal;
 }
 
 /* 已撤回的消息 */
@@ -320,6 +352,7 @@
     border-style: dashed;
     opacity: 0.75;
 }
+
 .lobby-msg.revoked .revoked-text {
     font-style: italic;
     color: var(--text-subtle);
@@ -336,9 +369,9 @@
     color: var(--note-blue-dark, #2563eb);
 }
 
-/* B站视频嵌入播放器 */
+/* B站视频嵌入播放器：按容器宽度自适应，避免侧边栏出现时撑破消息区 */
 .bili-embed {
-    width: calc(100vw - 90px);
+    width: 100%;
     max-width: 600px;
 }
 
@@ -463,6 +496,7 @@
     background: var(--note-yellow);
     border-color: var(--ink-black);
 }
+
 .lobby-msg-reply.revoked {
     background: var(--surface-subtle);
     border-color: var(--border-lighter);
@@ -547,10 +581,12 @@
     border-top: 2px solid var(--ink-black);
     background: var(--bg-input);
     flex-shrink: 0;
+    /* 适配带底部操作栏的手机，输入栏上移避免被 home indicator / 手势条遮挡 */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .lobby-input-row {
-    padding: 14px 20px;
+    padding: 10px 20px;
     display: flex;
     gap: 10px;
     align-items: center;
@@ -577,15 +613,16 @@
     flex: 1;
     border: none;
     background: transparent;
-    padding: 10px 6px 10px 6px;
+    padding: 10px 14px 10px 14px;
     font-size: 15px;
     font-family: inherit;
     color: var(--ink-blue);
     outline: none;
     min-width: 0;
+    min-height: 24px;
     resize: none;
     overflow-y: auto;
-    line-height: 1.55;
+    line-height: 1.5;
 }
 
 .lobby-input-row input::placeholder,
@@ -619,7 +656,7 @@
 }
 
 .lobby-input-row .send-btn {
-    padding: 10px 20px;
+    padding: 10px 16px;
     font-size: 15px;
     flex-shrink: 0;
     background: var(--judge-bg);
@@ -791,14 +828,65 @@
 
 
 .lobby-users {
-    width: 200px;
-    flex-shrink: 0;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    width: 340px;
+    max-width: 92vw;
+    max-height: 72vh;
     background: var(--note-pink);
-    border-left: 2px solid var(--ink-black);
-    padding: 16px 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 20px 6px / 6px 20px 6px 20px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    padding: 16px 14px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
+    animation: modalIn 0.12s ease-out;
+}
+
+/* 弹窗遮罩 */
+#lobby-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 95;
+    display: none;
+}
+
+/* 弹窗动画 */
+@keyframes modalIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -48%) scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+@keyframes modalOut {
+    from {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translate(-50%, -48%) scale(0.96);
+    }
+}
+
+.lobby-users.closing,
+.lobby-song-panel.closing {
+    animation: modalOut 0.1s ease-in forwards;
 }
 
 .lobby-users h3 {
@@ -838,6 +926,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     transition: all 0.15s;
+}
+
+/* 含管理员操作按钮时取消裁剪，保证按钮完整可见 */
+.lobby-user-item:has(.user-admin-actions) {
+    overflow: visible;
+    white-space: normal;
 }
 
 .lobby-user-item.you {
@@ -924,7 +1018,7 @@
 
 @media (max-width: 768px) {
     #lobby-main {
-        height: calc(100vh - 60px);
+        height: calc(100dvh - 60px);
         padding: 0;
     }
 
@@ -934,10 +1028,10 @@
         box-shadow: none;
     }
 
-    .lobby-users {
-        display: none;
-    }
+    /* 窄屏下歌词条自动由 :empty 控制显隐，无需额外隐藏 */
 
+    /* 侧边栏悬浮覆盖在消息区之上，不挤压消息列表，顶到容器顶部 */
+    /* 弹窗模式：移动端由基础样式统一处理，无需侧边栏悬浮 */
     .lobby-messages {
         padding: 12px 14px;
     }
@@ -993,37 +1087,6 @@
     border-left: 3px solid var(--note-pink);
 }
 
-/* KFC 疯狂星期四 - 鸡腿粒子 */
-.kfc-particle {
-    position: fixed;
-    pointer-events: none;
-    z-index: 9999;
-    animation: kfcFly 1.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-}
-
-@keyframes kfcFly {
-    0% {
-        opacity: 0;
-        transform: translate(0, 0) rotate(0deg) scale(0);
-    }
-
-    12% {
-        opacity: 1;
-        transform: translate(calc(var(--dx) * 0.15), calc(var(--dy) * 0.2)) rotate(calc(var(--rot) * 0.15)) scale(1.3);
-    }
-
-    35% {
-        opacity: 1;
-        transform: translate(calc(var(--dx) * 0.5), calc(var(--dy) * 0.55)) rotate(calc(var(--rot) * 0.5)) scale(1);
-    }
-
-    100% {
-        opacity: 0;
-        transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.1);
-    }
-}
-
-
 .lobby-mention-dropdown {
     position: fixed;
     z-index: 1000;
@@ -1054,8 +1117,8 @@
     position: fixed;
     top: 0;
     left: 0;
-    width: 100vw;
-    height: 100vh;
+    width: 100dvw;
+    height: 100dvh;
     z-index: 200;
     display: flex;
     align-items: center;
@@ -1072,8 +1135,8 @@
 #lobby-sticker-lightbox-img {
     position: relative;
     z-index: 1;
-    max-width: 80vw;
-    max-height: 80vh;
+    max-width: 80dvw;
+    max-height: 80dvh;
     object-fit: contain;
     border-radius: 4px;
 }
@@ -1203,6 +1266,12 @@
     font-size: 14px;
 }
 
+.song-panel-toggles {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .song-listen-toggle {
     display: flex;
     align-items: center;
@@ -1250,15 +1319,24 @@
 }
 
 .lobby-song-panel {
-    width: 200px;
-    flex-shrink: 0;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    width: 380px;
+    max-width: 92dvw;
+    max-height: 72dvh;
     background: var(--note-pink);
-    border-left: 2px solid var(--ink-black);
-    padding: 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 20px 6px / 6px 20px 6px 20px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    padding: 14px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    animation: modalIn 0.12s ease-out;
 }
 
 .lobby-song-panel h3 {
@@ -1482,6 +1560,10 @@
     background: var(--note-green);
 }
 
+.song-item-playable {
+    cursor: pointer;
+}
+
 .song-item-clickable {
     cursor: pointer;
     transition: transform 0.12s ease, box-shadow 0.12s ease;
@@ -1650,4 +1732,1012 @@
     font-size: 10px;
     margin-left: 4px;
     flex-shrink: 0;
+}
+
+/* ==================== Markdown 消息样式 ==================== */
+.lobby-msg-text code.md-code-inline {
+    background: rgba(0, 0, 0, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: Consolas, Menlo, monospace;
+    font-size: 0.9em;
+}
+
+.lobby-msg-text pre.md-code-block {
+    background: rgba(0, 0, 0, 0.07);
+    border: 1px dashed var(--border-light);
+    border-radius: 8px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    font-family: Consolas, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 4px 0;
+}
+
+.lobby-msg-text em {
+    font-style: italic;
+}
+
+.lobby-msg-text del {
+    opacity: 0.6;
+}
+
+.lobby-msg-text strong {
+    font-weight: 700;
+}
+
+/* ==================== 回复表情包 ==================== */
+.reply-sticker-preview {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    vertical-align: middle;
+    margin-left: 4px;
+    border-radius: 4px;
+    border: 1.5px solid var(--ink-black);
+    background: var(--surface-white);
+}
+
+.reply-sticker-img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+    vertical-align: middle;
+    border-radius: 4px;
+    background: var(--surface-white);
+}
+
+/* ==================== 完整 Markdown 样式 ==================== */
+/* 紧凑间距：聊天消息内各元素间距收紧，避免"空得太大" */
+.lobby-msg-text p {
+    margin: 0 0 4px;
+}
+
+.lobby-msg-text p:last-child {
+    margin-bottom: 0;
+}
+
+.lobby-msg-text h1,
+.lobby-msg-text h2,
+.lobby-msg-text h3,
+.lobby-msg-text h4,
+.lobby-msg-text h5,
+.lobby-msg-text h6 {
+    margin: 4px 0 2px;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.lobby-msg-text h1 {
+    font-size: 1.2em;
+}
+
+.lobby-msg-text h2 {
+    font-size: 1.15em;
+}
+
+.lobby-msg-text h3 {
+    font-size: 1.08em;
+}
+
+.lobby-msg-text h4 {
+    font-size: 1.04em;
+}
+
+.lobby-msg-text ul,
+.lobby-msg-text ol {
+    margin: 2px 0;
+    padding-left: 20px;
+}
+
+.lobby-msg-text li {
+    margin: 1px 0;
+}
+
+.lobby-msg-text blockquote {
+    border-left: 3px solid var(--ink-blue);
+    padding: 1px 0 1px 8px;
+    margin: 4px 0;
+    color: var(--text-secondary);
+    background: rgba(0, 0, 0, 0.03);
+    border-radius: 0 6px 6px 0;
+}
+
+.lobby-msg-text table {
+    border-collapse: collapse;
+    margin: 4px 0;
+    font-size: 12px;
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.lobby-msg-text th,
+.lobby-msg-text td {
+    border: 1px solid var(--border-light);
+    padding: 2px 6px;
+    text-align: left;
+}
+
+.lobby-msg-text th {
+    background: rgba(0, 0, 0, 0.06);
+    font-weight: 700;
+}
+
+.lobby-msg-text hr {
+    border: none;
+    border-top: 1.5px dashed var(--border-light);
+    margin: 4px 0;
+}
+
+.lobby-msg-text a {
+    color: var(--ink-blue);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-all;
+}
+
+.lobby-msg-text a:hover {
+    color: var(--note-blue-dark, #2563eb);
+}
+
+.lobby-msg-text input[type="checkbox"] {
+    margin-right: 4px;
+    accent-color: var(--ink-blue);
+}
+
+/* 等宽字体：统一字符宽度（含中文回退），避免代码/表格对不齐 */
+.lobby-msg-text pre {
+    background: rgba(0, 0, 0, 0.07);
+    border: 1px dashed var(--border-light);
+    border-radius: 8px;
+    padding: 6px 10px;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+        "Liberation Mono", "Courier New", "Noto Sans Mono CJK SC",
+        "Sarasa Mono SC", "WenQuanYi Micro Hei Mono", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 4px 0;
+}
+
+.lobby-msg-text pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 12px;
+    font-family: inherit;
+}
+
+.lobby-msg-text code {
+    background: rgba(0, 0, 0, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+        "Liberation Mono", "Courier New", "Noto Sans Mono CJK SC",
+        "Sarasa Mono SC", "WenQuanYi Micro Hei Mono", monospace;
+    font-size: 0.9em;
+}
+
+/* 图片已禁用（防流量攻击），此规则保留兜底 */
+.lobby-msg-text img {
+    display: none;
+}
+
+/* ==================== 字符画/对齐文本 ==================== */
+/* 空格渲染为固定 0.5em 占位（.aa-space），中文 1em = 2 空格，严格 2:1 对齐 */
+.lobby-msg-text.ascii-art {
+    font-family: "NSimSun", "SimSun", "Sarasa Mono SC", "Noto Sans Mono CJK SC",
+        ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.lobby-msg-text.ascii-art .aa-space {
+    display: inline-block;
+    width: 0.5em;
+    height: 1em;
+}
+
+.lobby-msg-text.ascii-art .aa-line {
+    min-height: 1.3em;
+}
+
+/* ==================== 美化滚动条 ==================== */
+.lobby-messages::-webkit-scrollbar,
+.lobby-users::-webkit-scrollbar,
+.lobby-song-panel::-webkit-scrollbar,
+.lobby-chat-input::-webkit-scrollbar,
+.lobby-song-search-results::-webkit-scrollbar,
+.song-info-progress::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.lobby-messages::-webkit-scrollbar-track,
+.lobby-users::-webkit-scrollbar-track,
+.lobby-song-panel::-webkit-scrollbar-track,
+.lobby-chat-input::-webkit-scrollbar-track,
+.lobby-song-search-results::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.lobby-messages::-webkit-scrollbar-thumb,
+.lobby-users::-webkit-scrollbar-thumb,
+.lobby-song-panel::-webkit-scrollbar-thumb,
+.lobby-chat-input::-webkit-scrollbar-thumb,
+.lobby-song-search-results::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.lobby-messages::-webkit-scrollbar-thumb:hover,
+.lobby-users::-webkit-scrollbar-thumb:hover,
+.lobby-song-panel::-webkit-scrollbar-thumb:hover,
+.lobby-chat-input::-webkit-scrollbar-thumb:hover,
+.lobby-song-search-results::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-blue);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+}
+
+.lobby-messages::-webkit-scrollbar-corner,
+.lobby-users::-webkit-scrollbar-corner,
+.lobby-song-panel::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+/* ==================== 在线列表管理员按钮 ==================== */
+.user-admin-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.user-admin-btn {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    border: 1.5px solid var(--ink-blue);
+    background: var(--surface-white);
+    color: var(--ink-blue);
+    cursor: pointer;
+    transition: all 0.15s;
+    line-height: 1.4;
+}
+
+.user-admin-btn:hover {
+    background: var(--ink-blue);
+    color: #fff;
+}
+
+.user-admin-btn.ban {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.user-admin-btn.ban:hover {
+    background: var(--danger);
+    color: #fff;
+}
+
+.user-admin-btn.unmute {
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.user-admin-btn.unmute:hover {
+    background: var(--success);
+    color: #fff;
+}
+
+/* ==================== 管理员弹窗（封禁/禁言） ==================== */
+.admin-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-dialog {
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    padding: 28px;
+    width: 360px;
+    max-width: 92vw;
+}
+
+.admin-dialog h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    color: var(--ink-blue);
+}
+
+.admin-dialog-target {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.admin-dialog textarea,
+.admin-dialog input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 2px solid var(--border-light);
+    border-radius: 10px;
+    font-size: 13px;
+    outline: none;
+    margin-bottom: 12px;
+    background: var(--surface-white);
+    color: var(--ink-black);
+    resize: none;
+    font-family: inherit;
+}
+
+.admin-dialog textarea:focus,
+.admin-dialog input[type="number"]:focus {
+    border-color: var(--ink-blue);
+}
+
+.admin-dialog-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+}
+
+/* ==================== 歌单管理员移除按钮 ==================== */
+.song-admin-remove {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    border: 1.5px solid var(--danger);
+    background: transparent;
+    color: var(--danger);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.song-admin-remove:hover {
+    background: var(--danger);
+    color: #fff;
+}
+
+/* ==================== 聊天室主布局（流式撑满） ==================== */
+/* 覆盖全局 main：改为纵向排列，欢迎页与聊天页互斥显示时不会并排/重叠 */
+main {
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* ==================== MD 可点击按钮 ==================== */
+.lobby-msg-text a.md-btn {
+    display: inline-block;
+    padding: 6px 16px;
+    border-radius: 8px;
+    background: var(--ink-blue);
+    color: #fff !important;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.9em;
+    border: 2px solid var(--ink-black);
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+    margin: 2px 4px 2px 0;
+    transition: all 0.15s;
+}
+
+.lobby-msg-text a.md-btn:hover {
+    background: var(--note-blue-dark, #2563eb);
+    transform: translateY(1px);
+    box-shadow: 1px 1px 0 var(--shadow-sm);
+}
+
+.lobby-msg-text a.md-btn:active {
+    transform: translateY(2px);
+    box-shadow: none;
+}
+
+/* MD 动作按钮：复制 / 快捷发送 */
+.lobby-msg-text a.md-btn-copy {
+    background: var(--note-blue);
+    color: var(--ink-blue) !important;
+}
+
+.lobby-msg-text a.md-btn-copy:hover {
+    background: var(--note-blue);
+    filter: brightness(0.95);
+}
+
+.lobby-msg-text a.md-btn-send {
+    background: var(--success);
+    color: #fff !important;
+}
+
+.lobby-msg-text a.md-btn-send:hover {
+    background: var(--success);
+    filter: brightness(0.95);
+}
+
+/* ==================== MD 弹窗按钮 ==================== */
+.lobby-msg-text a.md-btn-modal {
+    background: var(--note-yellow);
+    color: var(--ink-blue) !important;
+}
+
+.lobby-msg-text a.md-btn-modal:hover {
+    filter: brightness(0.96);
+}
+
+.md-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.md-modal {
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    width: 420px;
+    max-width: 92dvw;
+    max-height: 75dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: mdModalIn 0.3s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+@keyframes mdModalIn {
+    from {
+        opacity: 0;
+        transform: scale(0.5);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* ==================== 按钮音效顶部提示（doodle 风格） ==================== */
+.sfx-toast {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    font-size: 13px;
+    color: var(--ink-blue);
+    animation: mdModalIn 0.25s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+.sfx-toast .sfx-label {
+    font-weight: 700;
+}
+
+.sfx-toast .sfx-stop {
+    padding: 5px 14px;
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background: var(--note-pink);
+    color: var(--ink-blue);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+}
+
+.sfx-toast .sfx-stop:hover {
+    background: var(--note-blue);
+    color: var(--surface-white);
+    transform: translateY(1px);
+    box-shadow: 1px 1px 0 var(--shadow-sm);
+}
+
+/* 弹窗内图片：自适应弹窗，最大不超过弹窗大小，居中显示 */
+.md-modal-body img {
+    display: block;
+    margin: 8px auto;
+    max-width: 100%;
+    max-height: 320px;
+    height: auto;
+    width: auto;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.md-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--note-yellow);
+    border-bottom: 2px solid var(--ink-black);
+    flex-shrink: 0;
+}
+
+.md-modal-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    word-break: break-all;
+}
+
+.md-modal-close {
+    border: none;
+    background: transparent;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-subtle);
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.md-modal-close:hover {
+    background: var(--note-pink);
+    color: var(--ink-blue);
+}
+
+.md-modal-body {
+    padding: 16px 18px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-black);
+    word-break: break-word;
+}
+
+/* MD 网页内嵌按钮 */
+.lobby-msg-text a.md-btn-embed {
+    background: var(--note-green);
+    color: var(--ink-black) !important;
+}
+
+.lobby-msg-text a.md-btn-embed:hover {
+    filter: brightness(0.96);
+}
+
+/* 网页内嵌弹窗：大尺寸 + iframe */
+.md-modal-embed {
+    width: min(880px, 94dvw);
+    height: min(80dvh, 80dvh);
+}
+
+.md-modal-embed .md-modal-body {
+    flex: 1;
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+}
+
+.embed-body iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #fff;
+}
+
+/* 透明按钮：只显示黑边和文本（背景透明 + 默认深色文本） */
+.lobby-msg-text a.md-btn-ghost {
+    background: transparent !important;
+    color: var(--ink-black) !important;
+    box-shadow: none;
+}
+
+.lobby-msg-text a.md-btn-ghost:hover {
+    background: transparent !important;
+    filter: none;
+    transform: translateY(1px);
+}
+
+/* 权限禁用按钮：灰色 + 不可点 */
+.lobby-msg-text a.md-btn-disabled {
+    opacity: 0.45;
+    filter: grayscale(0.8);
+    cursor: not-allowed;
+    pointer-events: auto;
+    box-shadow: none;
+}
+
+.lobby-msg-text a.md-btn-disabled:hover {
+    transform: none;
+    filter: grayscale(0.8);
+}
+
+/* MD 确认/折叠/随机 按钮配色 */
+.lobby-msg-text a.md-btn-confirm {
+    background: var(--danger, #d32f2f);
+    color: #fff !important;
+}
+
+.lobby-msg-text a.md-btn-details {
+    background: var(--note-yellow);
+    color: var(--ink-blue) !important;
+}
+
+.lobby-msg-text a.md-btn-randsend,
+.lobby-msg-text a.md-btn-randmodal {
+    background: #9c6ade;
+    color: #fff !important;
+}
+
+/* 确认弹窗 */
+.md-confirm .md-modal-body {
+    padding: 18px 20px;
+    font-size: 14px;
+}
+
+.external-link-url {
+    display: inline-block;
+    max-width: 100%;
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: var(--note-pink);
+    border: 1.5px dashed var(--ink-black);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--ink-blue);
+    word-break: break-all;
+}
+
+.md-confirm-actions {
+    display: flex;
+    gap: 10px;
+    padding: 0 18px 16px;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.md-confirm-actions button {
+    padding: 7px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    border: 2px solid var(--ink-black);
+    background: var(--surface-white);
+}
+
+.md-confirm-actions .md-confirm-ok {
+    background: var(--danger, #d32f2f);
+    color: #fff;
+    border-color: var(--danger, #d32f2f);
+}
+
+/* 折叠/详情面板 */
+.md-details-panel {
+    margin-top: 8px;
+    padding: 10px 14px;
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px dashed var(--border-light);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    word-break: break-word;
+}
+
+.md-details-title {
+    font-weight: 700;
+    color: var(--ink-blue);
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+/* ==================== 新增按钮相关 UI 统一 doodle 风格 ==================== */
+/* 确认弹窗动作按钮 */
+.md-confirm-actions button {
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+    background: var(--note-yellow);
+    transition: all 0.15s;
+}
+
+.md-confirm-actions button:hover {
+    transform: translateY(1px);
+    box-shadow: 1px 1px 0 var(--shadow-sm);
+}
+
+.md-confirm-actions .md-confirm-ok {
+    background: var(--note-red, #f4b8b8);
+    color: var(--ink-black);
+    border-color: var(--ink-black);
+}
+
+.md-confirm-actions .md-confirm-ok:hover {
+    background: var(--danger, #d32f2f);
+    color: #fff;
+}
+
+/* 折叠面板 doodle 化 */
+.md-details-panel {
+    background: var(--note-pink);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 20px 6px / 6px 20px 6px 20px;
+    box-shadow: 2px 3px 0 var(--shadow-sm);
+}
+
+.md-details-title {
+    color: var(--ink-blue);
+    border-bottom: 1.5px dashed var(--border-light);
+    padding-bottom: 4px;
+    margin-bottom: 6px;
+}
+
+/* ==================== MD 任务列表勾选框（自定义样式，避免像输入框） ==================== */
+.lobby-msg-text li {
+    list-style: none;
+    position: relative;
+}
+
+.lobby-msg-text input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid var(--ink-black);
+    border-radius: 3px;
+    background: var(--surface-white);
+    vertical-align: -2px;
+    margin-right: 5px;
+    display: inline-block;
+    position: relative;
+    cursor: default;
+    box-shadow: none;
+    padding: 0;
+}
+
+.lobby-msg-text input[type="checkbox"]:checked {
+    background: var(--note-blue);
+    border-color: var(--ink-blue);
+}
+
+.lobby-msg-text input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: -3px;
+    left: 1px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    line-height: 1;
+}
+
+/* 弹窗图片加载失败占位 */
+.md-img-error {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--note-pink);
+    border: 1.5px dashed var(--ink-black);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.md-img-error-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+/* 孤立/解除孤立按钮 */
+.user-admin-btn.iso-active {
+    border-color: #7a3fa0;
+    color: #7a3fa0;
+}
+
+.user-admin-btn.iso-active:hover {
+    background: #7a3fa0;
+    color: #fff;
+}
+
+/* ==================== 战绩分享卡片（QQ风格） ==================== */
+.record-card {
+    width: 260px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+
+.record-card .rc-header {
+    background: #d1f2d3;
+    padding: 12px 16px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #2b2b2b;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid var(--ink-black);
+}
+
+.record-card .rc-player {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.record-card .rc-body {
+    display: flex;
+    padding: 14px 8px;
+    background: var(--surface-white);
+}
+
+.record-card .rc-item {
+    flex: 1;
+    text-align: center;
+}
+
+.record-card .rc-item b {
+    display: block;
+    font-size: 20px;
+    color: var(--ink-blue);
+}
+
+.record-card .rc-item span {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.record-card .rc-footer {
+    padding: 6px 16px;
+    font-size: 10px;
+    color: var(--text-subtle);
+    border-top: 1.5px dashed var(--border-light);
+    text-align: center;
+}
+
+/* ==================== 五子棋邀请卡片 ==================== */
+.gomoku-invite-card {
+    width: 260px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+
+.gomoku-invite-card .gi-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    margin-bottom: 4px;
+    word-break: break-all;
+}
+
+.gomoku-invite-card .gi-player {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.gomoku-invite-card .gi-room {
+    font-size: 13px;
+    color: var(--ink-black);
+    margin-bottom: 10px;
+}
+
+.gomoku-invite-card .gi-room b {
+    font-family: monospace;
+    letter-spacing: 2px;
+    background: var(--note-yellow);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.gomoku-invite-card .gi-join-btn {
+    width: 100%;
+    justify-content: center;
+    font-size: 13px;
+    padding: 6px 12px;
+    background: var(--note-green);
+    color: var(--ink-black);
+}
+
+/* 五子棋邀请卡片（美化版） */
+.gomoku-invite-card {
+    width: 270px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+
+.gomoku-invite-card .gi-banner {
+    background: var(--ink-blue);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    letter-spacing: 1px;
+}
+
+.gomoku-invite-card .gi-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink-blue);
+    margin: 10px 14px 2px;
+    word-break: break-all;
+}
+
+.gomoku-invite-card .gi-player {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 0 14px 8px;
+}
+
+.gomoku-invite-card .gi-room {
+    font-size: 13px;
+    color: var(--ink-black);
+    margin: 0 14px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.gomoku-invite-card .gi-room b {
+    font-family: monospace;
+    font-size: 16px;
+    letter-spacing: 2px;
+    background: var(--note-yellow);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1.5px solid var(--ink-black);
+}
+
+.gomoku-invite-card .gi-join-btn {
+    width: calc(100% - 28px);
+    margin: 0 14px 12px;
+    justify-content: center;
+    font-size: 13px;
+    padding: 7px 12px;
+    background: var(--note-green);
+    color: var(--ink-black);
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+}
+
+.gomoku-invite-card .gi-join-btn:hover {
+    background: var(--ink-blue);
+    color: #fff;
+    transform: translateY(1px);
+    box-shadow: 1px 1px 0 var(--shadow-sm);
 }

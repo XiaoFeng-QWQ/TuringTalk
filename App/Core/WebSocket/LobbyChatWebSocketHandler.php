@@ -60,18 +60,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
         $fd = $request->fd;
 
-        $history = $this->lobbyService->getRecentMessages(100);
-        $this->sendToPlayer($server, $fd, [
-            'type'       => 'lobby_history',
-            'messages'   => $history,
-        ]);
-
-        $players = $this->getOnlinePlayers($server);
-        $this->sendToPlayer($server, $fd, [
-            'type'    => 'lobby_online_count',
-            'players' => $players,
-        ]);
-
+        // 不在此处发送历史/在线列表，等 lobby_join 验证身份通过后再下发
         Logger::info('Lobby WS connected', ['fd' => $fd]);
     }
 
@@ -140,6 +129,25 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $data = json_decode($frame->data, true);
             if (!$data || empty($data['type'])) return;
 
+            // 禁言：默认全部拦截，仅放行只读/系统/管理消息
+            $muteExempt = [
+                'lobby_join', 'lobby_set_fp', 'ping',
+                'get_stickers', 'lobby_song_search', 'lobby_song_list', 'lobby_song_current', 'lobby_song_finished',
+                'lobby_report', 'lobby_revoke',
+                'lobby_mute', 'lobby_unmute', 'lobby_ban', 'lobby_isolate', 'lobby_unisolate',
+                'lobby_delete', 'lobby_song_admin_remove', 'lobby_admin_verify',
+            ];
+            $mutedPlayerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+            if ($mutedPlayerId !== '' && $this->lobbyService->isMuted($mutedPlayerId)
+                && !in_array($data['type'], $muteExempt, true)) {
+                $remaining = $this->lobbyService->getMutedRemaining($mutedPlayerId);
+                $this->sendToPlayer($server, $fd, [
+                    'type' => 'lobby_system',
+                    'text' => '你已被禁言，剩余 ' . ceil($remaining / 60) . ' 分钟',
+                ]);
+                return;
+            }
+
             switch ($data['type']) {
                 case 'lobby_chat':
                     $this->handleChat($server, $fd, $data);
@@ -170,8 +178,28 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->handleMute($server, $fd, $data);
                     break;
 
+                case 'lobby_unmute':
+                    $this->handleUnmute($server, $fd, $data);
+                    break;
+
                 case 'lobby_ban':
                     $this->handleBan($server, $fd, $data);
+                    break;
+
+                case 'lobby_isolate':
+                    $this->handleIsolate($server, $fd, $data);
+                    break;
+
+                case 'lobby_unisolate':
+                    $this->handleUnisolate($server, $fd, $data);
+                    break;
+
+                case 'lobby_card_share':
+                    $this->handleCardShare($server, $fd, $data);
+                    break;
+
+                case 'lobby_gomoku_invite':
+                    $this->handleGomokuInvite($server, $fd, $data);
                     break;
 
                 case 'lobby_admin_verify':
@@ -206,12 +234,21 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->handleSongRemoveVote($server, $fd, $data);
                     break;
 
+                case 'lobby_song_admin_remove':
+                    $this->handleSongAdminRemove($server, $fd, $data);
+                    break;
+
                 case 'lobby_song_list':
                     $this->handleSongList($server, $fd, $data);
                     break;
 
                 case 'lobby_song_current':
                     $this->handleSongCurrent($server, $fd, $data);
+                    break;
+
+                case 'lobby_song_finished':
+                    // 客户端本地播完时通知：立即检查并切歌广播（加速下一首同步）
+                    $this->checkSongProgress($server);
                     break;
 
                 case 'lobby_nudge':
@@ -243,6 +280,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $valid = $this->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
         if (!$valid['success']) {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $valid['error']]);
+            $server->close($fd);
             return;
         }
         $nickname = $valid['nickname'];
@@ -252,13 +290,17 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         if (!$playerId) {
             $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
             if (!$playerId) return;
+        } else {
+            // 已有身份的玩家也需要抢占在线锁
+            GameService::setPlayerId($fd, $playerId);
+            $this->claimOnlineLock($server, $fd, $playerId);
         }
 
-        // 封禁检查（IP + 指纹）
+        // 封禁检查（IP + 指纹 + 玩家ID）
         $fingerprint = $this->getClientFingerprint($fd);
         $clientIp = $this->clientInfo[(string)$fd]['ip'] ?? '';
-        if (BanRepository::isBanned($clientIp, $fingerprint)) {
-            $banReason = BanRepository::getBanReason($clientIp, $fingerprint);
+        if (BanRepository::isBanned($clientIp, $fingerprint, (string)$playerId)) {
+            $banReason = BanRepository::getBanReason($clientIp, $fingerprint, (string)$playerId);
             $this->sendToPlayer($server, $fd, [
                 'type' => 'lobby_error',
                 'text' => '您已被管理员封禁' . ($banReason ? '，原因：' . $banReason : ''),
@@ -277,6 +319,19 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
             'token'         => $valid['token'] ?? GameService::getPlayerCode($fd) ?? null,
+        ]);
+
+        // 身份验证通过后再下发历史消息与在线列表（防止 token 失效用户直接读取）
+        $history = $this->lobbyService->getRecentMessages(100);
+        $this->sendToPlayer($server, $fd, [
+            'type'       => 'lobby_history',
+            'messages'   => $history,
+        ]);
+
+        $players = $this->getOnlinePlayers($server);
+        $this->sendToPlayer($server, $fd, [
+            'type'    => 'lobby_online_count',
+            'players' => $players,
         ]);
 
         // 广播更新后的在线列表（去重：仅列表变化时发送）
@@ -304,13 +359,15 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 禁言检查
-        if ($this->lobbyService->isMuted($playerId)) {
-            $remaining = $this->lobbyService->getMutedRemaining($playerId);
+        // 封禁复查：防止封禁后已建立的旧连接绕过（IP/指纹/玩家ID任一命中即拒绝）
+        $banIp = $this->clientInfo[(string)$fd]['ip'] ?? '';
+        $banFp = $this->clientInfo[(string)$fd]['fingerprint'] ?? '';
+        if (BanRepository::isBanned($banIp, $banFp, (string)$playerId)) {
             $this->sendToPlayer($server, $fd, [
-                'type' => 'lobby_system',
-                'text' => '你已被禁言，剩余 ' . ceil($remaining / 60) . ' 分钟',
+                'type' => 'lobby_error',
+                'text' => '您已被管理员封禁',
             ]);
+            $server->close($fd);
             return;
         }
 
@@ -327,11 +384,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $content = trim($data['content'] ?? '');
         if ($content === '') return;
 
-        // 管理命令检测（/ 开头）
-        if (str_starts_with($content, '\\') && $this->isAdmin($fd)) {
-            $this->handleAdminCommand($server, $fd, $content);
-            return;
-        }
+        // 清洗 @@ 音效链接和 ![图片](url) 链接：非法 URL 去除前缀变为纯文本
+        $content = $this->sanitizeMediaUrls($content);
 
         // 引用消息
         $replyToId = null;
@@ -379,6 +433,12 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'time'        => $msg['time'],
             'created_at'  => $msg['created_at'],
         ];
+
+        // 孤立状态：消息不广播给其他人，仅回显给本人（被孤立者感知不到自己被孤立）
+        if ($this->lobbyService->isIsolated($playerId)) {
+            $this->sendToPlayer($server, $fd, $broadcastData);
+            return;
+        }
         $this->broadcastLobby($server, 0, $broadcastData);
 
         // 向被 @ 的玩家定向推送提醒
@@ -408,11 +468,28 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         if (!$info || empty($info['nickname'])) return;
 
         $playerId = $info['player_id'] ?? '';
+
         $sticker = $this->resolveSticker($data, $playerId);
         if (!$sticker) return;
 
+        // 孤立状态：不持久化、不广播，仅回显表情给本人（被孤立者感知不到）
+        if ($this->lobbyService->isIsolated($playerId)) {
+            $this->sendToPlayer($server, $fd, [
+                'type'        => 'sticker',
+                'id'          => $sticker['id'],
+                'sticker_id'  => $sticker['id'],
+                'sticker_name'=> $sticker['name'] ?? '',
+                'sticker_url' => $sticker['url'] ?? '',
+                'sender_name' => $info['nickname'],
+                'sender_id'   => $playerId,
+                'time'        => date('H:i:s'),
+                'created_at'  => date('Y-m-d H:i:s'),
+            ]);
+            return;
+        }
+
         // 持久化表情消息到 Redis（用于历史记录）
-        $this->lobbyService->sendSticker(
+        $msg = $this->lobbyService->sendSticker(
             $info['nickname'],
             $playerId,
             $sticker['id'],
@@ -422,15 +499,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $this->clientInfo[(string)$fd]['fingerprint'] ?? ''
         );
 
-        // 实时广播给所有在线用户
-        $this->broadcastLobby($server, 0, [
-            'type'        => 'sticker',
-            'id'          => $sticker['id'],
-            'name'        => $sticker['name'] ?? '',
-            'url'         => $sticker['url'] ?? '',
-            'sender'      => $info['nickname'],
-            'sender_id'   => $playerId,
-        ]);
+        // 实时广播完整消息给所有在线用户（含消息ID/时间，供撤回与回复使用）
+        $this->broadcastLobby($server, 0, $msg);
     }
 
     // ==================== 拍一拍 ====================
@@ -516,7 +586,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
 
         $targetName = Sanitizer::nickname($msg['sender_name'] ?? '');
-        $messageContent = Sanitizer::text($msg['content'] ?? '', 500);
+        $messageContent = Sanitizer::text($msg['content'] ?? '', 1500);
 
         // 从消息中获取被举报者的 player_id
         $targetPlayerId = $msg['sender_id'] ?? '';
@@ -643,6 +713,215 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'type'    => 'lobby_system',
             'text'    => "{$targetNickname} 已被管理员禁言 {$minutes} 分钟",
         ]);
+
+        // 广播在线列表更新（禁言状态变化）
+        $this->broadcastOnlineCountIfChanged($server, 0);
+    }
+
+    /**
+     * 管理员解除禁言
+     */
+    private function handleUnmute(Server $server, int $fd, array $data): void    {
+        if (!$this->isAdmin($fd)) return;
+
+        $targetFd = (int)($data['target_fd'] ?? 0);
+        if ($targetFd <= 0) return;
+
+        $targetPlayerId = $this->clientInfo[(string)$targetFd]['player_id'] ?? '';
+        if ($targetPlayerId === '') return;
+
+        $targetNickname = $this->clientInfo[(string)$targetFd]['nickname'] ?? '未知';
+        $this->lobbyService->unmute($targetPlayerId);
+
+        if ($server->isEstablished($targetFd)) {
+            $this->sendToPlayer($server, $targetFd, [
+                'type' => 'lobby_system',
+                'text' => '你已被管理员解除禁言',
+            ]);
+        }
+        $this->broadcastLobby($server, 0, [
+            'type' => 'lobby_system',
+            'text' => "{$targetNickname} 的禁言已被解除",
+        ]);
+
+        // 广播在线列表更新（禁言状态变化）
+        $this->broadcastOnlineCountIfChanged($server, 0);
+    }
+
+    /**
+     * 管理员孤立玩家：孤立期间其消息不广播（仅本人可见），静默执行，不提醒其他玩家
+     */
+    private function handleIsolate(Server $server, int $fd, array $data): void
+    {
+        if (!$this->isAdmin($fd)) return;
+
+        $targetFd = (int)($data['target_fd'] ?? 0);
+        $minutes = (int)($data['minutes'] ?? 10);
+
+        if ($targetFd <= 0 || $minutes <= 0) return;
+
+        $targetPlayerId = $this->clientInfo[(string)$targetFd]['player_id'] ?? '';
+        if ($targetPlayerId === '') return;
+
+        $targetNickname = $this->clientInfo[(string)$targetFd]['nickname'] ?? '未知';
+        $this->lobbyService->isolate($targetPlayerId, $minutes);
+
+        // 静默孤立：不向任何普通玩家广播提示（仅管理员在线列表可见状态变化）
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_system',
+            'text' => "已孤立玩家 {$targetNickname}（{$minutes} 分钟），其消息将不再广播",
+        ]);
+
+        // 广播在线列表更新（孤立状态变化）
+        $this->broadcastOnlineCountIfChanged($server, 0);
+    }
+
+    /**
+     * 管理员解除孤立
+     */
+    private function handleUnisolate(Server $server, int $fd, array $data): void
+    {
+        if (!$this->isAdmin($fd)) return;
+
+        $targetFd = (int)($data['target_fd'] ?? 0);
+        if ($targetFd <= 0) return;
+
+        $targetPlayerId = $this->clientInfo[(string)$targetFd]['player_id'] ?? '';
+        if ($targetPlayerId === '') return;
+
+        $targetNickname = $this->clientInfo[(string)$targetFd]['nickname'] ?? '未知';
+        $this->lobbyService->unisolate($targetPlayerId);
+
+        // 静默解除：不广播给其他玩家
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_system',
+            'text' => "已解除 {$targetNickname} 的孤立",
+        ]);
+
+        // 广播在线列表更新（孤立状态变化）
+        $this->broadcastOnlineCountIfChanged($server, 0);
+    }
+
+    /**
+     * 战绩分享卡片：服务端从数据库读取真实战绩生成 XML 卡片（防伪造），存储并广播
+     * 前端只发送分享请求，不携带任何战绩数据
+     */
+    private function handleCardShare(Server $server, int $fd, array $data): void
+    {
+        $info = $this->clientInfo[(string)$fd] ?? null;
+        if (!$info || empty($info['nickname'])) return;
+        $playerId = $info['player_id'] ?? '';
+        if ($playerId === '') return;
+
+        // 服务端读取真实战绩（不信任前端数据，防伪造）
+        $record = \App\Services\Repository\PlayerStatsRepository::getRecordStats($playerId);
+        $totalGames = max(0, (int)($record['games'] ?? 0));
+        $wins       = max(0, (int)($record['wins'] ?? 0));
+        $losses     = max(0, (int)($record['losses'] ?? 0));
+        $winRate    = max(0, (int)($record['rate'] ?? 0));
+
+        // 生成 JSON 卡片（服务端权威战绩数据，标题带分享者昵称）
+        $nickname = $info['nickname'];
+        $card = [
+            'type'   => 'record',
+            'version'=> 1,
+            'title'  => $nickname . '的战绩',
+            'player' => $nickname,
+            'fields' => [
+                'wins'   => $wins,
+                'losses' => $losses,
+                'games'  => $totalGames,
+                'rate'   => $winRate,
+            ],
+            'footer' => '更好的图灵测试',
+        ];
+        $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
+
+        // 存储 + 广播（含 type 枚举，前端按卡片渲染）
+        $msg = $this->lobbyService->sendCard(
+            $info['nickname'],
+            $playerId,
+            $cardJson,
+            $this->clientInfo[(string)$fd]['ip'] ?? '',
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? ''
+        );
+
+        $this->broadcastLobby($server, 0, [
+            'type'        => 'lobby_chat',
+            'id'          => $msg['id'],
+            'sender_name' => $msg['sender_name'],
+            'sender_id'   => $msg['sender_id'] ?? '',
+            'content'     => $msg['content'],
+            'msg_type'    => $msg['type'], // card.share.record
+            'time'        => $msg['time'],
+            'created_at'  => $msg['created_at'],
+        ]);
+
+        // 分享成功提示仅发给本人
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_system',
+            'text' => '战绩卡片已分享到聊天室',
+        ]);
+    }
+
+    /**
+     * 五子棋对局邀请卡片：校验房间号 → 生成 JSON 邀请卡片 → 存储并广播
+     */
+    private function handleGomokuInvite(Server $server, int $fd, array $data): void
+    {
+        $info = $this->clientInfo[(string)$fd] ?? null;
+        if (!$info || empty($info['nickname'])) return;
+        $playerId = $info['player_id'] ?? '';
+        if ($playerId === '') return;
+
+        $roomId = Sanitizer::identifier($data['room_id'] ?? '');
+        if ($roomId === '' || strlen($roomId) !== 5) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '无效的房间号']);
+            return;
+        }
+
+        // 校验房间存在且等待中
+        $gomokuService = new \App\Services\Game\GomokuService();
+        if (!$gomokuService->roomExists($roomId)) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '房间不存在或已开始']);
+            return;
+        }
+
+        $nickname = $info['nickname'];
+        $card = [
+            'type'    => 'gomoku_invite',
+            'version' => 1,
+            'title'   => $nickname . ' 邀请你加入五子棋对局',
+            'player'  => $nickname,
+            'room'    => $roomId,
+            'footer'  => '点击加入对局，凭证 ' . $roomId,
+        ];
+        $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
+
+        $msg = $this->lobbyService->sendCard(
+            $info['nickname'],
+            $playerId,
+            $cardJson,
+            $this->clientInfo[(string)$fd]['ip'] ?? '',
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+            \App\Enums\LobbyMessageType::CARD_INVITE_GOMOKU
+        );
+
+        $this->broadcastLobby($server, 0, [
+            'type'        => 'lobby_chat',
+            'id'          => $msg['id'],
+            'sender_name' => $msg['sender_name'],
+            'sender_id'   => $msg['sender_id'] ?? '',
+            'content'     => $msg['content'],
+            'msg_type'    => $msg['type'], // card.invite.gomoku
+            'time'        => $msg['time'],
+            'created_at'  => $msg['created_at'],
+        ]);
+
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_system',
+            'text' => '对局邀请已发送到聊天室',
+        ]);
     }
 
     /**
@@ -707,107 +986,6 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         ]);
     }
 
-    // ==================== 管理命令解析（/xxx 格式） ====================
-
-    private function handleAdminCommand(Server $server, int $fd, string $content): void
-    {
-        $parts = preg_split('/\s+/', $content);
-        $cmd = strtolower($parts[0]);
-
-        switch ($cmd) {
-            case '\\ban':
-                // \ban <nickname>
-                $target = $parts[1] ?? '';
-                if ($target === '') {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '用法: \\ban <玩家昵称>']);
-                    return;
-                }
-                $targetFd = $this->findFdByNickname($target);
-                if ($targetFd === null) {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "未找到玩家: {$target}"]);
-                    return;
-                }
-                $this->handleBan($server, $fd, [
-                    'target_fd' => $targetFd,
-                    'reason' => '管理员 \\ban 封禁',
-                ]);
-                break;
-
-            case '\\mute':
-                // \mute <nickname> <分钟>
-                $target = $parts[1] ?? '';
-                $minutes = (int)($parts[2] ?? 10);
-                if ($target === '' || $minutes < 1) {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '用法: \\mute <玩家昵称> <分钟>']);
-                    return;
-                }
-                $targetFd = $this->findFdByNickname($target);
-                if ($targetFd === null) {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "未找到玩家: {$target}"]);
-                    return;
-                }
-                $this->handleMute($server, $fd, [
-                    'target_fd' => $targetFd,
-                    'minutes' => $minutes,
-                ]);
-                break;
-
-            case '\\unmute':
-                $target = $parts[1] ?? '';
-                if ($target === '') {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '用法: \\unmute <玩家昵称>']);
-                    return;
-                }
-                $targetFd = $this->findFdByNickname($target);
-                if ($targetFd === null) {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "未找到玩家: {$target}"]);
-                    return;
-                }
-                $targetPlayerId = $this->clientInfo[(string)$targetFd]['player_id'] ?? '';
-                if ($targetPlayerId === '') {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "该玩家无身份记录"]);
-                    return;
-                }
-                $this->lobbyService->unmute($targetPlayerId);
-                if ($server->isEstablished($targetFd)) {
-                    $this->sendToPlayer($server, $targetFd, [
-                        'type' => 'lobby_system',
-                        'text' => '你已被管理员解除禁言',
-                    ]);
-                }
-                $this->broadcastLobby($server, 0, [
-                    'type' => 'lobby_system',
-                    'text' => "{$target} 的禁言已被解除",
-                ]);
-                break;
-
-            case '\\delete':
-                $messageId = (int)($parts[1] ?? 0);
-                if ($messageId <= 0) {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '用法: \\delete <消息ID>']);
-                    return;
-                }
-                $this->handleDelete($server, $fd, ['message_id' => $messageId]);
-                break;
-
-            case '\\removesong':
-                $songId = $parts[1] ?? '';
-                if ($songId === '') {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '用法: \\removesong <歌曲ID>']);
-                    return;
-                }
-                if ($this->songService->removeFromPool($songId)) {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "已从歌单移除: {$songId}"]);
-                    $this->broadcastPlaylistUpdate($server);
-                } else {
-                    $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "未找到该歌曲: {$songId}"]);
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
 
     // ==================== 点歌 ====================
 
@@ -985,6 +1163,29 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     }
 
     /**
+     * 管理员直接移除歌曲（投票池或播放队列）
+     */
+    private function handleSongAdminRemove(Server $server, int $fd, array $data): void
+    {
+        if (!$this->isAdmin($fd)) return;
+
+        $songId = trim($data['song_id'] ?? '');
+        if ($songId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => '无效的歌曲ID']);
+            return;
+        }
+        // 优先从投票池移除，其次从播放队列移除
+        $removedFromPool = $this->songService->removeFromPool($songId);
+        $removedFromPlaylist = !$removedFromPool && $this->songService->removeFromPlaylist($songId);
+        if ($removedFromPool || $removedFromPlaylist) {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "已移除歌曲: {$songId}"]);
+            $this->broadcastPlaylistUpdate($server);
+        } else {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => "未找到该歌曲: {$songId}"]);
+        }
+    }
+
+    /**
      * 获取当前播放歌曲
      */
     private function handleSongCurrent(Server $server, int $fd, array $data): void
@@ -1033,6 +1234,56 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         if ($removed > 0) {
             $this->broadcastPlaylistUpdate($server);
         }
+    }
+
+    /**
+     * 定时检查当前播放进度：歌曲播完时由服务端统一切下一首并全员广播
+     * （实现"一起听歌"：所有客户端播放同一首歌、同一进度，由服务端时间基准同步）
+     * 由 Application 的定时器（每 2 秒）调用
+     */
+    public function checkSongProgress(Server $server): void
+    {
+        $playing = $this->songService->getPlaying();
+        if (!$playing || empty($playing['start_time']) || empty($playing['duration'])) {
+            return;
+        }
+        $elapsed = time() - (int)$playing['start_time'];
+        $total   = (int)$playing['duration'] / 1000;
+        if ($elapsed < $total - 1) {
+            return; // 未播完
+        }
+
+        // 当前歌曲已播完：从队列弹出下一首（循环模式：播完的歌放回队列尾部，歌单循环播放）
+        $next = $this->songService->popPlaylist();
+        if ($next) {
+            // 循环播放：播放完的歌曲重新加入队列尾部，歌单永久循环
+            $this->songService->addToPlaylist($next);
+            $onlineCount = count($this->getOnlinePlayers($server));
+            $this->songService->setPlaying($next, time(), $onlineCount);
+            Logger::info('Song auto-advanced by server (loop)', [
+                'song' => $next['name'] ?? '',
+                'start_time' => time(),
+            ]);
+        } else {
+            // 队列空了：尝试补歌后循环，仍空则清空播放状态
+            $this->songService->replenishPlaylist(3);
+            $next = $this->songService->popPlaylist();
+            if ($next) {
+                $this->songService->addToPlaylist($next);
+                $onlineCount = count($this->getOnlinePlayers($server));
+                $this->songService->setPlaying($next, time(), $onlineCount);
+                Logger::info('Song auto-advanced by server (loop after replenish)', [
+                    'song' => $next['name'] ?? '',
+                    'start_time' => time(),
+                ]);
+            } else {
+                $this->songService->clearPlaying();
+                Logger::info('Song playlist finished, playback stopped');
+            }
+        }
+
+        // 全员广播新歌单/播放状态（所有客户端据此同步播放）
+        $this->broadcastPlaylistUpdate($server);
     }
 
     /**
@@ -1117,9 +1368,13 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             if ($nickname === '') continue;
             // 去重：同昵称保留 fd 最大的（最新的连接）
             if (isset($seen[$nickname]) && $seen[$nickname]['fd'] >= $fd) continue;
+            $playerId = $info['player_id'] ?? '';
             $seen[$nickname] = [
-                'fd'       => $fd,
-                'nickname' => $nickname,
+                'fd'        => $fd,
+                'nickname'  => $nickname,
+                'player_id' => $playerId,
+                'muted'     => $playerId !== '' && $this->lobbyService->isMuted($playerId) ? 1 : 0,
+                'isolated'  => $playerId !== '' && $this->lobbyService->isIsolated($playerId) ? 1 : 0,
             ];
         }
         return array_values($seen);
@@ -1172,6 +1427,53 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     protected function getPlayerIdFromFd(int $fd): ?string
     {
         return $this->clientInfo[(string)$fd]['player_id'] ?? null;
+    }
+
+    /**
+     * 清洗聊天内容中的媒体链接：
+     * - @@ 音效链接：仅保留合法音频 URL 的 @@ 前缀
+     * - ![图片](url)：仅保留合法图片 URL 的 ! 前缀
+     * 非法链接去除前缀变为普通文字/链接
+     */
+    private function sanitizeMediaUrls(string $content): string
+    {
+        $AUDIO_EXT_REGEX = '/\.(mp3|wav|ogg|aac|m4a|flac|opus|webm|weba|wma|mid|midi)(\?.*)?$/i';
+        $IMG_EXT_REGEX   = '/\.(png|jpe?g|gif|webp|bmp|svg|ico)(\?.*)?$/i';
+
+        // 1. 清洗 @@ 音效链接
+        $content = preg_replace_callback(
+            '/@@(https?:\/\/[^\s)]+)/i',
+            function (array $m) use ($AUDIO_EXT_REGEX): string {
+                $url = $m[1];
+                // 剥离末尾已知参数后缀，再校验音频扩展名
+                // 顺序：##动画 > ;;权限 > ::颜色
+                $checkUrl = preg_replace('/##\d+(?:\.\d+)?\s*$/i', '', $url);
+                $checkUrl = preg_replace('/;;[^\s]*\s*$/i', '', $checkUrl);
+                $checkUrl = preg_replace('/::[0-9a-fA-F#|-]*\s*$/i', '', $checkUrl);
+                if (!preg_match('#^https?://#i', $url) || !preg_match($AUDIO_EXT_REGEX, $checkUrl)) {
+                    return $url; // 去除 @@ 前缀
+                }
+                return '@@' . $url;
+            },
+            $content
+        );
+
+        // 2. 清洗 ![图片](url) 链接
+        $content = preg_replace_callback(
+            '/!\[([^\]]*)\]\(((?:https?:\/\/)[^)]+)\)/i',
+            function (array $m) use ($IMG_EXT_REGEX): string {
+                $alt = $m[1];
+                $url = $m[2];
+                if (!preg_match('#^https?://#i', $url) || !preg_match($IMG_EXT_REGEX, $url)) {
+                    // 非法图片 URL：去 ! 变为普通链接 [alt](url)
+                    return '[' . $alt . '](' . $url . ')';
+                }
+                return '![' . $alt . '](' . $url . ')';
+            },
+            $content
+        );
+
+        return $content;
     }
 
 }

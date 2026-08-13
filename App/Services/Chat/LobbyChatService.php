@@ -6,6 +6,7 @@ use App\Services\Infrastructure\RedisService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\Database;
 use App\Services\Infrastructure\AsyncDbWriter;
+use App\Enums\LobbyMessageType;
 
 /**
  * 公共聊天室服务
@@ -19,7 +20,7 @@ use App\Services\Infrastructure\AsyncDbWriter;
 class LobbyChatService
 {
     private const MAX_REDIS_MSGS = 100;
-    private const MAX_CONTENT_LEN = 500;
+    private const MAX_CONTENT_LEN = 1500;
 
     /**
      * 发送消息：写入 Redis 缓存 + 推送异步写入队列
@@ -130,6 +131,42 @@ class LobbyChatService
     }
 
     /**
+     * 发送卡片消息（如战绩分享）：写入 Redis 缓存 + 推送异步写入队列
+     * type 使用 LobbyMessageType 枚举（card.share.record 等），卡片内容为 JSON 字符串
+     */
+    public function sendCard(string $senderName, string $senderId, string $cardXml, string $ip = '', string $fingerprint = '', LobbyMessageType $type = LobbyMessageType::CARD_SHARE_RECORD): array
+    {
+        $redis = RedisService::connect();
+        $this->syncMsgIdFromDb();
+        $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
+
+        $msg = [
+            'id'          => $id,
+            'sender_name' => $senderName,
+            'sender_id'   => $senderId,
+            'sender_ip'   => $ip,
+            'sender_fp'   => $fingerprint,
+            'content'     => mb_substr($cardXml, 0, self::MAX_CONTENT_LEN),
+            'type'        => $type->value,
+            'time'        => date('H:i:s'),
+            'created_at'  => date('Y-m-d H:i:s'),
+        ];
+
+        $json = json_encode($msg, JSON_UNESCAPED_UNICODE);
+
+        // 写入 Redis 缓存（保留最新 100 条）
+        $redis->lPush(RedisService::KP_LOBBY_MSGS, $json);
+        $redis->lTrim(RedisService::KP_LOBBY_MSGS, 0, self::MAX_REDIS_MSGS - 1);
+
+        // 推送异步写入队列
+        $redis->rPush(RedisService::KP_LOBBY_WRITE_Q, $json);
+
+        Logger::debug('Lobby card message sent', ['id' => $id, 'sender' => $senderName, 'type' => $type->value]);
+
+        return $msg;
+    }
+
+    /**
      * 获取最近 N 条消息（用于新用户进入时推送历史）
      */
     public function getRecentMessages(int $limit = 100, bool $keepMeta = false): array
@@ -223,7 +260,7 @@ class LobbyChatService
                 'content'     => $row['content'] ?? '',
                 'type'        => $row['type'] ?? '',
                 'sticker_id'  => $row['sticker_id'] ?? '',
-                'sticker_name'=> $row['sticker_name'] ?? '',
+                'sticker_name' => $row['sticker_name'] ?? '',
                 'sticker_url' => $row['sticker_url'] ?? '',
                 'created_at'  => $row['created_at'] ?? '',
             ];
@@ -332,7 +369,7 @@ class LobbyChatService
                         'content'     => $row['content'] ?? '',
                         'type'        => $row['type'] ?? '',
                         'sticker_id'  => $row['sticker_id'] ?? '',
-                        'sticker_name'=> $row['sticker_name'] ?? '',
+                        'sticker_name' => $row['sticker_name'] ?? '',
                         'sticker_url' => $row['sticker_url'] ?? '',
                         'time'        => date('H:i:s', strtotime($row['created_at'] ?? '')),
                         'created_at'  => $row['created_at'] ?? '',
@@ -459,7 +496,54 @@ class LobbyChatService
         $redis = RedisService::connect();
         $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, $playerId);
         if ($expiresAt <= 0) return 0;
+        $remaining = $expiresAt - time();
+        return max(0, $remaining);
+    }
 
+    // ==================== 孤立 ====================
+
+    /**
+     * 孤立玩家：孤立期间其消息不广播（仅本地可见），其他人收不到他的消息，他也感知不到自己被孤立
+     */
+    public function isolate(string $playerId, int $durationMinutes): void
+    {
+        $redis = RedisService::connect();
+        $expiresAt = time() + ($durationMinutes * 60);
+        $redis->hSet(RedisService::KP_LOBBY_ISOLATED, $playerId, $expiresAt);
+        Logger::info('Lobby player isolated', ['player_id' => $playerId, 'minutes' => $durationMinutes]);
+    }
+
+    public function unisolate(string $playerId): void
+    {
+        $redis = RedisService::connect();
+        $redis->hDel(RedisService::KP_LOBBY_ISOLATED, $playerId);
+        Logger::info('Lobby player unisolated', ['player_id' => $playerId]);
+    }
+
+    /**
+     * 检查玩家是否处于孤立状态
+     */
+    public function isIsolated(string $playerId): bool
+    {
+        if ($playerId === '') return false;
+        $redis = RedisService::connect();
+        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_ISOLATED, $playerId);
+        if ($expiresAt <= 0) return false;
+        if (time() >= $expiresAt) {
+            $redis->hDel(RedisService::KP_LOBBY_ISOLATED, $playerId);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 获取孤立剩余秒数
+     */
+    public function getIsolatedRemaining(string $playerId): int
+    {
+        $redis = RedisService::connect();
+        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_ISOLATED, $playerId);
+        if ($expiresAt <= 0) return 0;
         $remaining = $expiresAt - time();
         return max(0, $remaining);
     }

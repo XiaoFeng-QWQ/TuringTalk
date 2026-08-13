@@ -193,12 +193,12 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         $nickname = $valid['nickname'];
         $playerId = $valid['player_id'] ?? null;
 
-        // 封禁检查（IP + 指纹）
+        // 封禁检查（IP + 指纹 + 玩家ID）
         $fingerprint = Sanitizer::identifier($data['fp'] ?? '');
         $this->setClientFingerprint($fd, $fingerprint);
         $clientIp = $this->clientInfo[(string)$fd]['ip'] ?? '';
-        if (BanRepository::isBanned($clientIp, $fingerprint)) {
-            $banReason = BanRepository::getBanReason($clientIp, $fingerprint);
+        if (BanRepository::isBanned($clientIp, $fingerprint, (string)$playerId)) {
+            $banReason = BanRepository::getBanReason($clientIp, $fingerprint, (string)$playerId);
             $this->sendToPlayer($server, $fd, [
                 'type' => 'WhoisAI_error',
                 'text' => '您已被管理员封禁' . ($banReason ? '，原因：' . $banReason : ''),

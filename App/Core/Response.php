@@ -52,10 +52,9 @@ class Response
 
     public function send(): void
     {
-        // 设置状态码
         $this->swooleResponse->status($this->statusCode);
 
-        // 设置头部
+
         foreach ($this->headers as $key => $value) {
             $this->swooleResponse->header($key, $value);
         }

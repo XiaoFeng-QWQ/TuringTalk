@@ -88,7 +88,7 @@
 
         ws.onmessage = function (e) {
             try {
-                var data = JSON.parse(e.data);
+                let data = JSON.parse(e.data);
                 dispatch(data);
             } catch (err) {
                 console.warn('[HVA] Invalid message', e.data);
@@ -171,7 +171,7 @@
 
     function dismissReconnectToast() {
         if (reconnectToastId) {
-            var el = reconnectToastId;
+            let el = reconnectToastId;
             el.style.animation = 'announceOut 0.3s ease forwards';
             el.addEventListener('animationend', function () { el.remove(); }, { once: true });
             reconnectToastId = null;
@@ -304,28 +304,28 @@
     let myNickname = '';
 
     // ==================== 表情 ====================
-    var whoisaiStickerMap = loadStickerCache();
+    let whoisaiStickerMap = loadStickerCache();
 
     /** 通过游戏 WS 端点拉取表情列表（不需要加入对局，handleGetStickers 无状态） */
     function prefetchStickersFromGameWS(force) {
         // 非强制模式下有缓存则跳过
         if (!force) {
-            var existing = loadStickerCache();
+            let existing = loadStickerCache();
             if (Object.keys(existing).length > 0) {
                 whoisaiStickerMap = existing;
                 return;
             }
         }
         try {
-            var tmpWs = new WebSocket(WS_URL);
-            var done = false;
+            let tmpWs = new WebSocket(WS_URL);
+            let done = false;
             tmpWs.onopen = function () {
                 tmpWs.send(JSON.stringify({ type: 'get_stickers', version: getStickerCacheVersion(), player_token: getUserToken() }));
             };
             tmpWs.onmessage = function (e) {
                 if (done) return;
                 try {
-                    var d = JSON.parse(e.data);
+                    let d = JSON.parse(e.data);
                     if (d.type === 'stickers_list' && d.stickers) {
                         whoisaiStickerMap = handleStickersList(d);
                         done = true;
@@ -351,7 +351,7 @@
     prefetchStickersFromGameWS(false);
 
     function refreshStickerCache() {
-        var fresh = loadStickerCache();
+        let fresh = loadStickerCache();
         if (Object.keys(fresh).length > 0) whoisaiStickerMap = fresh;
     }
 
@@ -372,18 +372,18 @@
     }
 
     function appendWhoisAISticker(stickerId, stickerUrlFromServer, stickerName, isMine, senderSeat) {
-        var url = resolveStickerUrl(stickerId, stickerUrlFromServer, whoisaiStickerMap);
+        let url = resolveStickerUrl(stickerId, stickerUrlFromServer, whoisaiStickerMap);
 
-        var wrapper = document.createElement('div');
+        let wrapper = document.createElement('div');
         wrapper.className = 'whoisai-chat-msg sticker-msg';
         if (isMine) wrapper.classList.add('mine');
 
-        var sender = document.createElement('div');
+        let sender = document.createElement('div');
         sender.className = 'whoisai-chat-sender';
         sender.textContent = isMine ? ('玩家' + mySeat) : (stickerName || '玩家' + senderSeat);
 
         if (url) {
-            var img = document.createElement('img');
+            let img = document.createElement('img');
             img.className = 'whoisai-sticker-img';
             img.src = url;
             img.alt = stickerName;
@@ -392,7 +392,7 @@
             wrapper.appendChild(sender);
             wrapper.appendChild(img);
         } else {
-            var placeholder = document.createElement('div');
+            let placeholder = document.createElement('div');
             placeholder.style.cssText = 'color:#999;font-style:italic;padding:8px 12px;margin-top:4px;';
             placeholder.textContent = '[表情不存在: ' + (stickerName || stickerId) + ']';
             wrapper.appendChild(sender);
@@ -404,14 +404,14 @@
     }
 
     function onStickerMessage(data) {
-        var stickerId = data.id || '';
+        let stickerId = data.id || '';
         if (!stickerId) return;
         // 如果该表情已由本地渲染过（发送时立即渲染），跳过服务端广播回传
         if (lastSentStickerId === stickerId) {
             lastSentStickerId = '';
             return;
         }
-        var isMine = data.sender_seat === mySeat;
+        let isMine = data.sender_seat === mySeat;
         appendWhoisAISticker(stickerId, data.url || '', data.sender_name || '玩家' + data.sender_seat, isMine, data.sender_seat);
     }
 
@@ -420,7 +420,7 @@
     }
 
     function parseStickerId(text) {
-        var m = text.match(/^\[sticker:([^\]]+)\]/);
+        let m = text.match(/^\[sticker:([^\]]+)\]/);
         return m ? m[1] : null;
     }
 
@@ -439,10 +439,10 @@
 
     function repositionStickerPicker() {
         if ($stickerPicker.style.display !== 'flex') return;
-        var btnRect = $btnSticker.getBoundingClientRect();
-        var pickerWidth = $stickerPicker.offsetWidth || 260;
-        var pickerHeight = $stickerPicker.offsetHeight;
-        var left = btnRect.left;
+        let btnRect = $btnSticker.getBoundingClientRect();
+        let pickerWidth = $stickerPicker.offsetWidth || 260;
+        let pickerHeight = $stickerPicker.offsetHeight;
+        let left = btnRect.left;
         if (left + pickerWidth > window.innerWidth) {
             left = window.innerWidth - pickerWidth - 10;
         }
@@ -477,8 +477,8 @@
 
     // ==================== 身份检测与面板切换 ====================
     function showIdentityState() {
-        var nickname = getUserNickname();
-        var token = getUserToken();
+        let nickname = getUserNickname();
+        let token = getUserToken();
 
         if (nickname && token) {
             myNickname = nickname;
@@ -497,7 +497,7 @@
     });
     // ==================== 匹配 ====================
 
-    var matchTips = [
+    let matchTips = [
         '你知道吗？你们这局内的人有些是AI有些是真人需要互相智斗进行投票',
         '你知道吗？AI会模仿人类玩家的语气和用词习惯',
         '你知道吗？AI在聊天时故意用"我觉得""可能吧"等模糊词汇',
@@ -509,8 +509,8 @@
         '你知道吗？如果所有AI被淘汰，人类就获胜了',
         '你知道吗？AI同样可以看到所有聊天消息',
     ];
-    var matchTipsIndex = 0;
-    var matchTipsTimer = null;
+    let matchTipsIndex = 0;
+    let matchTipsTimer = null;
 
     function startMatchTips() {
         if ($matchTips) {
@@ -561,8 +561,8 @@
             $matchBtnAuthed.classList.add('danger');
             $matchBtnAuthed.classList.remove('success');
         }
-        var msg = { type: 'WhoisAI_match', nickname: name, fp: getFingerprint() };
-        var tok = getUserToken();
+        let msg = { type: 'WhoisAI_match', nickname: name, fp: getFingerprint() };
+        let tok = getUserToken();
         if (tok) msg.player_token = tok;
 
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -598,7 +598,7 @@
     }
 
     function updatePoolCount(data) {
-        var count = data.pool_count;
+        let count = data.pool_count;
         if (!count || count <= 1) {
             $poolList.innerHTML = '';
             return;
@@ -650,7 +650,7 @@
         $votePanel.style.display = 'none';
 
         // 发送给旁观者的数据包含完整身份，给自己和人类玩家的是匿名数据
-        var players = data.players_full || data.players;
+        let players = data.players_full || data.players;
         updatePlayerList(players);
 
         startCountdown(data.duration || 180, function () {
@@ -663,7 +663,7 @@
     function onVotingPhase(data) {
         if (isEliminated) {
             // 被淘汰玩家只更新列表，不显示投票面板
-            var players = data.players_full || data.players;
+            let players = data.players_full || data.players;
             updatePlayerList(players);
             return;
         }
@@ -678,13 +678,13 @@
         $voteStatus.textContent = '请投票选出你认为的 AI';
 
         // 更新玩家列表
-        var players = data.players_full || data.players;
+        let players = data.players_full || data.players;
         updatePlayerList(players);
 
         startCountdown(data.duration || 30, function () {
             // 时间到，禁用投票按钮
-            var btns = $voteCandidates.querySelectorAll('.whoisai-vote-btn');
-            for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+            let btns = $voteCandidates.querySelectorAll('.whoisai-vote-btn');
+            for (let i = 0; i < btns.length; i++) btns[i].disabled = true;
         });
     }
 
@@ -692,8 +692,8 @@
         $voteCandidates.innerHTML = '';
         if (!candidates) return;
 
-        candidates.forEach(function (c) {
-            var btn = document.createElement('button');
+        candidates.forEach((c) => {
+            let btn = document.createElement('button');
             btn.className = 'whoisai-vote-btn';
             btn.textContent = c.name;
             btn.dataset.seat = c.seat;
@@ -702,8 +702,8 @@
                 if (btn.disabled) return;
 
                 // 取消之前的选中
-                var all = $voteCandidates.querySelectorAll('.whoisai-vote-btn');
-                for (var i = 0; i < all.length; i++) all[i].classList.remove('selected');
+                let all = $voteCandidates.querySelectorAll('.whoisai-vote-btn');
+                for (let i = 0; i < all.length; i++) all[i].classList.remove('selected');
 
                 btn.classList.add('selected');
                 send({ type: 'WhoisAI_vote', target_seat: c.seat });
@@ -714,8 +714,8 @@
     }
 
     function onVoteOk() {
-        var btns = $voteCandidates.querySelectorAll('.whoisai-vote-btn');
-        for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+        let btns = $voteCandidates.querySelectorAll('.whoisai-vote-btn');
+        for (let i = 0; i < btns.length; i++) btns[i].disabled = true;
         $voteStatus.textContent = '已投票，等待其他玩家...';
     }
 
@@ -725,8 +725,8 @@
 
     function onVoteResult(data) {
         if (data.eliminated_seat !== undefined && data.eliminated_seat !== null) {
-            var name = data.eliminated_name || ('玩家' + data.eliminated_seat);
-            var idText = data.identity === 'ai' ? '[AI]' : '[人类]';
+            let name = data.eliminated_name || ('玩家' + data.eliminated_seat);
+            let idText = data.identity === 'ai' ? '[AI]' : '[人类]';
             appendSystemMessage('投票结果：' + name + ' 被淘汰 ' + idText);
 
             // 如果被淘汰的是自己，进入观战模式
@@ -743,7 +743,7 @@
         $votePanel.style.display = 'none';
 
         // 更新玩家列表
-        var players = data.players_full || data.players;
+        let players = data.players_full || data.players;
         updatePlayerList(players);
     }
 
@@ -755,22 +755,22 @@
 
     function sendChat() {
         if (isEliminated) return;
-        var text = $chatInput.value.trim();
+        let text = $chatInput.value.trim();
         if (!text) return;
         send({ type: 'WhoisAI_chat', text: text });
         $chatInput.value = '';
     }
 
     function onChatMessage(data) {
-        var div = document.createElement('div');
+        let div = document.createElement('div');
         div.className = 'whoisai-chat-msg';
         if (data.sender_seat === mySeat) div.classList.add('mine');
 
-        var sender = document.createElement('div');
+        let sender = document.createElement('div');
         sender.className = 'whoisai-chat-sender';
         sender.textContent = data.sender_name || ('玩家' + data.sender_seat);
 
-        var text = document.createElement('div');
+        let text = document.createElement('div');
         text.className = 'whoisai-chat-text';
         text.textContent = data.text;
 
@@ -779,7 +779,7 @@
 
         // 举报按钮（非自己消息时才显示）
         if (!(data.sender_seat === mySeat)) {
-            var reportBtn = document.createElement('button');
+            let reportBtn = document.createElement('button');
             reportBtn.className = 'whoisai-msg-act-btn';
             reportBtn.textContent = '举报';
             reportBtn.addEventListener('click', function (e) {
@@ -797,7 +797,7 @@
     }
 
     function appendSystemMessage(msg) {
-        var div = document.createElement('div');
+        let div = document.createElement('div');
         div.className = 'whoisai-chat-system';
         div.textContent = msg;
         $messages.appendChild(div);
@@ -809,9 +809,9 @@
         if (!players) return;
         $playerList.innerHTML = '';
 
-        var aliveCount = 0;
-        Object.values(players).forEach(function (p) {
-            var item = document.createElement('div');
+        let aliveCount = 0;
+        Object.values(players).forEach((p) => {
+            let item = document.createElement('div');
             item.className = 'whoisai-player-item';
             if (parseInt(p.seat) === mySeat) item.classList.add('you');
             if (p.alive === false || p.eliminated) {
@@ -821,14 +821,14 @@
             }
 
             // 状态图标
-            var icon = document.createElement('span');
+            let icon = document.createElement('span');
             if (p.alive === false || p.eliminated) {
                 icon.innerHTML = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#e74c3c;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
             } else {
                 icon.innerHTML = '<svg viewBox="0 0 24 24" style="width:14px;height:14px;fill:none;stroke:#27ae60;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>';
             }
 
-            var name = document.createElement('span');
+            let name = document.createElement('span');
             name.className = 'whoisai-player-name';
             name.textContent = p.name || ('玩家' + p.seat);
 
@@ -861,8 +861,8 @@
     }
 
     function updateTimerDisplay() {
-        var m = Math.floor(countdownSec / 60);
-        var s = countdownSec % 60;
+        let m = Math.floor(countdownSec / 60);
+        let s = countdownSec % 60;
         $timer.textContent = m + ':' + (s < 10 ? '0' : '') + s;
 
         if (countdownSec <= 30) {
@@ -886,12 +886,12 @@
             showIdentityState();
         }
 
-        var isDisconnect = data.reason === 'disconnect';
-        var winner = data.winner === 'human' ? '人类' : 'AI';
-        var content = $endCard.querySelector('.paper-content');
+        let isDisconnect = data.reason === 'disconnect';
+        let winner = data.winner === 'human' ? '人类' : 'AI';
+        let content = $endCard.querySelector('.paper-content');
         content.innerHTML = '';
 
-        var h2 = document.createElement('h2');
+        let h2 = document.createElement('h2');
         if (isDisconnect) {
             h2.textContent = '游戏中断';
         } else {
@@ -899,7 +899,7 @@
         }
         content.appendChild(h2);
 
-        var text = document.createElement('p');
+        let text = document.createElement('p');
         text.className = 'whoisai-end-text';
         if (isDisconnect) {
             text.textContent = '因有玩家断线离开，游戏提前结束';
@@ -910,31 +910,31 @@
 
         // 玩家身份表格
         if (data.players) {
-            var table = document.createElement('table');
+            let table = document.createElement('table');
             table.className = 'whoisai-end-table';
 
-            var thead = document.createElement('thead');
-            var headerRow = document.createElement('tr');
-            ['昵称', '对局昵称', '身份'].forEach(function (h) {
-                var th = document.createElement('th');
+            let thead = document.createElement('thead');
+            let headerRow = document.createElement('tr');
+            ['昵称', '对局昵称', '身份'].forEach((h) => {
+                let th = document.createElement('th');
                 th.textContent = h;
                 headerRow.appendChild(th);
             });
             thead.appendChild(headerRow);
             table.appendChild(thead);
 
-            var tbody = document.createElement('tbody');
-            Object.values(data.players).forEach(function (p) {
-                var tr = document.createElement('tr');
+            let tbody = document.createElement('tbody');
+            Object.values(data.players).forEach((p) => {
+                let tr = document.createElement('tr');
                 tr.className = p.identity === 'ai' ? 'ai' : 'human';
 
-                var tdName = document.createElement('td');
+                let tdName = document.createElement('td');
                 tdName.textContent = p.nickname || p.name || ('玩家' + p.seat);
 
-                var tdGameName = document.createElement('td');
+                let tdGameName = document.createElement('td');
                 tdGameName.textContent = p.name || ('玩家' + p.seat);
 
-                var tdIdentity = document.createElement('td');
+                let tdIdentity = document.createElement('td');
                 tdIdentity.textContent = p.identity === 'ai' ? 'AI' : '人类';
 
                 tr.appendChild(tdName);
@@ -947,10 +947,10 @@
             content.appendChild(table);
         }
 
-        var btnGroup = document.createElement('div');
+        let btnGroup = document.createElement('div');
         btnGroup.className = 'whoisai-end-btns';
 
-        var retBtn = document.createElement('button');
+        let retBtn = document.createElement('button');
         retBtn.className = 'whoisai-end-return';
         retBtn.textContent = '返回首页';
         retBtn.addEventListener('click', function () {
@@ -958,7 +958,7 @@
         });
         btnGroup.appendChild(retBtn);
 
-        var againBtn = document.createElement('button');
+        let againBtn = document.createElement('button');
         againBtn.className = 'whoisai-end-return whoisai-end-again';
         againBtn.textContent = '再来一局';
         againBtn.addEventListener('click', function () {
@@ -992,7 +992,7 @@
 
         // 查看历史记录按钮（有聊天记录时显示）
         if (data.messages && data.messages.length > 0) {
-            var historyBtn = document.createElement('button');
+            let historyBtn = document.createElement('button');
             historyBtn.className = 'whoisai-end-return';
             historyBtn.textContent = '查看历史记录';
             historyBtn.style.cssText = 'margin-top:12px;width:100%;';
@@ -1010,46 +1010,46 @@
     // ==================== 历史记录弹窗 ====================
     function showHistoryOverlay(messages, players) {
         // 构建玩家名称映射
-        var nameMap = {};
+        let nameMap = {};
         if (players) {
-            Object.values(players).forEach(function (p) {
+            Object.values(players).forEach((p) => {
                 nameMap[p.seat] = p.nickname || ('玩家' + p.seat);
             });
         }
 
         // 创建遮罩
-        var overlay = document.createElement('div');
+        let overlay = document.createElement('div');
         overlay.className = 'whoisai-history-overlay';
 
-        var card = document.createElement('div');
+        let card = document.createElement('div');
         card.className = 'whoisai-history-card';
 
-        var header = document.createElement('div');
+        let header = document.createElement('div');
         header.className = 'whoisai-history-header';
         header.innerHTML = '<h3>聊天记录</h3>';
-        var closeBtn = document.createElement('button');
+        let closeBtn = document.createElement('button');
         closeBtn.className = 'whoisai-history-close';
         closeBtn.innerHTML = '<svg viewBox="0 0 24 24" style="width:18px;height:18px;"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
         closeBtn.addEventListener('click', function () { overlay.remove(); });
         header.appendChild(closeBtn);
         card.appendChild(header);
 
-        var list = document.createElement('div');
+        let list = document.createElement('div');
         list.className = 'whoisai-history-list';
 
         if (!messages || messages.length === 0) {
             list.innerHTML = '<div class="whoisai-history-empty">暂无聊天记录</div>';
         } else {
-            messages.forEach(function (msg) {
-                var row = document.createElement('div');
+            messages.forEach((msg) => {
+                let row = document.createElement('div');
                 row.className = 'whoisai-history-msg';
 
-                var meta = document.createElement('div');
+                let meta = document.createElement('div');
                 meta.className = 'whoisai-history-meta';
-                var sender = nameMap[msg.sender_seat] || msg.sender_name || ('玩家' + msg.sender_seat);
+                let sender = nameMap[msg.sender_seat] || msg.sender_name || ('玩家' + msg.sender_seat);
                 meta.textContent = sender + ' · ' + (msg.time || '');
 
-                var text = document.createElement('div');
+                let text = document.createElement('div');
                 text.className = 'whoisai-history-text';
                 text.textContent = msg.text;
 
@@ -1062,9 +1062,9 @@
         card.appendChild(list);
 
         // 底部关闭按钮
-        var footer = document.createElement('div');
+        let footer = document.createElement('div');
         footer.className = 'whoisai-history-footer';
-        var footerBtn = document.createElement('button');
+        let footerBtn = document.createElement('button');
         footerBtn.className = 'whoisai-end-return';
         footerBtn.textContent = '关闭';
         footerBtn.addEventListener('click', function () { overlay.remove(); });
@@ -1083,7 +1083,7 @@
 
     // ==================== 工具函数 ====================
     function escapeHtml(text) {
-        var d = document.createElement('div');
+        let d = document.createElement('div');
         d.textContent = text;
         return d.innerHTML;
     }
@@ -1097,14 +1097,14 @@
     });
     // ==================== 举报 ====================
     function showWhoisAIReportDialog(targetName, messageContent) {
-        var overlay = document.createElement('div');
+        let overlay = document.createElement('div');
         overlay.className = 'whoisai-report-overlay';
 
         overlay.innerHTML =
             '<div class="whoisai-report-card">' +
                 '<h3>举报消息</h3>' +
-                '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">举报来自 <strong>' + escapeHtml(targetName) + '</strong> 的消息</p>' +
-                '<p style="font-size:12px;color:var(--text-subtle);background:var(--surface-violet-subtle, #f3f0ff);padding:6px 10px;border-radius:6px;margin-bottom:10px;max-height:60px;overflow:hidden;">' + escapeHtml(messageContent || '（空消息）') + '</p>' +
+                '<p style="font-size:13px;color:let(--text-secondary);margin-bottom:10px;">举报来自 <strong>' + escapeHtml(targetName) + '</strong> 的消息</p>' +
+                '<p style="font-size:12px;color:let(--text-subtle);background:let(--surface-violet-subtle, #f3f0ff);padding:6px 10px;border-radius:6px;margin-bottom:10px;max-height:60px;overflow:hidden;">' + escapeHtml(messageContent || '（空消息）') + '</p>' +
                 '<select id="whoisai-report-reason">' +
                     '<option value="">请选择举报原因</option>' +
                     '<option value="垃圾广告">垃圾广告</option>' +
@@ -1121,12 +1121,12 @@
 
         document.body.appendChild(overlay);
 
-        var $reason = overlay.querySelector('#whoisai-report-reason');
+        let $reason = overlay.querySelector('#whoisai-report-reason');
         overlay.querySelector('#whoisai-report-cancel').addEventListener('click', function () { overlay.remove(); });
         overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
 
         overlay.querySelector('#whoisai-report-submit').addEventListener('click', function () {
-            var reason = $reason.value;
+            let reason = $reason.value;
             if (!reason) { showTopToast('请选择举报原因', true); return; }
             send({
                 type: 'WhoisAI_report',

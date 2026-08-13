@@ -181,7 +181,7 @@ function updateThemeIcon(theme) {
 
 // ---- 用户数据存储 ----
 
-var USERDATA_KEY = 'UserData';
+let USERDATA_KEY = 'UserData';
 
 function getUserdata() {
     try {
@@ -247,8 +247,8 @@ function toggleStickerFavorite(id) {
 }
 
 // ---- Sticker 跨页面缓存（供 whoisai 等子页面复用 stickerMap） ----
-var STICKER_CACHE_KEY = 'sticker_cache';
-var STICKER_VERSION_KEY = 'sticker_cache_version';
+let STICKER_CACHE_KEY = 'sticker_cache';
+let STICKER_VERSION_KEY = 'sticker_cache_version';
 
 function saveStickerCache(map, version) {
     try {
@@ -261,22 +261,22 @@ function saveStickerCache(map, version) {
 
 function loadStickerCache() {
     try {
-        var raw = localStorage.getItem(STICKER_CACHE_KEY);
+        let raw = localStorage.getItem(STICKER_CACHE_KEY);
         return raw ? JSON.parse(raw) : {};
     } catch (_) { return {}; }
 }
 
 function getStickerCacheVersion() {
     try {
-        var v = localStorage.getItem(STICKER_VERSION_KEY);
+        let v = localStorage.getItem(STICKER_VERSION_KEY);
         return v ? parseInt(v, 10) : 0;
     } catch (_) { return 0; }
 }
 
 function handleStickersList(data) {
-    var map = {};
+    let map = {};
     if (data.stickers) {
-        data.stickers.forEach(function (s) {
+        data.stickers.forEach((s) => {
             map[s.id] = { name: s.name, url: s.url, source: s.source || 'default', status: s.status || 'approved' };
         });
     }
@@ -284,9 +284,9 @@ function handleStickersList(data) {
 
     // 清理已不存在的收藏 ID：后台可能删除了某些表情，
     // 但 UserData.stickerFavorites 还保留着旧 ID，导致收藏标签页显示为空
-    var favs = getStickerFavorites();
+    let favs = getStickerFavorites();
     if (favs.length > 0) {
-        var cleaned = favs.filter(function (id) { return map.hasOwnProperty(id); });
+        let cleaned = favs.filter((id) => { return map.hasOwnProperty(id); });
         if (cleaned.length !== favs.length) {
             setStickerFavorites(cleaned);
         }
@@ -296,22 +296,22 @@ function handleStickersList(data) {
 }
 
 function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
-    var keys = stickerMap ? Object.keys(stickerMap) : [];
+    let keys = stickerMap ? Object.keys(stickerMap) : [];
     if (keys.length === 0) {
-        var cached = loadStickerCache();
+        let cached = loadStickerCache();
         if (Object.keys(cached).length > 0) stickerMap = cached;
     }
 
-    var favs = getStickerFavorites();
+    let favs = getStickerFavorites();
     if (!Array.isArray(favs)) favs = [];
 
-    var activeTab = bodyEl.dataset.tab || 'mine';
-    var ids = Object.keys(stickerMap || {});
+    let activeTab = bodyEl.dataset.tab || 'mine';
+    let ids = Object.keys(stickerMap || {});
 
     if (activeTab === 'mine') {
-        ids = ids.filter(function (id) { return stickerMap[id].source === 'mine' && stickerMap[id].status === 'approved'; });
+        ids = ids.filter((id) => { return stickerMap[id].source === 'mine' && stickerMap[id].status === 'approved'; });
     } else if (activeTab === 'default') {
-        ids = ids.filter(function (id) { return stickerMap[id].source === 'default'; });
+        ids = ids.filter((id) => { return stickerMap[id].source === 'default'; });
     }
 
     bodyEl.innerHTML = '';
@@ -322,13 +322,19 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
         return;
     }
 
-    ids.forEach(function (id) {
-        var s = stickerMap[id];
-        var item = document.createElement('div');
+    ids.forEach((id) => {
+        let s = stickerMap[id];
+        let item = document.createElement('div');
         item.className = 'sticker-picker-item';
         if (favs.indexOf(id) !== -1) item.classList.add('favorited');
         item.title = s.name;
         item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
+
+        // 表情图加载失败时，直接从列表中移除该项（不展示）
+        let img = item.querySelector('img');
+        img.addEventListener('error', function () {
+            item.remove();
+        });
 
         item.addEventListener('contextmenu', function (e) {
             e.preventDefault();
@@ -352,13 +358,13 @@ function resolveStickerUrl(stickerId, serverUrl, stickerMap) {
 
 // 表情面板 tab 切换（由各页面绑定）
 function bindStickerPickerTabs(pickerId, renderFn, repositionFn) {
-    var picker = document.getElementById(pickerId);
+    let picker = document.getElementById(pickerId);
     if (!picker) return;
-    var tabs = picker.querySelectorAll('.sticker-picker-tab');
-    tabs.forEach(function (tab) {
+    let tabs = picker.querySelectorAll('.sticker-picker-tab');
+    tabs.forEach((tab) => {
         tab.addEventListener('click', function () {
-            var body = picker.querySelector('.sticker-picker-body');
-            tabs.forEach(function (t) { t.classList.remove('active'); });
+            let body = picker.querySelector('.sticker-picker-body');
+            tabs.forEach((t) => { t.classList.remove('active'); });
             this.classList.add('active');
             body.dataset.tab = this.dataset.tab;
             if (renderFn) renderFn();
@@ -368,7 +374,11 @@ function bindStickerPickerTabs(pickerId, renderFn, repositionFn) {
 }
 
 function escapeHtmlAttr(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(str).replace(/&/g, '&amp;').replace(/\"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // ---- 浏览器指纹 ----
@@ -378,7 +388,7 @@ function escapeHtmlAttr(str) {
 
 // 回退算法（FingerprintJS 不可用时使用）
 function generateFingerprint() {
-    var data = [
+    let data = [
         navigator.userAgent || '',
         navigator.language || '',
         screen.colorDepth || '',
@@ -388,24 +398,24 @@ function generateFingerprint() {
         navigator.hardwareConcurrency || 0,
         navigator.deviceMemory || 0,
     ].join('|');
-    var hash = 0;
-    for (var i = 0; i < data.length; i++) {
-        var chr = data.charCodeAt(i);
+    let hash = 0;
+    for (let i = 0; i < data.length; i++) {
+        let chr = data.charCodeAt(i);
         hash = ((hash << 5) - hash) + chr;
         hash |= 0;
     }
     return Math.abs(hash).toString(36);
 }
 
-var _fingerprint = generateFingerprint(); // 先用回退值，FingerprintJS 完成后会更新
+let _fingerprint = generateFingerprint(); // 先用回退值，FingerprintJS 完成后会更新
 
 // 异步初始化 FingerprintJS
 (function initFingerprintJS() {
     if (typeof FingerprintJS === 'undefined') return;
 
     FingerprintJS.load()
-        .then(function (fp) { return fp.get(); })
-        .then(function (result) {
+        .then((fp) => { return fp.get(); })
+        .then((result) => {
             if (result && result.visitorId) {
                 _fingerprint = result.visitorId;
                 if (typeof window.onFingerprintReady === 'function') {
@@ -413,7 +423,7 @@ var _fingerprint = generateFingerprint(); // 先用回退值，FingerprintJS 完
                 }
             }
         })
-        .catch(function () {
+        .catch(() => {
             // FingerprintJS 失败，保持回退值
         });
 })();

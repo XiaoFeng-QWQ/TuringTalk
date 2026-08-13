@@ -22,16 +22,16 @@ function resolvePath(obj, path) {
 }
 
 function setCookie(name, value, days) {
-    var d = new Date();
+    let d = new Date();
     d.setTime(d.getTime() + (days * 86400000));
     document.cookie = name + '=' + encodeURIComponent(value) + ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
 }
 
 function getCookie(name) {
-    var n = name + '=';
-    var ca = document.cookie.split(';');
-    for (var i = 0; i < ca.length; i++) {
-        var c = ca[i].trim();
+    let n = name + '=';
+    let ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+        let c = ca[i].trim();
         if (c.indexOf(n) === 0) return decodeURIComponent(c.substring(n.length));
     }
     return '';
@@ -52,25 +52,25 @@ function closeOverlay(el) {
 /** 独立版：封禁原因对话框 */
 function showBanReasonDialog(targetLabel, callback, defaultReason, onCancel) {
     defaultReason = defaultReason || '';
-    var overlay = document.createElement('div');
+    let overlay = document.createElement('div');
     overlay.className = 'ban-reason-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;';
-    overlay.innerHTML = '<div class="doodle-border" style="padding:20px;max-width:380px;width:90%;background:var(--surface-white);">' +
+    overlay.innerHTML = '<div class="doodle-border" style="padding:20px;max-width:380px;width:90%;background:let(--surface-white);">' +
         '<h3 style="margin:0 0 12px;font-size:16px;color:#e74c3c;">封禁 ' + escapeHtml(targetLabel) + '</h3>' +
-        '<textarea id="ban-reason-input" placeholder="请输入封禁原因（必填）" maxlength="100" style="width:100%;height:60px;padding:8px;border:2px solid var(--ink-black);border-radius:10px;font-size:13px;resize:none;outline:none;box-sizing:border-box;">' + escapeHtml(defaultReason) + '</textarea>' +
+        '<textarea id="ban-reason-input" placeholder="请输入封禁原因（必填）" maxlength="100" style="width:100%;height:60px;padding:8px;border:2px solid let(--ink-black);border-radius:10px;font-size:13px;resize:none;outline:none;box-sizing:border-box;">' + escapeHtml(defaultReason) + '</textarea>' +
         '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">' +
         '<button class="doodle-btn" id="ban-reason-cancel">取消</button>' +
         '<button class="doodle-btn danger" id="ban-reason-confirm">确认封禁</button>' +
         '</div></div>';
     document.body.appendChild(overlay);
 
-    var reasonInput = document.getElementById('ban-reason-input');
+    let reasonInput = document.getElementById('ban-reason-input');
     document.getElementById('ban-reason-cancel').addEventListener('click', function () {
         document.body.removeChild(overlay);
         if (onCancel) onCancel();
     });
     document.getElementById('ban-reason-confirm').addEventListener('click', function () {
-        var reason = reasonInput.value.trim();
+        let reason = reasonInput.value.trim();
         if (!reason) { alert('请输入封禁原因'); return; }
         document.body.removeChild(overlay);
         callback(reason);
@@ -86,21 +86,21 @@ function renderBannedList(records) {
     if (!bannedList) return;
 
     if (!records || !records.length) {
-        bannedList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">暂无封禁记录</div>';
+        bannedList.innerHTML = '<div style="text-align:center;color:let(--text-muted);padding:10px;">暂无封禁记录</div>';
         return;
     }
 
     let html = '';
-    records.forEach(function (r) {
+    records.forEach((r) => {
         const ip = escapeHtml(r.ip || '-');
         const pid = escapeHtml(r.player_id || '-');
         const reason = escapeHtml(r.reason || '-');
         const timeStr = r.banned_at ? new Date(r.banned_at * 1000).toLocaleString('zh-CN') : '-';
 
-        html += '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:4px;">' +
+        html += '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid let(--border);display:flex;justify-content:space-between;align-items:center;gap:4px;">' +
             '<div style="flex:1;min-width:0;">' +
-            '<div><span style="color:var(--text-muted);">IP:</span> ' + ip + ' <span style="color:var(--text-muted);">PID:</span> ' + pid + '</div>' +
-            '<div style="color:var(--text-muted);">' + timeStr + (reason !== '-' ? ' · ' + reason : '') + '</div>' +
+            '<div><span style="color:let(--text-muted);">IP:</span> ' + ip + ' <span style="color:let(--text-muted);">PID:</span> ' + pid + '</div>' +
+            '<div style="color:let(--text-muted);">' + timeStr + (reason !== '-' ? ' · ' + reason : '') + '</div>' +
             '</div>' +
             (_isSuperAdmin
                 ? '<button class="doodle-btn" style="font-size:10px;padding:2px 6px;flex-shrink:0;color:#4caf50;border-color:#4caf50;"' +
@@ -115,7 +115,7 @@ function renderBannedList(records) {
 
     bannedList.innerHTML = html;
 
-    bannedList.querySelectorAll('[data-unban-ip]').forEach(function (btn) {
+    bannedList.querySelectorAll('[data-unban-ip]').forEach((btn) => {
         btn.addEventListener('click', function () {
             if (!confirm('确认解封该用户？')) return;
             adminSend('admin_user_unban', {
@@ -352,7 +352,7 @@ function showAdminLogin() {
     adminLoginOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
     adminLoginOverlay.innerHTML = `
         <div class="doodle-border" style="padding:24px;max-width:360px;width:90%;background:#fff;">
-            <h2 style="font-size:20px;color:var(--ink-blue);margin:0 0 16px;text-align:center;">
+            <h2 style="font-size:20px;color:let(--ink-blue);margin:0 0 16px;text-align:center;">
                 <svg class="icon" viewBox="0 0 24 24" style="width:20px;height:20px;">
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
@@ -361,15 +361,15 @@ function showAdminLogin() {
             </h2>
             <div style="margin-bottom:12px;">
                 <input type="text" id="admin-login-username" placeholder="用户名"
-                    style="width:100%;padding:10px 12px;border:2px solid var(--ink-black);border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:8px;">
+                    style="width:100%;padding:10px 12px;border:2px solid let(--ink-black);border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:8px;">
                 <input type="password" id="admin-login-password" placeholder="密码"
-                    style="width:100%;padding:10px 12px;border:2px solid var(--ink-black);border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;">
+                    style="width:100%;padding:10px 12px;border:2px solid let(--ink-black);border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;">
             </div>
             <div id="admin-login-error" style="color:#e74c3c;font-size:12px;margin-bottom:8px;display:none;"></div>
             <div style="display:flex;gap:10px;justify-content:flex-end;">
                 <button class="doodle-btn" id="btn-admin-login-cancel" style="font-size:14px;">取消</button>
                 <button class="doodle-btn" id="btn-admin-login-submit"
-                    style="font-size:14px;background:var(--ink-blue);color:var(--surface-white);border-color:var(--ink-blue);">登录</button>
+                    style="font-size:14px;background:let(--ink-blue);color:let(--surface-white);border-color:let(--ink-blue);">登录</button>
             </div>
         </div>
     `;
@@ -700,7 +700,7 @@ function handleAdminMessage(data) {
             if (lobbyRateStatus && lobbyRateInput) {
                 const sec = data.seconds || 0;
                 lobbyRateStatus.textContent = sec <= 0 ? '当前：不限' : '当前：' + sec + ' 秒';
-                lobbyRateStatus.style.color = sec <= 0 ? 'var(--text-muted)' : 'var(--danger)';
+                lobbyRateStatus.style.color = sec <= 0 ? 'let(--text-muted)' : 'let(--danger)';
                 lobbyRateInput.value = sec;
             }
             break;
@@ -719,7 +719,7 @@ function handleAdminMessage(data) {
         case 'broadcast_result':
             broadcastStatus.style.display = 'block';
             broadcastStatus.textContent = data.message || '已发送';
-            broadcastStatus.style.color = 'var(--success)';
+            broadcastStatus.style.color = 'let(--success)';
             setTimeout(() => { broadcastStatus.style.display = 'none'; }, 4000);
             break;
 
@@ -939,7 +939,7 @@ function switchAdminTab(tab) {
         const active = t.name === tab;
         t.btn.classList.toggle('active', active);
         t.btn.style.background = active ? '#e8e0d4' : 'transparent';
-        t.btn.style.color = active ? 'var(--ink-blue)' : '#999';
+        t.btn.style.color = active ? 'let(--ink-blue)' : '#999';
         t.panel.style.display = active ? '' : 'none';
     });
 
@@ -1373,7 +1373,7 @@ function _scrollChatToBottom(chatBody) {
     if (!chatBody) return;
     // 使用 requestAnimationFrame 确保 DOM 已布局完成再滚动
     requestAnimationFrame(function () {
-        var isAtBottom = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight < 50;
+        let isAtBottom = chatBody.scrollHeight - chatBody.scrollTop - chatBody.clientHeight < 50;
         if (isAtBottom) {
             chatBody.scrollTop = chatBody.scrollHeight;
         }
@@ -1389,7 +1389,7 @@ function _adminAppendMessage(text, side, sender) {
 
     // 检测是否为表情包消息
     if (_isStickerText(text)) {
-        var stickerId = _parseStickerId(text);
+        let stickerId = _parseStickerId(text);
         if (stickerId) {
             _adminAppendSticker(stickerId, '', side, sender);
             return;
@@ -1411,8 +1411,8 @@ function _adminAppendMessage(text, side, sender) {
     bubble.className = 'chat-bubble ' + (side === 'right' ? 'chat-bubble-right' : 'chat-bubble-left');
     bubble.style.cssText = 'max-width:70%;padding:10px 14px;border-radius:12px;font-size:15px;line-height:1.5;word-break:break-word;' +
         (side === 'right'
-            ? 'background:var(--ink-blue);color:#fff;border-bottom-right-radius:4px;'
-            : 'background:#f0f0f0;color:var(--ink-black);border-bottom-left-radius:4px;');
+            ? 'background:let(--ink-blue);color:#fff;border-bottom-right-radius:4px;'
+            : 'background:#f0f0f0;color:let(--ink-black);border-bottom-left-radius:4px;');
     bubble.textContent = text;
     wrapper.appendChild(bubble);
 
@@ -1485,7 +1485,7 @@ function _isStickerText(text) {
  * 从 [sticker:ID] 格式文本中提取表情包 ID
  */
 function _parseStickerId(text) {
-    var m = text.match(/^\[sticker:([^\]]+)\]/);
+    let m = text.match(/^\[sticker:([^\]]+)\]/);
     return m ? m[1] : null;
 }
 
@@ -1511,7 +1511,7 @@ function hideAdminPanelContent() {
     const panel = document.getElementById('admin-panel-content');
     const headerBtn = document.getElementById('btn-exit-admin-header');
     if (prompt) prompt.style.display = '';
-    if (prompt) prompt.innerHTML = '<h2 style="color:var(--ink-blue);">管理后台</h2><p style="color:#888;">已退出管理模式</p>';
+    if (prompt) prompt.innerHTML = '<h2 style="color:let(--ink-blue);">管理后台</h2><p style="color:#888;">已退出管理模式</p>';
     if (panel) panel.style.display = 'none';
     if (headerBtn) headerBtn.style.display = 'none';
 }
@@ -1526,7 +1526,7 @@ function sendBroadcast() {
     if (!text) {
         broadcastStatus.style.display = 'block';
         broadcastStatus.textContent = '请输入公告内容';
-        broadcastStatus.style.color = 'var(--danger)';
+        broadcastStatus.style.color = 'let(--danger)';
         return;
     }
     const duration = parseInt(broadcastDuration.value) || 60;
@@ -1603,54 +1603,54 @@ function renderReportsList(reports, total, page, pageSize) {
         });
     });
 
-    var totalPages = Math.ceil(total / pageSize);
+    let totalPages = Math.ceil(total / pageSize);
     if (totalPages <= 1) {
         reportsPagination.innerHTML = '';
         return;
     }
-    var pageHtml = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + total + ' 条</span>';
+    let pageHtml = '<span style="font-size:11px;color:let(--text-muted);margin-right:4px;">共 ' + total + ' 条</span>';
 
-    var WINDOW = 2;
+    let WINDOW = 2;
     if (totalPages <= 9) {
-        for (var i = 1; i <= totalPages; i++) {
+        for (let i = 1; i <= totalPages; i++) {
             pageHtml += _reportPageBtn(i, page);
         }
     } else {
         pageHtml += _reportPageBtn(1, page);
 
-        var left = Math.max(2, page - WINDOW);
-        var right = Math.min(totalPages - 1, page + WINDOW);
+        let left = Math.max(2, page - WINDOW);
+        let right = Math.min(totalPages - 1, page + WINDOW);
 
         if (left > 2) {
-            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            pageHtml += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         } else if (left === 2) {
             pageHtml += _reportPageBtn(2, page);
         }
 
-        for (var j = left; j <= right; j++) {
+        for (let j = left; j <= right; j++) {
             if (j === 1 || j === totalPages) continue;
             if (j === 2 && left <= 2) continue;
             pageHtml += _reportPageBtn(j, page);
         }
 
         if (right < totalPages - 1) {
-            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            pageHtml += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         }
 
         pageHtml += _reportPageBtn(totalPages, page);
     }
 
     reportsPagination.innerHTML = pageHtml;
-    reportsPagination.querySelectorAll('[data-pg]').forEach(function (el) {
+    reportsPagination.querySelectorAll('[data-pg]').forEach((el) => {
         el.addEventListener('click', function () { loadReports(parseInt(this.getAttribute('data-pg'))); });
     });
 }
 
 function _reportPageBtn(pg, current) {
     if (pg === current) {
-        return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+        return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
     }
-    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
+    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
 }
 
 /**
@@ -1684,7 +1684,7 @@ function renderReportDetail(report) {
             <span>${label}</span>
             <span style="font-size:10px;color:#888;margin:0 4px;">IP: ${escapeHtml(ip)} · FP: ${fpShort}</span>
             <button class="doodle-btn ban-info-btn" data-ip="${escapeHtml(ip)}" data-fp="${escapeHtml(fp)}" data-pid="${escapeHtml(pid || '')}" data-label="${escapeHtml(label)}"
-                style="font-size:10px;padding:2px 8px;border-color:var(--danger);color:var(--danger);">封禁</button>
+                style="font-size:10px;padding:2px 8px;border-color:let(--danger);color:let(--danger);">封禁</button>
         `;
     };
 
@@ -1697,7 +1697,7 @@ function renderReportDetail(report) {
         </div>
         <p><b>原因：</b>${escapeHtml(report.reason || '无')}</p>
         <p><b>消息内容：</b></p>
-        <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:4px;padding:8px;max-height:120px;overflow-y:auto;white-space:pre-wrap;font-size:13px;color:var(--ink-black);">${escapeHtml(report.evidence || '无')}</div>
+        <div style="background:let(--card-bg);border:1px solid let(--border);border-radius:4px;padding:8px;max-height:120px;overflow-y:auto;white-space:pre-wrap;font-size:13px;color:let(--ink-black);">${escapeHtml(report.evidence || '无')}</div>
         <p><b>时间：</b>${escapeHtml(report.created_at)}</p>
         <p><b>状态：</b>${reviewedText}</p>
     `;
@@ -1766,7 +1766,7 @@ function renderStickerList(stickers) {
         item.innerHTML =
             '<label class="sticker-checkbox-label" style="position:absolute;top:4px;left:4px;z-index:2;cursor:pointer;">' +
             '<input type="checkbox" class="sticker-checkbox" data-sticker-id="' + escapeHtmlAttr(s.id) + '" ' +
-            'style="width:14px;height:14px;accent-color:var(--ink-blue);">' +
+            'style="width:14px;height:14px;accent-color:let(--ink-blue);">' +
             '</label>' +
             '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">' +
             '<span class="sticker-name">' + escapeHtml(s.name) + '</span>' +
@@ -1918,19 +1918,19 @@ function syncStickersFromJson() {
  */
 function _normalizeStickerItems(list) {
     if (!list || !list.length) return [];
-    const filtered = list.filter(function(item) {
+    const filtered = list.filter((item) => {
         const title = item.title || item.name || '';
         if (title.startsWith('sticker_')) return false;
         if (!item.url) return false;
         return /\.(png|jpe?g|gif|webp|bmp)(\?.*)?$/i.test(item.url);
     });
-    return filtered.map(function(item) {
+    return filtered.map((item) => {
         const title = item.title || item.name || '';
         return {
             name: title.substring(0, 20),
             url: item.url || ''
         };
-    }).filter(function(item) { return item.url; });
+    }).filter((item) => { return item.url; });
 }
 
 /**
@@ -1958,7 +1958,7 @@ function updateSyncStatus() {
 // ==================== 用户表情审核 ====================
 
 function loadStickerReviewList() {
-    var searchNickname = stickerReviewSearch ? stickerReviewSearch.value.trim() : '';
+    let searchNickname = stickerReviewSearch ? stickerReviewSearch.value.trim() : '';
     adminSend('admin_sticker_review_list', {
         page: _stickerReviewPage,
         page_size: _stickerReviewPageSize,
@@ -1976,7 +1976,7 @@ function renderStickerReviewList(stickers, total, page, pageSize) {
 
     stickerReviewList.innerHTML = '';
     if (!stickers || stickers.length === 0) {
-        var emptyText = _stickerReviewFilter === 'pending' ? '暂无待审核的用户表情'
+        let emptyText = _stickerReviewFilter === 'pending' ? '暂无待审核的用户表情'
             : (_stickerReviewFilter === 'approved' ? '暂无已通过的用户表情'
             : (_stickerReviewFilter === 'rejected' ? '暂无已拒绝的用户表情'
             : '暂无用户上传的表情'));
@@ -2000,7 +2000,7 @@ function renderStickerReviewList(stickers, total, page, pageSize) {
 
         const checkbox = '<label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;">'
             + '<input type="checkbox" class="sticker-review-check" data-user-id="' + escapeHtmlAttr(s.user_id)
-            + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" style="width:14px;height:14px;accent-color:var(--ink-blue);">'
+            + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" style="width:14px;height:14px;accent-color:let(--ink-blue);">'
             + '</label>';
 
         const statusBadge = '<span style="font-size:11px;color:' + (statusColor[s.status] || '#999') + ';font-weight:600;">'
@@ -2020,7 +2020,7 @@ function renderStickerReviewList(stickers, total, page, pageSize) {
         item.innerHTML = checkbox +
             '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy" class="sticker-review-thumb">'
             + '<div style="display:flex;flex-direction:column;gap:2px;font-size:12px;margin-left:8px;flex:1;min-width:0;">'
-                + '<span style="color:var(--text-muted);">用户: ' + escapeHtml(s.nickname || s.user_id || '未知') + '</span>'
+                + '<span style="color:let(--text-muted);">用户: ' + escapeHtml(s.nickname || s.user_id || '未知') + '</span>'
                 + statusBadge
                 + buttons
             + '</div>';
@@ -2053,7 +2053,7 @@ function renderStickerReviewList(stickers, total, page, pageSize) {
     });
 
     // 点击图片查看大图
-    stickerReviewList.querySelectorAll('img').forEach(function (img) {
+    stickerReviewList.querySelectorAll('img').forEach((img) => {
         img.style.cursor = 'pointer';
         img.addEventListener('click', function (e) {
             e.stopPropagation();
@@ -2079,36 +2079,36 @@ function _renderStickerReviewPagination() {
     if (!stickerReviewPagination) return;
     stickerReviewPagination.innerHTML = '';
 
-    var totalPages = Math.ceil(_stickerReviewTotal / _stickerReviewPageSize);
+    let totalPages = Math.ceil(_stickerReviewTotal / _stickerReviewPageSize);
     if (totalPages <= 1) return;
 
-    var html = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + _stickerReviewTotal + ' 条</span>';
+    let html = '<span style="font-size:11px;color:let(--text-muted);margin-right:4px;">共 ' + _stickerReviewTotal + ' 条</span>';
 
-    var WINDOW = 2;
+    let WINDOW = 2;
     if (totalPages <= 9) {
-        for (var i = 1; i <= totalPages; i++) {
+        for (let i = 1; i <= totalPages; i++) {
             html += _reviewPageBtn(i, i === _stickerReviewPage);
         }
     } else {
         html += _reviewPageBtn(1, _stickerReviewPage === 1);
 
-        var left = Math.max(2, _stickerReviewPage - WINDOW);
-        var right = Math.min(totalPages - 1, _stickerReviewPage + WINDOW);
+        let left = Math.max(2, _stickerReviewPage - WINDOW);
+        let right = Math.min(totalPages - 1, _stickerReviewPage + WINDOW);
 
         if (left > 2) {
-            html += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            html += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         } else if (left === 2) {
             html += _reviewPageBtn(2, _stickerReviewPage === 2);
         }
 
-        for (var j = left; j <= right; j++) {
+        for (let j = left; j <= right; j++) {
             if (j === 1 || j === totalPages) continue;
             if (j === 2 && left <= 2) continue;
             html += _reviewPageBtn(j, j === _stickerReviewPage);
         }
 
         if (right < totalPages - 1) {
-            html += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            html += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         }
 
         html += _reviewPageBtn(totalPages, _stickerReviewPage === totalPages);
@@ -2116,7 +2116,7 @@ function _renderStickerReviewPagination() {
 
     stickerReviewPagination.innerHTML = html;
 
-    stickerReviewPagination.querySelectorAll('[data-review-pg]').forEach(function (el) {
+    stickerReviewPagination.querySelectorAll('[data-review-pg]').forEach((el) => {
         el.addEventListener('click', function () {
             _stickerReviewPage = parseInt(this.getAttribute('data-review-pg'));
             loadStickerReviewList();
@@ -2127,37 +2127,37 @@ function _renderStickerReviewPagination() {
 
 function _reviewPageBtn(pg, current) {
     if (current) {
-        return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+        return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
     }
-    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-review-pg="' + pg + '">' + pg + '</span>';
+    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-review-pg="' + pg + '">' + pg + '</span>';
 }
 
 function _getSelectedStickersForReview() {
-    var selected = [];
+    let selected = [];
     if (!stickerReviewList) return selected;
-    stickerReviewList.querySelectorAll('.sticker-review-check:checked').forEach(function (cb) {
+    stickerReviewList.querySelectorAll('.sticker-review-check:checked').forEach((cb) => {
         selected.push({ user_id: cb.getAttribute('data-user-id'), id: cb.getAttribute('data-sticker-id') });
     });
     return selected;
 }
 
 function _batchReviewStickers(list, action) {
-    var items = list.map(function(item) {
+    let items = list.map((item) => {
         return { user_id: item.user_id, id: item.id };
     });
-    var batchAction = (action === 'admin_sticker_approve')
+    let batchAction = (action === 'admin_sticker_approve')
         ? 'admin_sticker_batch_approve'
         : 'admin_sticker_batch_reject';
     // 每批 100 个，避免 WS 单帧过大
-    var CHUNK = 100;
-    var idx = 0;
+    let CHUNK = 100;
+    let idx = 0;
     function nextChunk() {
         if (idx >= items.length) {
             if (idx > 0) showAdminToast('批量操作完成，共 ' + items.length + ' 个表情', 'info');
             loadStickerReviewList();
             return;
         }
-        var chunk = items.slice(idx, idx + CHUNK);
+        let chunk = items.slice(idx, idx + CHUNK);
         idx += CHUNK;
         adminSend(batchAction, { items: chunk });
         // 下一批在当前批响应后触发（由 admin_sticker_batch_approved/rejected 处理）
@@ -2181,9 +2181,9 @@ function createAdminManagementPanel() {
         <h4>管理员列表</h4>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
             <input type="text" id="admin-add-username" placeholder="用户名"
-                style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
+                style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
             <input type="password" id="admin-add-password" placeholder="密码"
-                style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
+                style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
             <button class="doodle-btn" id="btn-add-admin"
                 style="white-space:nowrap;font-size:12px;padding:6px 12px;">添加</button>
         </div>
@@ -2195,9 +2195,9 @@ function createAdminManagementPanel() {
             <label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">修改自己的密码</label>
             <div style="display:flex;gap:8px;margin-bottom:4px;">
                 <input type="password" id="admin-own-password-old" placeholder="当前密码"
-                    style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
+                    style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
                 <input type="password" id="admin-own-password-new" placeholder="新密码"
-                    style="flex:1;padding:6px 10px;border:2px solid var(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
+                    style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
                 <button class="doodle-btn" id="btn-change-own-password"
                     style="white-space:nowrap;font-size:12px;padding:6px 12px;">修改</button>
             </div>
@@ -2262,7 +2262,7 @@ function renderAdminList(admins) {
                     <span style="font-size:11px;color:#888;">${a.role === 'super_admin' ? '(超级管理员)' : '普通管理员'} · ${escapeHtml(a.created_at || '')} 最后一次登录时间：${escapeHtml(a.last_login_at || '')}</span>
                 </div>
                 <button class="doodle-btn admin-delete-btn" data-id="${escapeHtml(a.id)}"
-                    style="font-size:10px;padding:2px 8px;color:var(--danger);border-color:var(--danger);">删除</button>
+                    style="font-size:10px;padding:2px 8px;color:let(--danger);border-color:let(--danger);">删除</button>
             </div>
         `;
     });
@@ -2343,7 +2343,7 @@ function renderLogList(logs, total, page, pageSize, logType) {
             <div class="session-row" style="flex-wrap:wrap;">
                 <div class="session-info" style="flex:1;min-width:0;">
                     <div style="font-size:12px;">
-                        <span style="font-weight:bold;color:var(--ink-blue);">${escapeHtml(label)}</span>
+                        <span style="font-weight:bold;color:let(--ink-blue);">${escapeHtml(label)}</span>
                         <span style="font-size:10px;color:#888;">by ${escapeHtml(log.username || '?')}</span>
                         ${log.ip ? `<span style="font-size:10px;color:#999;margin-left:4px;">IP: ${escapeHtml(log.ip)}</span>` : ''}
                     </div>
@@ -2358,54 +2358,54 @@ function renderLogList(logs, total, page, pageSize, logType) {
     });
     adminLogListEl.innerHTML = html;
 
-    var totalPages = Math.ceil(total / pageSize);
+    let totalPages = Math.ceil(total / pageSize);
     if (totalPages <= 1) {
         adminLogPaginationEl.innerHTML = '';
         return;
     }
-    var pageHtml = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + total + ' 条</span>';
+    let pageHtml = '<span style="font-size:11px;color:let(--text-muted);margin-right:4px;">共 ' + total + ' 条</span>';
 
-    var WINDOW = 2;
+    let WINDOW = 2;
     if (totalPages <= 9) {
-        for (var i = 1; i <= totalPages; i++) {
+        for (let i = 1; i <= totalPages; i++) {
             pageHtml += _logPageBtn(i, page);
         }
     } else {
         pageHtml += _logPageBtn(1, page);
 
-        var left = Math.max(2, page - WINDOW);
-        var right = Math.min(totalPages - 1, page + WINDOW);
+        let left = Math.max(2, page - WINDOW);
+        let right = Math.min(totalPages - 1, page + WINDOW);
 
         if (left > 2) {
-            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            pageHtml += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         } else if (left === 2) {
             pageHtml += _logPageBtn(2, page);
         }
 
-        for (var j = left; j <= right; j++) {
+        for (let j = left; j <= right; j++) {
             if (j === 1 || j === totalPages) continue;
             if (j === 2 && left <= 2) continue;
             pageHtml += _logPageBtn(j, page);
         }
 
         if (right < totalPages - 1) {
-            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            pageHtml += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         }
 
         pageHtml += _logPageBtn(totalPages, page);
     }
 
     adminLogPaginationEl.innerHTML = pageHtml;
-    adminLogPaginationEl.querySelectorAll('[data-pg]').forEach(function (el) {
+    adminLogPaginationEl.querySelectorAll('[data-pg]').forEach((el) => {
         el.addEventListener('click', function () { loadLogs(parseInt(this.getAttribute('data-pg'))); });
     });
 }
 
 function _logPageBtn(pg, current) {
     if (pg === current) {
-        return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+        return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
     }
-    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
+    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
 }
 
 // ==================== 在线状态 ====================
@@ -2426,7 +2426,7 @@ function initOnlineStatus() {
     panel.style.cssText = `
         display:none;
         position:absolute;top:100%;left:50%;transform:translateX(-50%) rotate(-1deg);margin-top:6px;
-        background:var(--surface-white);border:2px solid var(--ink-black);
+        background:let(--surface-white);border:2px solid let(--ink-black);
         border-radius:10px;padding:10px 12px;min-width:170px;
         max-height:240px;overflow-y:auto;font-size:12px;
         box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:1000;
@@ -2524,7 +2524,7 @@ function renderOnlineList(list) {
         return;
     }
 
-    let html = '<div style="font-weight:bold;font-size:11px;color:var(--ink-blue);margin-bottom:4px;">在线管理员:</div>';
+    let html = '<div style="font-weight:bold;font-size:11px;color:let(--ink-blue);margin-bottom:4px;">在线管理员:</div>';
     list.forEach(admin => {
         const badge = admin.is_super
             ? '<span style="color:#e74c3c;font-size:10px;margin-left:4px;">超级</span>'
@@ -2554,29 +2554,29 @@ function showAdminToast(message, type, duration) {
     if (duration === undefined) duration = 4000;
 
     // 确保容器存在
-    var container = document.querySelector('.admin-toast-container');
+    let container = document.querySelector('.admin-toast-container');
     if (!container) {
         container = document.createElement('div');
         container.className = 'admin-toast-container';
         document.body.appendChild(container);
     }
 
-    var el = document.createElement('div');
+    let el = document.createElement('div');
     el.className = 'admin-toast ' + type;
     el.setAttribute('role', 'alert');
 
     // type 对应的图标
-    var icons = {
+    let icons = {
         error:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
         success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
         info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
     };
-    var icon = icons[type] || icons.error;
+    let icon = icons[type] || icons.error;
 
     el.innerHTML = '<span class="admin-toast-icon">' + icon + '</span><span class="admin-toast-msg">' + String(message) + '</span>';
 
     // 关闭按钮
-    var closeBtn = document.createElement('button');
+    let closeBtn = document.createElement('button');
     closeBtn.className = 'admin-toast-close';
     closeBtn.innerHTML = '&times;';
     closeBtn.addEventListener('click', function () { _adminToastDismiss(el); });
@@ -2584,7 +2584,7 @@ function showAdminToast(message, type, duration) {
 
     // 进度条
     if (duration > 0) {
-        var bar = document.createElement('span');
+        let bar = document.createElement('span');
         bar.className = 'admin-toast-bar';
         bar.style.transition = 'width ' + duration + 'ms linear';
         el.appendChild(bar);
@@ -2594,7 +2594,7 @@ function showAdminToast(message, type, duration) {
     container.appendChild(el);
 
     // 限制最多 5 条
-    var all = container.querySelectorAll('.admin-toast');
+    let all = container.querySelectorAll('.admin-toast');
     if (all.length > 5) all[0].remove();
 
     if (duration > 0) {
@@ -2618,16 +2618,16 @@ function repositionToasts() {}
 function renderLobbyPlayers(players) {
     if (!lobbyPlayersList) return;
     if (!players.length) {
-        lobbyPlayersList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">暂无在线玩家</div>';
+        lobbyPlayersList.innerHTML = '<div style="text-align:center;color:let(--text-muted);padding:10px;">暂无在线玩家</div>';
         if (lobbyPlayersActions) lobbyPlayersActions.style.display = 'none';
         return;
     }
     if (lobbyPlayersActions) lobbyPlayersActions.style.display = 'flex';
     let html = '';
     players.forEach(p => {
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--border-light);font-size:12px;">' +
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid let(--border-light);font-size:12px;">' +
             '<span><input type="checkbox" class="lobby-player-check" data-fd="' + p.fd + '" style="margin:0 6px 0 0;vertical-align:middle;">' +
-            '<strong>' + escapeHtml(p.nickname) + '</strong> <span style="color:var(--text-muted);">(fd=' + p.fd + ')</span></span>' +
+            '<strong>' + escapeHtml(p.nickname) + '</strong> <span style="color:let(--text-muted);">(fd=' + p.fd + ')</span></span>' +
             '<span style="display:flex;gap:4px;">' +
                 '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-ban-fd="' + p.fd + '" data-ban-name="' + escapeHtmlAttr(p.nickname) + '">封禁</button>' +
             '</span>' +
@@ -2669,7 +2669,7 @@ function renderLobbyMessages(messages, total, page, pageSize) {
 function _doRenderLobbyMessages() {
     if (!lobbyMessagesList) return;
     if (!_lobbyAllMessages.length) {
-        lobbyMessagesList.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">暂无消息</div>';
+        lobbyMessagesList.innerHTML = '<div style="text-align:center;color:let(--text-muted);padding:10px;">暂无消息</div>';
         if (lobbyMessagesActions) lobbyMessagesActions.style.display = 'none';
         return;
     }
@@ -2681,12 +2681,12 @@ function _doRenderLobbyMessages() {
         const displayContent = isSticker
             ? ('[表情: ' + (m.sticker_name || m.sticker_id) + ']')
             : (m.content || '');
-        html += '<div style="padding:2px 0;border-bottom:1px dashed var(--border-lighter);word-break:break-all;">' +
+        html += '<div style="padding:2px 0;border-bottom:1px dashed let(--border-lighter);word-break:break-all;">' +
             '<input type="checkbox" class="lobby-msg-check" data-id="' + m.id + '" style="margin:0 4px 0 0;vertical-align:middle;">' +
-            '<span style="color:var(--text-muted);">#' + m.id + '</span> ' +
+            '<span style="color:let(--text-muted);">#' + m.id + '</span> ' +
             '<strong>' + escapeHtml(m.sender_name || '') + '</strong>: ' +
             escapeHtml(displayContent) +
-            ' <span style="color:var(--text-muted);font-size:10px;">' + escapeHtml(timeStr) + '</span>' +
+            ' <span style="color:let(--text-muted);font-size:10px;">' + escapeHtml(timeStr) + '</span>' +
             ' <button class="doodle-btn" style="font-size:10px;padding:0 4px;margin-left:4px;" data-del-id="' + m.id + '">删除</button>' +
         '</div>';
     });
@@ -2727,13 +2727,13 @@ function _renderLobbyPagination() {
     const cur = _lobbyPage;
     const WINDOW = 2;
 
-    let pageHtml = '<span style="font-size:11px;color:var(--text-muted);margin-right:4px;">共 ' + _lobbyTotal + ' 条</span>';
+    let pageHtml = '<span style="font-size:11px;color:let(--text-muted);margin-right:4px;">共 ' + _lobbyTotal + ' 条</span>';
 
     function pageBtn(i, isCurrent) {
         if (isCurrent) {
-            return '<span style="font-weight:bold;padding:2px 8px;background:var(--ink-blue);color:var(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + i + '</span>';
+            return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + i + '</span>';
         }
-        return '<span style="cursor:pointer;padding:2px 8px;border:1px solid var(--ink-blue);border-radius:4px;margin:0 2px;" data-lobby-pg="' + i + '">' + i + '</span>';
+        return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-lobby-pg="' + i + '">' + i + '</span>';
     }
 
     if (totalPages <= 9) {
@@ -2749,7 +2749,7 @@ function _renderLobbyPagination() {
         const right = Math.min(totalPages - 1, cur + WINDOW);
 
         if (left > 2) {
-            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            pageHtml += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         } else if (left === 2) {
             pageHtml += pageBtn(2, cur === 2);
         }
@@ -2761,7 +2761,7 @@ function _renderLobbyPagination() {
         }
 
         if (right < totalPages - 1) {
-            pageHtml += '<span style="padding:2px 4px;color:var(--text-muted);">...</span>';
+            pageHtml += '<span style="padding:2px 4px;color:let(--text-muted);">...</span>';
         }
 
         // 始终显示最后一页
@@ -2779,7 +2779,7 @@ function _renderLobbyPagination() {
 function renderUserSearchResult(users) {
     if (!userSearchResult) return;
     if (!users.length) {
-        userSearchResult.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:10px;">未找到匹配的用户</div>';
+        userSearchResult.innerHTML = '<div style="text-align:center;color:let(--text-muted);padding:10px;">未找到匹配的用户</div>';
         if (userSearchActions) userSearchActions.style.display = 'none';
         return;
     }
@@ -2788,16 +2788,16 @@ function renderUserSearchResult(users) {
     users.forEach(u => {
         const pid = u.player_id || '';
         const timeStr = u.last_played_at ? new Date(u.last_played_at * 1000).toLocaleString('zh-CN') : '-';
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--border-light);font-size:12px;">' +
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid let(--border-light);font-size:12px;">' +
             '<span><input type="checkbox" class="user-search-check"' +
             ' data-pid="' + escapeHtmlAttr(pid) + '"' +
             ' data-ip="' + escapeHtmlAttr(u.ip) + '"' +
             ' data-fp="' + escapeHtmlAttr(u.fp) + '"' +
             ' style="margin:0 6px 0 0;vertical-align:middle;">' +
             '<strong>' + escapeHtml(u.nickname || '(未设置)') + '</strong>' +
-            ' <span style="color:var(--text-muted);font-size:10px;">PID=' + escapeHtml(pid.substring(0, 12)) + '</span>' +
-            ' <span style="color:var(--text-muted);">IP=' + escapeHtml(u.ip) + '</span>' +
-            ' <span style="color:var(--text-muted);font-size:10px;">最后活跃: ' + escapeHtml(timeStr) + '</span>' +
+            ' <span style="color:let(--text-muted);font-size:10px;">PID=' + escapeHtml(pid.substring(0, 12)) + '</span>' +
+            ' <span style="color:let(--text-muted);">IP=' + escapeHtml(u.ip) + '</span>' +
+            ' <span style="color:let(--text-muted);font-size:10px;">最后活跃: ' + escapeHtml(timeStr) + '</span>' +
             '</span>' +
             '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-ban-pid="' + escapeHtmlAttr(pid) + '" data-ban-ip="' + escapeHtmlAttr(u.ip) + '" data-ban-fp="' + escapeHtmlAttr(u.fp) + '" data-ban-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">封禁</button>' +
         '</div>';
@@ -3145,9 +3145,9 @@ function appendWhoisAISpectateMessage(msg) {
 
     // 检测是否为表情包消息
     if (_isStickerText(msg.text)) {
-        var stickerId = _parseStickerId(msg.text);
+        let stickerId = _parseStickerId(msg.text);
         if (stickerId) {
-            var url = (typeof stickerMap !== 'undefined' && stickerMap[stickerId]) ? stickerMap[stickerId].url : '';
+            let url = (typeof stickerMap !== 'undefined' && stickerMap[stickerId]) ? stickerMap[stickerId].url : '';
 
             const wrapper = document.createElement('div');
             wrapper.className = 'chat-bubble-wrapper';
@@ -3471,8 +3471,8 @@ function initAdminEvents() {
     // 用户表情审核全选
     if (stickerReviewSelectAll) {
         stickerReviewSelectAll.addEventListener('change', function () {
-            var checked = this.checked;
-            stickerReviewList.querySelectorAll('.sticker-review-check').forEach(function (cb) {
+            let checked = this.checked;
+            stickerReviewList.querySelectorAll('.sticker-review-check').forEach((cb) => {
                 cb.checked = checked;
             });
         });
@@ -3481,7 +3481,7 @@ function initAdminEvents() {
     // 用户表情审核批量通过
     if (btnStickerReviewBatchApprove) {
         btnStickerReviewBatchApprove.addEventListener('click', function () {
-            var selected = _getSelectedStickersForReview();
+            let selected = _getSelectedStickersForReview();
             if (selected.length === 0) { showAdminToast('请先选择表情', 'warn'); return; }
             if (!confirm('确认批量通过 ' + selected.length + ' 个表情？')) return;
             _batchReviewStickers(selected, 'admin_sticker_approve');
@@ -3491,7 +3491,7 @@ function initAdminEvents() {
     // 用户表情审核批量拒绝
     if (btnStickerReviewBatchReject) {
         btnStickerReviewBatchReject.addEventListener('click', function () {
-            var selected = _getSelectedStickersForReview();
+            let selected = _getSelectedStickersForReview();
             if (selected.length === 0) { showAdminToast('请先选择表情', 'warn'); return; }
             if (!confirm('确认批量拒绝 ' + selected.length + ' 个表情？')) return;
             _batchReviewStickers(selected, 'admin_sticker_reject');
@@ -3688,7 +3688,7 @@ function initAdminEvents() {
             if (stickerBatchProgress) {
                 stickerBatchProgress.style.display = 'block';
                 stickerBatchProgress.innerHTML = files.map((f, i) =>
-                    '<div id="batch-item-' + i + '" style="padding:3px 0;border-bottom:1px solid var(--border);">' +
+                    '<div id="batch-item-' + i + '" style="padding:3px 0;border-bottom:1px solid let(--border);">' +
                     '<span style="color:#888;">⏳</span> ' + escapeHtml(f.name) +
                     ' <span style="color:#888;font-size:11px;">等待上传...</span></div>'
                 ).join('');

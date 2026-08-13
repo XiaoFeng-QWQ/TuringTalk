@@ -151,6 +151,18 @@ class Application
                 }
             });
 
+            // 每 1 秒检查一次当前歌曲播放进度：播完由服务端统一切歌并全员广播（一起听歌）
+            \Swoole\Timer::tick(1000, function () use ($server, $webSocketHandler) {
+                try {
+                    $lobbyHandler = $webSocketHandler->getLobbyHandler();
+                    if ($lobbyHandler) {
+                        $lobbyHandler->checkSongProgress($server);
+                    }
+                } catch (\Throwable $e) {
+                    Logger::error('Song progress check failed', ['error' => $e->getMessage()]);
+                }
+            });
+
             // 每日 00:00 清空歌单
             $scheduleMidnightTimer = function () use ($server, $webSocketHandler, &$scheduleMidnightTimer) {
                 try {

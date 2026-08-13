@@ -52,6 +52,8 @@ class RedisService
     public const KP_LOBBY_MSGS     = self::LOBBY_PREFIX . 'msgs';       // msgs      → list  最新 100 条消息 JSON
     public const KP_LOBBY_WRITE_Q  = self::LOBBY_PREFIX . 'write_q';    // write_q   → list  异步写 MySQL 队列
     public const KP_LOBBY_MUTED    = self::LOBBY_PREFIX . 'muted';      // muted     → hash  fd => 解禁时间戳
+    public const KP_LOBBY_ISOLATED = self::LOBBY_PREFIX . 'isolated';   // isolated  → hash  playerId => 解除孤立时间戳
+    public const KP_LOBBY_REG_LIMIT = self::LOBBY_PREFIX . 'reg_limit';  // reg_limit  → 防批量注册：key ip/fp 前缀，10 分钟自动过期
     public const KP_LOBBY_MSG_ID   = self::LOBBY_PREFIX . 'msg_id';     // msg_id    → int   自增消息 ID
     public const KP_LOBBY_REPORTED = self::LOBBY_PREFIX . 'reported';    // reported  → set   已举报的消息 ID 集合
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限

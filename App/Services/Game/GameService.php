@@ -30,7 +30,7 @@ class GameService
      * 会话相关 key 的兜底 TTL（秒）
      * 正常流程由 cleanupSession() 主动清理；TTL 仅作为 Worker 崩溃等异常情况的兜底
      */
-    private const SESSION_TTL = 3600;
+    private const SESSION_TTL = 7200;
 
     public function __construct()
     {
@@ -396,15 +396,57 @@ class GameService
 
     /**
      * 原子抢占在线锁。成功返回 true，已被占用返回 false。
-     * 内部：SET NX EX 120s，一步完成，无 TOCTOU 竞态。
+     * 使用 Lua 脚本原子执行"检查→判断→写入"，消除 TOCTOU 竞态。
      */
-    public static function tryClaimPlayerOnline(string $playerId, int $fd): bool
+    public static function tryClaimPlayerOnline(string $playerId, int $fd, string $ip = '', string $fp = ''): bool
     {
+        $ip = trim($ip);
+        $fp = trim($fp);
         $redis = RedisService::connect();
-        $payload = json_encode(['fd' => $fd, 'ts' => time()], JSON_UNESCAPED_UNICODE);
-        // SET key value NX EX 120 → 仅当 key 不存在时写入，过期 120s
-        $result = $redis->set(RedisService::KP_PLAYER_ONLINE . $playerId, $payload, ['nx', 'ex' => 120]);
-        return $result !== false;
+        $key = RedisService::KP_PLAYER_ONLINE . $playerId;
+        $payload = json_encode(['fd' => $fd, 'ts' => time(), 'ip' => $ip, 'fp' => $fp], JSON_UNESCAPED_UNICODE);
+
+        // Lua 原子脚本：key 不存在则 SET NX 返回 1；
+        // key 存在则比较 ip/fp，同设备允许覆盖返回 1，否则返回 0
+        $lua = <<<'LUA'
+local key = KEYS[1]
+local payload = ARGV[1]
+local ip = ARGV[2]
+local fp = ARGV[3]
+local ttl = tonumber(ARGV[4])
+
+local existing = redis.call('GET', key)
+if existing == false then
+    redis.call('SET', key, payload, 'EX', ttl)
+    return 1
+end
+
+local ok, data = pcall(cjson.decode, existing)
+if not ok or type(data) ~= 'table' then
+    redis.call('SET', key, payload, 'EX', ttl)
+    return 1
+end
+
+local sameIp = (ip ~= '' and (data['ip'] or '') == ip)
+local sameFp = (fp ~= '' and (data['fp'] or '') == fp)
+
+-- 同设备（IP 或指纹匹配）→ 允许覆盖
+if sameIp or sameFp then
+    redis.call('SET', key, payload, 'EX', ttl)
+    return 1
+end
+
+-- 旧锁无 ip/fp 记录（退化场景，如旧版客户端）且新连接有 ip → 允许覆盖
+if (data['ip'] or '') == '' and (data['fp'] or '') == '' and ip ~= '' then
+    redis.call('SET', key, payload, 'EX', ttl)
+    return 1
+end
+
+return 0
+LUA;
+
+        $result = $redis->eval($lua, [$key, $payload, $ip, $fp, 120], 1);
+        return $result === 1;
     }
 
     /**
