@@ -39,9 +39,16 @@ class GomokuWebSocketHandler extends BaseGameHandler
 
     private GomokuService $gomokuService;
 
+    private ?LobbyChatWebSocketHandler $lobbyHandler = null;
+
     public function __construct()
     {
         $this->gomokuService = new GomokuService();
+    }
+
+    public function setLobbyHandler(LobbyChatWebSocketHandler $handler): void
+    {
+        $this->lobbyHandler = $handler;
     }
 
     public function sendError(Server $server, int $fd, string $message): void
@@ -103,6 +110,12 @@ class GomokuWebSocketHandler extends BaseGameHandler
                     break;
                 case 'get_stickers':
                     $this->handleGetStickers($server, $fd, $data);
+                    break;
+                case 'ping':
+                    $this->sendToPlayer($server, $fd, ['type' => 'pong']);
+                    break;
+                case 'gomoku_share_invite':
+                    $this->handleShareInvite($server, $fd);
                     break;
                 default:
                     Logger::info("Gomoku unknown type", ['type' => $type, 'fd' => $fd]);
@@ -224,6 +237,8 @@ class GomokuWebSocketHandler extends BaseGameHandler
             $this->sendError($server, $fd, $valid['error']);
             return;
         }
+        $nickname = $valid['nickname'];
+
         if ($valid['player_id']) {
             // 玩家ID级封禁检查
             if (BanRepository::isBanned($clientIp, $fp, (string)$valid['player_id'])) {
@@ -233,6 +248,8 @@ class GomokuWebSocketHandler extends BaseGameHandler
                 return;
             }
             GameService::setPlayerId($fd, $valid['player_id']);
+            $this->clientInfo[$key]['nickname'] = $nickname;
+            $this->clientInfo[$key]['player_id'] = $valid['player_id'];
             $this->claimOnlineLock($server, $fd, $valid['player_id']);
             $this->sendToPlayer($server, $fd, [
                 'type' => 'gomoku_joined',
@@ -248,6 +265,8 @@ class GomokuWebSocketHandler extends BaseGameHandler
             // getOrCreatePlayerId 内部已发送具体原因（同IP/指纹上限、频率限制等），不重复提示
             return;
         }
+        $this->clientInfo[$key]['nickname'] = $nickname;
+        $this->clientInfo[$key]['player_id'] = $playerId;
 
         // 玩家ID级封禁检查（新账号一般不在封禁表，但保险）
         if (BanRepository::isBanned($clientIp, $fp, (string)$playerId)) {
@@ -288,6 +307,7 @@ class GomokuWebSocketHandler extends BaseGameHandler
     {
         $data = Sanitizer::recursive($data);
 
+        // 身份已由 gomoku_join 声明并写入连接级上下文
         $playerId = GameService::getPlayerId($fd);
         if (!$playerId) {
             $this->sendError($server, $fd, '身份验证失败');
@@ -328,6 +348,71 @@ class GomokuWebSocketHandler extends BaseGameHandler
         ]);
     }
 
+    // ==================== 分享邀请到聊天室 ====================
+
+    private function handleShareInvite(Server $server, int $fd): void
+    {
+        $client = $this->gomokuService->getClient($fd);
+        if (!$client || empty($client['roomId'])) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'gomoku_invite_result',
+                'success' => false,
+                'message' => '请先创建房间',
+            ]);
+            return;
+        }
+
+        $roomId = $client['roomId'];
+        $room = $this->gomokuService->getRoom($roomId);
+        if (!$room) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'gomoku_invite_result',
+                'success' => false,
+                'message' => '房间不存在或已结束',
+            ]);
+            return;
+        }
+
+        $playerId = GameService::getPlayerId($fd);
+        if (!$playerId) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'gomoku_invite_result',
+                'success' => false, 
+                'message' => '身份验证失败',
+            ]);
+            return;
+        }
+
+        if (!$this->lobbyHandler) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'gomoku_invite_result',
+                'success' => false,
+                'message' => '聊天室暂不可用',
+            ]);
+            return;
+        }
+
+        $row = $this->clientInfo[(string)$fd] ?? [];
+        $nickname = $row['nickname'] ?? '';
+        if ($nickname === '') {
+            $player = PlayerStatsRepository::findById($playerId);
+            $nickname = $player['nickname'] ?? '玩家';
+        }
+
+        $this->lobbyHandler->publishGomokuInvite($server, [
+            'nickname'    => $nickname,
+            'player_id'   => $playerId,
+            'ip'          => $row['ip'] ?? '',
+            'fingerprint' => $row['fingerprint'] ?? '',
+        ], $roomId);
+
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'gomoku_invite_result',
+            'success' => true,
+            'message' => '对局邀请已发送到聊天室',
+        ]);
+    }
+
     // ==================== 加入房间 ====================
 
     private function handleJoinRoom(Server $server, int $fd, array $data): void
@@ -341,7 +426,7 @@ class GomokuWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 验证玩家身份（handleJoin 已设置，这里直接读取）
+        // 身份已由 gomoku_join 声明并写入连接级上下文
         $playerId = GameService::getPlayerId($fd);
         if (!$playerId) {
             $this->sendError($server, $fd, '身份验证失败');

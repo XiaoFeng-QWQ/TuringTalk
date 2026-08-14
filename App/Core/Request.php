@@ -28,12 +28,15 @@ class Request
 
     public function get(string $key, mixed $default = null): mixed
     {
-        return $this->swooleRequest->get[$key] ?? $default;
+        $value = $this->swooleRequest->get[$key] ?? $default;
+        // 防止数组参数注入（如 ?password[]=x）导致下游类型错误
+        return is_array($value) ? $default : $value;
     }
 
     public function post(string $key, mixed $default = null): mixed
     {
-        return $this->swooleRequest->post[$key] ?? $default;
+        $value = $this->swooleRequest->post[$key] ?? $default;
+        return is_array($value) ? $default : $value;
     }
 
     public function getHeader(string $key): ?string

@@ -60,6 +60,13 @@ class WebSocketHandler
             $h->setTracker($this->adminHandler->getTracker());
         }
 
+        // 五子棋分享邀请直接调用聊天室广播（无需前端再开 lobby 连接）
+        $gomokuHandler = $this->getGomokuHandler();
+        $lobbyHandler = $this->getLobbyHandler();
+        if ($gomokuHandler && $lobbyHandler) {
+            $gomokuHandler->setLobbyHandler($lobbyHandler);
+        }
+
         $adminPath = trim(Config::get('Admin.Path', 'admin'), '/');
         $this->adminWsPath = '/' . $adminPath . '/ws';
     }

@@ -122,6 +122,16 @@ class MatchService
                     continue;
                 }
 
+                // 跳过已在活跃对局中的对手（脏队列条目），避免 createSession 抛异常导致当前玩家匹配失败
+                if ($this->gameService->getSessionByPlayerFd($candidateFd) !== null) {
+                    Logger::warning('Match: opponent already in active session, skipping', [
+                        'fd' => $fd,
+                        'opponent_fd' => $candidateFd,
+                    ]);
+                    $this->cancelTimeout($candidateFd);
+                    continue;
+                }
+
                 $opponent = $candidate;
                 $opponentFd = $candidateFd;
                 break;
@@ -129,12 +139,26 @@ class MatchService
 
             if ($opponent !== null) {
                 $this->recordMatch($fd, $opponentFd);
-                $session = $this->gameService->createSession(
-                    $fd, $nickname,
-                    $opponentFd, $opponent['nickname'],
-                    $duration, false
-                );
-                return $this->notifyMatch($session, $fd);
+                try {
+                    $session = $this->gameService->createSession(
+                        $fd, $nickname,
+                        $opponentFd, $opponent['nickname'],
+                        $duration, false
+                    );
+                    return $this->notifyMatch($session, $fd);
+                } catch (\RuntimeException $e) {
+                    // 对手状态竞态兜底：降级 Bot，避免 join 因异常直接失败
+                    Logger::warning('Match: human session create failed, fallback to Bot', [
+                        'fd' => $fd,
+                        'opponent_fd' => $opponentFd,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $persona = Persona::random();
+                    $botName = $persona['name'];
+                    $session = $this->gameService->createSession($fd, $nickname, 0, $botName, $duration, true);
+                    $this->botService->setPersona($session['id'], $persona);
+                    return $this->notifyMatch($session, $fd);
+                }
             }
         } finally {
             $this->unlock();

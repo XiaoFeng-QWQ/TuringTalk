@@ -30,6 +30,7 @@
     const $hasIdentity = document.getElementById('lobby-has-identity');
     const $noIdentity = document.getElementById('lobby-no-identity');
     const $messages = document.getElementById('lobby-messages');
+    const $loading = document.getElementById('lobby-loading');
     const BILI_SPINNER_SVG = '<svg class="bili-spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>';
     const $chatInput = document.getElementById('lobby-chat-input');
     const $btnSend = document.getElementById('lobby-btn-send');
@@ -54,6 +55,8 @@
     const $btnGoHome = document.getElementById('lobby-btn-go-home');
     // 点歌系统
     const $btnSong = document.getElementById('lobby-btn-song');
+    // MD 语法教程（嵌入弹窗）
+    const $btnMdHelp = document.getElementById('lobby-btn-md-help');
     const $songPanel = document.getElementById('lobby-song-panel');
     const $songPlaylist = document.getElementById('lobby-song-playlist');
     const $songPlayingInfo = document.getElementById('lobby-song-playing-info');
@@ -95,6 +98,7 @@
     let songList = [];            // [{ id, name, artist, duration, votes, adder, remove_votes }]  播放队列
     let songPool = [];            // [{ id, name, artist, votes, voter_count }]      投票池
     let removeVotedSongs = new Set();  // 自己已投移除票的歌曲 ID（String）
+    let serverPollCounts = {};        // { vote_key: { counts: {optIdx: n} } }  MD 投票服务端计票缓存
     let songAudioA = new Audio();
     let songAudioB = new Audio();
     let songCurAudio = null;      // 当前正在播放的 Audio 实例
@@ -242,6 +246,7 @@
             document.getElementById('lobby-main').style.removeProperty('display');
             $hasIdentity.style.display = 'flex';
             $noIdentity.style.display = 'none';
+            if ($loading) $loading.style.display = 'flex';
             connect();
         } else {
             document.getElementById('lobby-match-panel').style.display = '';
@@ -266,6 +271,7 @@
     }
 
     function handleJoined(data) {
+        if ($loading) $loading.style.display = 'none';
         if (data.token && !getUserToken()) {
             setUserToken(data.token);
         }
@@ -400,6 +406,7 @@
             case 'system':
                 if (data.text && (data.text.includes('已有活跃连接') || data.text.includes('已在其他地方登录'))) {
                     showTopToast(data.text, true);
+                    if ($loading) $loading.style.display = 'none';
                     intentionalClose = true;
                     stopHeartbeat();
                     if (ws) { try { ws.close(); } catch (e) { } ws = null; }
@@ -482,6 +489,10 @@
 
             case 'lobby_vote_update':
                 handleVoteUpdate(data);
+                break;
+
+            case 'lobby_poll_update':
+                handlePollUpdate(data);
                 break;
 
             case 'lobby_remove_vote_update':
@@ -790,15 +801,22 @@
 
         let replyHtml = '';
         if (data.reply_to && data.reply_to.id) {
-            // 引用块同样走 mdFormat（支持内嵌 md 组件渲染），有 DOMPurify 消毒
-            let replyTextHtml = mdFormat(data.reply_to.text || '');
+            let replyText = String(data.reply_to.text || '');
             // 回复的是表情消息：引用块显示表情包图片
-            let replyStickerMatch = String(data.reply_to.text || '').match(/^\[sticker:(.+?)\]$/);
+            let replyStickerMatch = replyText.match(/^\[sticker:(.+?)\]$/);
+            let replyTextHtml;
             if (replyStickerMatch) {
                 let replyStickerUrl = resolveStickerUrl(replyStickerMatch[1], '', stickerMap);
                 replyTextHtml = replyStickerUrl
                     ? '<img class="reply-sticker-img" src="' + escapeHtmlAttr(replyStickerUrl) + '" alt="表情">'
                     : '[表情]';
+            } else if (hasSpecialMdSyntax(replyText)) {
+                // 引用消息含特殊语法：不渲染内嵌组件，直接显示占位提示
+                replyTextHtml = '<i>[特殊语法暂不支持预览]</i>';
+            } else {
+                // 引用块同样走 mdFormat（支持内嵌 md 组件渲染），有 DOMPurify 消毒；
+                // 但视频链接（B站/抖音）不解析成播放器，仅作为普通链接显示
+                replyTextHtml = mdFormat(replyText, { noVideo: true });
             }
             replyHtml = '<div class="lobby-msg-reply" data-reply-id="' + data.reply_to.id + '">' +
                 '<span class="reply-name">' + escapeHtml(data.reply_to.name) + '</span>: ' +
@@ -1316,21 +1334,14 @@
         if (e.key === 'Escape') hideContextMenu();
     });
 
-    // 委托：五子棋邀请卡片 → 加入对局跳转
+    // 委托：五子棋邀请卡片 → 加入对局（原地跳转）
     $messages.addEventListener('click', function (e) {
         let btn = e.target.closest('.gi-join-btn');
         if (btn) {
             e.preventDefault();
             let room = btn.getAttribute('data-room');
             if (room) {
-                // 通知已打开的五子棋标签页（如果有的话）
-                try {
-                    const ch = new BroadcastChannel('gomoku_invite');
-                    ch.postMessage({ room: room });
-                    ch.close();
-                } catch (_) {}
-                // 使用固定窗口名，确保只有一个五子棋标签页
-                window.open('/gomoku?room=' + encodeURIComponent(room), 'gomoku_tab');
+                window.location.href = '/gomoku?room=' + encodeURIComponent(room);
             }
         }
     });
@@ -1626,6 +1637,36 @@
         if (t === 'line') {
             // line:x1,y1,x2,y2
             return '<line x1="' + num(p[0], 0) + '" y1="' + num(p[1], 0) + '" x2="' + num(p[2], 10) + '" y2="' + num(p[3], 10) + '" stroke="' + c + '" stroke-width="0.12"/>';
+        }
+        if (t === 'polyline') {
+            // polyline:x1,y1,x2,y2,x3,y3,... （折线，多点直线相连）
+            let pts = [];
+            for (let i = 0; i + 1 < p.length; i += 2) {
+                pts.push(num(p[i], 0) + ',' + num(p[i + 1], 0));
+            }
+            if (pts.length < 2) return '';
+            return '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + c + '" stroke-width="0.12"/>';
+        }
+        if (t === 'curve') {
+            // curve:x1,y1,x2,y2,x3,y3,... （平滑曲线穿过各点，Catmull-Rom → 三次贝塞尔）
+            let pts = [];
+            for (let i = 0; i + 1 < p.length; i += 2) {
+                pts.push([num(p[i], 0), num(p[i + 1], 0)]);
+            }
+            if (pts.length < 2) return '';
+            let d = 'M ' + pts[0][0] + ',' + pts[0][1];
+            for (let i = 0; i < pts.length - 1; i++) {
+                let p0 = pts[i - 1] || pts[i];
+                let p1 = pts[i];
+                let p2 = pts[i + 1];
+                let p3 = pts[i + 2] || p2;
+                let cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+                let cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+                let cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+                let cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+                d += ' C ' + cp1x.toFixed(3) + ',' + cp1y.toFixed(3) + ' ' + cp2x.toFixed(3) + ',' + cp2y.toFixed(3) + ' ' + p2[0] + ',' + p2[1];
+            }
+            return '<path d="' + d + '" fill="none" stroke="' + c + '" stroke-width="0.12"/>';
         }
         if (t === 'rect') {
             return '<rect x="' + num(p[0], 0) + '" y="' + num(p[1], 0) + '" width="' + Math.max(0.1, num(p[2], 1)) + '" height="' + Math.max(0.1, num(p[3], 1)) + '" fill="' + c + '"/>';
@@ -1979,12 +2020,11 @@
     function handleVoteClick(optEl) {
         let voteEl = optEl.closest('.md-vote');
         if (!voteEl) return;
-        let vId = voteEl.getAttribute('data-vote-id') || '';
         let vMax = parseInt(voteEl.getAttribute('data-vote-max'), 10) || 1;
         let idx = parseInt(optEl.getAttribute('data-vote-opt'), 10);
-        let key = 'lobby_vote_' + vId;
-        let picked = [];
-        try { picked = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { picked = []; }
+        let isServer = voteEl.hasAttribute('data-vote-key');
+        let storageKey = isServer ? voteEl.getAttribute('data-vote-key') : (voteEl.getAttribute('data-vote-id') || '');
+        let picked = getVotePicked(storageKey);
         if (picked.indexOf(idx) >= 0) {
             picked = picked.filter(function (x) { return x !== idx; });
         } else {
@@ -1994,20 +2034,44 @@
             }
             picked.push(idx);
         }
-        try { localStorage.setItem(key, JSON.stringify(picked)); } catch (e) { }
+        try { localStorage.setItem('lobby_vote_' + storageKey, JSON.stringify(picked)); } catch (e) { }
         renderVote(voteEl);
+        // 消息内的投票：上报服务端做匿名计票并实时广播
+        if (isServer) {
+            let msgId = parseInt(voteEl.getAttribute('data-vote-msg'), 10) || 0;
+            let voteId = voteEl.getAttribute('data-vote-id') || '';
+            if (msgId && voteId) {
+                send({ type: 'lobby_poll_vote', message_id: msgId, vote_id: voteId, options: picked });
+            }
+        }
     }
 
-    // 重渲染投票：显示已选状态 + 本地计数/百分比条
-    function renderVote(voteEl) {
-        let vId = voteEl.getAttribute('data-vote-id') || '';
-        let key = 'lobby_vote_' + vId;
+    function getVotePicked(storageKey) {
         let picked = [];
-        try { picked = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { picked = []; }
+        try { picked = JSON.parse(localStorage.getItem('lobby_vote_' + storageKey) || '[]'); } catch (e) { picked = []; }
+        return Array.isArray(picked) ? picked : [];
+    }
+
+    // 重渲染投票：已选状态来自本地，票数来自服务端（消息内）或本地（弹窗/详情演示）
+    function renderVote(voteEl) {
+        let isServer = voteEl.hasAttribute('data-vote-key');
+        let storageKey = isServer ? voteEl.getAttribute('data-vote-key') : (voteEl.getAttribute('data-vote-id') || '');
+        let picked = getVotePicked(storageKey);
         let opts = voteEl.querySelectorAll('.md-vote-opt');
         let counts = {};
-        for (let i = 0; i < picked.length; i++) counts[picked[i]] = (counts[picked[i]] || 0) + 1;
-        let total = picked.length;
+        let total = 0;
+        if (isServer) {
+            let sc = serverPollCounts[voteEl.getAttribute('data-vote-key')];
+            if (sc && sc.counts) {
+                counts = sc.counts;
+                for (let k in counts) {
+                    if (Object.prototype.hasOwnProperty.call(counts, k)) total += (counts[k] || 0);
+                }
+            }
+        } else {
+            for (let i = 0; i < picked.length; i++) counts[picked[i]] = (counts[picked[i]] || 0) + 1;
+            total = picked.length;
+        }
         for (let i = 0; i < opts.length; i++) {
             let on = picked.indexOf(i) >= 0;
             let c = counts[i] || 0;
@@ -2194,9 +2258,20 @@
         }
         // 启动定时到点（at:）
         startMdAt(msgEl);
-        // 初始化投票显示（恢复本地已选状态）
+        // 初始化投票显示（消息内的投票绑定服务端计票；弹窗/详情内的投票保持本地演示）
+        let msgBubble = msgEl.classList && msgEl.classList.contains('lobby-msg') ? msgEl : msgEl.querySelector('.lobby-msg');
+        let msgIdForVote = msgBubble ? (msgBubble.dataset.msgId || '') : '';
         let votes = msgEl.querySelectorAll('.md-vote');
-        for (let vi = 0; vi < votes.length; vi++) renderVote(votes[vi]);
+        for (let vi = 0; vi < votes.length; vi++) {
+            if (msgIdForVote) {
+                let vid = votes[vi].getAttribute('data-vote-id') || '';
+                if (vid) {
+                    votes[vi].setAttribute('data-vote-key', msgIdForVote + ':' + vid);
+                    votes[vi].setAttribute('data-vote-msg', msgIdForVote);
+                }
+            }
+            renderVote(votes[vi]);
+        }
         // 刷新静态值引用（table 单元格 / text 内容 / if 内容：渲染时无法解析的 %值%，此时 def/var 已注册）
         let refCells = msgEl.querySelectorAll('.md-table th, .md-table td, .md-textbox-body, .md-if');
         for (let rc = 0; rc < refCells.length; rc++) {
@@ -2248,6 +2323,17 @@
         for (let g in lockGroups) {
             let locked = msgEl.querySelectorAll('[data-timer-lock-group="' + g + '"]');
             for (let m = 0; m < locked.length; m++) locked[m].dataset.timerLocked = '1';
+        }
+        // 初始化音乐播放器（Plyr）
+        let musics = msgEl.querySelectorAll('.md-music-audio');
+        for (let mi = 0; mi < musics.length; mi++) {
+            if (musics[mi].dataset.plyrInit) continue;
+            try {
+                new Plyr(musics[mi], {
+                    controls: ['play', 'progress', 'current-time', 'mute', 'volume']
+                });
+                musics[mi].dataset.plyrInit = '1';
+            } catch (e) { }
         }
         // 评估条件显示
         refreshShowIfs(msgEl);
@@ -2836,7 +2922,10 @@
             '<span class="md-modal-title">' + escapeHtml(url) + '</span>' +
             '<button class="md-modal-close" title="关闭">&times;</button>' +
             '</div>' +
-            '<div class="md-modal-body embed-body"><iframe src="' + escapeHtmlAttr(url) + '" loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe></div>' +
+            '<div class="md-modal-body embed-body">' +
+                '<div class="embed-loading">' + BILI_SPINNER_SVG + '<span>加载中…</span></div>' +
+                '<iframe src="' + escapeHtmlAttr(url) + '" loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>' +
+            '</div>' +
             '</div>';
         document.body.appendChild(overlay);
         applyModalAnim(overlay, btn || null);
@@ -2844,6 +2933,11 @@
         overlay.addEventListener('click', function (e) {
             if (e.target === overlay) overlay.remove();
         });
+        let iframe = overlay.querySelector('.embed-body iframe');
+        let loading = overlay.querySelector('.embed-loading');
+        if (iframe && loading) {
+            iframe.addEventListener('load', function () { if (loading.parentNode) loading.remove(); });
+        }
     }
 
     // MD 弹窗：标题 + 内容（内容支持 MD 渲染、嵌套按钮、内置图片）
@@ -3631,6 +3725,12 @@
         return { allowed: allowed, content: content };
     }
 
+    // 判断文本是否包含聊天室特殊语法（[!标签](type:...) 自定义组件）
+    function hasSpecialMdSyntax(content) {
+        if (!content) return false;
+        return /\[!([^\]]+)\]\((modal:|send:|copy:|embed:|confirm:|details:|rand:|input:|get:|ok:|cancel:|close:|switch:|var:|def:|cipher:|table:|music:|timer:|bar:|if:|hide:|text:|board:|vote:|dice:|at:|gallery:)/.test(content);
+    }
+
     function mdFormat(content, opts) {
         opts = opts || {};
         let allowImg = !!opts.allowImg; // 弹窗内允许图片，消息内禁止（防流量攻击）
@@ -3639,7 +3739,7 @@
         let codeProtect = protectMarkdownCode(text);
         text = codeProtect.text;
         // B站/抖音链接 → 占位（在纯文本上处理，避免 marked 自动链接生成 <a> 包裹冲突）
-        text = parseBilibiliLinks(text);
+        if (!opts.noVideo) text = parseBilibiliLinks(text);
 
         // 预处理动作按钮：modal:/send:/copy:/embed:/confirm:/details:/rand:/...
         // 内容可含空格/中文/括号/嵌套，marked 的 URL 解析有限制，统一提前提取为占位符
@@ -3911,7 +4011,7 @@
                 } else {
                     btnHtml = '<span class="md-music">' +
                         (mTitle ? '<span class="md-music-title">' + escapeHtml(mTitle) + '</span>' : '') +
-                        '<audio controls preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
+                        '<audio class="md-music-audio" controls preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
                         '</span>';
                 }
             } else if (ab.type === 'timer:') {
@@ -4574,6 +4674,15 @@
         preloadNextSong();
     }
 
+    function handlePollUpdate(data) {
+        let vk = data.vote_key;
+        if (!vk) return;
+        serverPollCounts[vk] = { counts: data.counts || {} };
+        document.querySelectorAll('.md-vote[data-vote-key="' + CSS.escape(vk) + '"]').forEach(function (ve) {
+            renderVote(ve);
+        });
+    }
+
     function handleVoteUpdate(data) {
         if (!data.song_id) return;
         let targetId = String(data.song_id);
@@ -5026,6 +5135,13 @@
         $songSyncToggle.checked = songSyncMode;
         if ($songSyncLabel) $songSyncLabel.textContent = songSyncMode ? '同步模式' : '个人模式';
         $songSyncToggle.addEventListener('change', toggleSongSyncMode);
+    }
+    if ($btnMdHelp) {
+        $btnMdHelp.addEventListener('click', function (e) {
+            e.preventDefault();
+            let url = $btnMdHelp.getAttribute('data-embed');
+            if (url) openEmbedModal(url, $btnMdHelp);
+        });
     }
     if ($songSearchBtn) {
         $songSearchBtn.addEventListener('click', searchSong);

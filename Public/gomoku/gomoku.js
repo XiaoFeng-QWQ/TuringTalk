@@ -44,6 +44,8 @@ let reconnecting = false;
 let intentionalClose = false;
 let _pendingToken = '';
 let _pendingNickname = '';
+let wsActionQueue = []; // 等待 gomoku_joined 确认身份后执行的业务动作
+let wsAuthed = false;   // 当前连接是否已完成身份声明
 
 // ================= 音效 =================
 const playStoneSound = () => {
@@ -94,6 +96,19 @@ function showPage(pageId) {
     Object.values(pages).forEach(p => { if (p) p.style.display = 'none'; });
     const target = pages[pageId];
     if (target) target.style.display = 'flex';
+}
+
+// ================= 加载指示器 =================
+function showGomokuLoading(text) {
+    const el = document.getElementById('gomoku-loading');
+    const t = document.getElementById('gomoku-loading-text');
+    if (t) t.textContent = text || '处理中…';
+    if (el) el.style.display = 'flex';
+}
+
+function hideGomokuLoading() {
+    const el = document.getElementById('gomoku-loading');
+    if (el) el.style.display = 'none';
 }
 
 // ================= 棋盘绘制 =================
@@ -560,10 +575,32 @@ function updateTimerDisplay() {
 // ================= UI =================
 function updateTurnDisplay() {
     const el = document.getElementById('turn-display');
-    if (!el) return;
-    if (gameOver) return;
-    const name = currentPlayer === BLACK ? '黑棋' : '白棋';
-    el.textContent = name + '行棋';
+    const you = document.getElementById('info-you');
+    const opp = document.getElementById('info-opponent');
+
+    if (el && !gameOver) {
+        const name = currentPlayer === BLACK ? '黑棋' : '白棋';
+        el.textContent = name + '行棋';
+    }
+
+    // 玩家信息栏随真实执子颜色变化：观战时显示黑方/白方
+    const youColor = isSpectator ? BLACK : (myColor === WHITE ? WHITE : BLACK);
+    const oppColor = youColor === BLACK ? WHITE : BLACK;
+
+    if (you) {
+        const dot = you.querySelector('.stone-dot');
+        if (dot) dot.className = 'stone-dot ' + (youColor === WHITE ? 'white' : 'black');
+        const label = you.querySelector('span:not(.stone-dot)');
+        if (label) label.textContent = isSpectator ? '黑方' : '你';
+        you.classList.toggle('active', !gameOver && currentPlayer === youColor);
+    }
+    if (opp) {
+        const dot = opp.querySelector('.stone-dot');
+        if (dot) dot.className = 'stone-dot ' + (oppColor === WHITE ? 'white' : 'black');
+        const label = opp.querySelector('span:not(.stone-dot)');
+        if (label && isSpectator) label.textContent = '白方';
+        opp.classList.toggle('active', !gameOver && currentPlayer === oppColor);
+    }
 }
 
 // ================= 棋盘点击 =================
@@ -603,11 +640,14 @@ function initGame() {
     document.getElementById('btn-surrender').style.display = isSpectator ? 'none' : 'inline-flex';
     document.getElementById('btn-rematch').style.display = 'none';
 
-    // 聊天区控制
+    // 聊天区控制：在线对局显示右下角气泡，浮层默认收起
+    const chatToggle = document.getElementById('chat-toggle');
     const chatArea = document.getElementById('chat-area');
     const specBadge = document.getElementById('spectator-badge');
-    if (chatArea) chatArea.style.display = isOnline ? 'flex' : 'none';
+    if (chatToggle) chatToggle.style.display = isOnline ? 'flex' : 'none';
+    if (chatArea) chatArea.style.display = 'none';
     if (specBadge) specBadge.style.display = isSpectator ? 'inline' : 'none';
+    clearChatUnread();
 
     // 联机时禁用观战者输入
     const chatInputArea = document.querySelector('.game-chat-area .chat-input-area');
@@ -674,25 +714,42 @@ function startLocalGame() {
 }
 
 // ================= 在线模式 - WebSocket =================
+function sendGomokuJoin() {
+    ws.send(JSON.stringify({
+        type: 'gomoku_join',
+        fp: getFingerprint(),
+        player_token: getUserToken() || '',
+        password: _pendingToken || '',
+        nickname: _pendingNickname || getUserNickname() || ''
+    }));
+}
+
 function connectWs(afterOpen) {
-    if (ws && ws.readyState === WebSocket.OPEN) { afterOpen(); return; }
+    // 业务动作先入队，待 gomoku_joined 确认身份后再统一执行
+    if (typeof afterOpen === 'function') wsActionQueue.push(afterOpen);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        if (wsAuthed) {
+            flushActionQueue();
+        } else {
+            // 连接已建立但身份尚未确认，重新提交身份声明
+            sendGomokuJoin();
+        }
+        return;
+    }
+    if (ws && ws.readyState === WebSocket.CONNECTING) {
+        // 连接正在建立：等 onopen 提交身份，gomoku_joined 后再 flush
+        return;
+    }
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = proto + '//' + window.location.host + '/ws/gomoku';
     ws = new WebSocket(url);
+    wsAuthed = false;
     ws.onopen = () => {
         console.log('[Gomoku] WS connected');
         reconnecting = false;
-        // 发送指纹和已有身份信息
-        ws.send(JSON.stringify({
-            type: 'gomoku_join',
-            fp: getFingerprint(),
-            player_token: getUserToken() || '',
-            password: _pendingToken || '',
-            nickname: _pendingNickname || getUserNickname() || ''
-        }));
-        // 启动心跳
+        sendGomokuJoin();
         startHeartbeat();
-        afterOpen();
     };
     ws.onerror = () => {
         showTopToast('无法连接到服务器', true);
@@ -700,6 +757,7 @@ function connectWs(afterOpen) {
     ws.onclose = () => {
         console.log('[Gomoku] WS closed');
         stopHeartbeat();
+        wsAuthed = false;
         if (!intentionalClose) scheduleReconnect();
         intentionalClose = false;
     };
@@ -708,6 +766,12 @@ function connectWs(afterOpen) {
         try { msg = JSON.parse(e.data); } catch (_) { return; }
         handleWsMsg(msg);
     };
+}
+
+function flushActionQueue() {
+    const cbs = wsActionQueue.slice();
+    wsActionQueue = [];
+    cbs.forEach(cb => { try { cb(); } catch (e) { console.error(e); } });
 }
 
 function startHeartbeat() {
@@ -749,6 +813,7 @@ function handleWsMsg(msg) {
     const { type, data } = msg;
     switch (type) {
         case 'gomoku_joined':
+            wsAuthed = true;
             if (data && data.token && !getUserToken()) {
                 setUserToken(data.token);
             }
@@ -757,27 +822,33 @@ function handleWsMsg(msg) {
             }
             _pendingToken = '';
             _pendingNickname = '';
+            flushActionQueue();
             break;
 
         case 'gomoku_error':
             _pendingToken = '';
             _pendingNickname = '';
+            hideGomokuLoading();
             showTopToast(data || '未知错误', true);
             // 失败后清理状态，回到菜单页（避免页面显示混乱）
             resetToMenu();
             break;
 
         case 'error':
+            hideGomokuLoading();
             showTopToast(msg.message || '连接失败，请刷新重试', true);
             // 连接被服务端拒绝（如重复连接），停止自动重连
             reconnecting = false;
             if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
             intentionalClose = true;
             stopHeartbeat();
+            wsActionQueue = [];
+            wsAuthed = false;
             if (ws) { try { ws.close(); } catch (e) { } ws = null; }
             break;
 
         case 'gomoku_room_created':
+            hideGomokuLoading();
             roomId = data.roomId;
             myColor = data.color;
             if (data.player_id) {
@@ -787,7 +858,14 @@ function handleWsMsg(msg) {
             showPage('wait');
             break;
 
+        case 'gomoku_invite_result':
+            hideGomokuLoading();
+            showTopToast(msg.message || (msg.success ? '对局邀请已发送到聊天室' : '发送失败'), !msg.success);
+            break;
+
         case 'gomoku_game_start':
+            hideGomokuLoading();
+            isOnline = true;
             isSpectator = false;
             myColor = data.myColor;
             if (data.player_id) {
@@ -807,6 +885,8 @@ function handleWsMsg(msg) {
             break;
 
         case 'gomoku_spectate_start':
+            hideGomokuLoading();
+            isOnline = true;
             isSpectator = true;
             myColor = 0;
             if (data.settings && data.settings.boardSize) {
@@ -856,7 +936,14 @@ function handleWsMsg(msg) {
             break;
 
         case 'gomoku_chat_message':
-            if (data.msg) appendChat(data.msg, 'other');
+            if (data.msg) {
+                appendChat(data.msg, 'other');
+                const area = document.getElementById('chat-area');
+                if (area && (area.style.display === 'none' || !area.style.display)) {
+                    const badge = document.getElementById('chat-toggle-badge');
+                    if (badge) badge.style.display = 'block';
+                }
+            }
             break;
 
         case 'gomoku_opponent_disconnected':
@@ -872,10 +959,13 @@ function handleWsMsg(msg) {
             // system 消息字段是 msg.text 而非 msg.data.text
             if (msg.text && (msg.text.indexOf('活跃连接') !== -1 || msg.text.indexOf('已在其他地方登录') !== -1)) {
                 showTopToast(msg.text, true);
+                hideGomokuLoading();
                 reconnecting = false;
                 if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
                 intentionalClose = true;
                 stopHeartbeat();
+                wsActionQueue = [];
+                wsAuthed = false;
                 if (ws) { try { ws.close(); } catch (e) { } ws = null; }
             }
             break;
@@ -893,6 +983,7 @@ function createRoom() {
     mode = modeInput ? modeInput.value : 'normal';
     const timeInput = document.querySelector('input[name="timeLimit"]:checked');
     timeLimitSec = timeInput ? parseInt(timeInput.value) : 0;
+    showGomokuLoading('正在创建房间…');
     connectWs(() => {
         ws.send(JSON.stringify({ type: 'gomoku_create_room', boardSize: bs, firstMove, mode, timeLimit: timeLimitSec }));
     });
@@ -901,6 +992,7 @@ function createRoom() {
 function joinRoom() {
     const code = document.getElementById('join-code').value.trim().toUpperCase();
     if (code.length !== 5) { showTopToast('请输入 5 位正确的凭证', true); return; }
+    showGomokuLoading('正在进入战局…');
     connectWs(() => {
         ws.send(JSON.stringify({ type: 'gomoku_join_room', roomId: code }));
     });
@@ -920,11 +1012,14 @@ function resetToMenu() {
     if (ws && ws.readyState === WebSocket.OPEN && roomId && !isOnline) {
         ws.send(JSON.stringify({ type: 'gomoku_cancel_wait' }));
     }
+    hideGomokuLoading();
     intentionalClose = true;
     if (ws) { try { ws.close(); } catch (_) {} ws = null; }
     isOnline = false;
     isSpectator = false;
     roomId = '';
+    wsActionQueue = [];
+    wsAuthed = false;
     clearInterval(timerInterval);
     showPage('menu');
 }
@@ -946,6 +1041,34 @@ function onlineRematch() {
 }
 
 // ================= 聊天 =================
+function clearChatUnread() {
+    const badge = document.getElementById('chat-toggle-badge');
+    if (badge) badge.style.display = 'none';
+}
+
+function openChatArea() {
+    const area = document.getElementById('chat-area');
+    if (area) area.style.display = 'flex';
+    clearChatUnread();
+    const input = document.getElementById('chat-input');
+    if (input && !isSpectator) input.focus();
+}
+
+function closeChatArea() {
+    const area = document.getElementById('chat-area');
+    if (area) area.style.display = 'none';
+}
+
+function toggleChatArea() {
+    const area = document.getElementById('chat-area');
+    if (!area) return;
+    if (area.style.display === 'none' || !area.style.display) {
+        openChatArea();
+    } else {
+        closeChatArea();
+    }
+}
+
 function sendChat() {
     const input = document.getElementById('chat-input');
     if (!input) return;
@@ -1122,6 +1245,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('chat-input').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
     });
+    const chatToggle = document.getElementById('chat-toggle');
+    if (chatToggle) chatToggle.addEventListener('click', toggleChatArea);
+    const chatClose = document.getElementById('chat-close');
+    if (chatClose) chatClose.addEventListener('click', closeChatArea);
 
     // 返回按钮
     document.getElementById('btn-back').addEventListener('click', () => {
@@ -1134,12 +1261,12 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = '/';
     });
 
-    // URL 快速加入: /gomoku?room=ABC12 —— 只填入房间号，等待用户点击"落座"
+    // URL 快速加入: /gomoku?room=ABC12 —— 填入房间号并自动加入对局
     const params = new URLSearchParams(window.location.search);
     const roomCode = params.get('room');
     if (roomCode && roomCode.length === 5) {
         document.getElementById('join-code').value = roomCode.toUpperCase();
-        showPage('join');
+        joinRoom();
     }
 
     // 监听来自聊天室邀请卡片的跨标签页消息
@@ -1161,34 +1288,15 @@ function shareInviteToLobby() {
         showTopToast('请先创建房间', true);
         return;
     }
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showTopToast('连接已断开，正在重连...', true);
+        connectWs(() => {
+            ws.send(JSON.stringify({ type: 'gomoku_share_invite' }));
+        });
+        return;
+    }
     showTopToast('正在发送对局邀请...', false);
-    let proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-    let shareWs = new WebSocket(proto + window.location.host + '/ws/lobby');
-    let done = false;
-    let finish = function (msg) {
-        if (done) return;
-        done = true;
-        if (msg) showTopToast(msg, msg.indexOf('失败') !== -1 || msg.indexOf('超时') !== -1 ? true : false);
-        try { shareWs.close(); } catch (e) { }
-    };
-    shareWs.onopen = function () {
-        // 设置指纹，确保与五子棋连接视为同一设备（在线锁允许同设备多连接）
-        shareWs.send(JSON.stringify({ type: 'lobby_set_fp', fingerprint: getFingerprint() }));
-        shareWs.send(JSON.stringify({ type: 'lobby_join', nickname: getUserNickname(), player_token: getUserToken() || '' }));
-    };
-    shareWs.onmessage = function (e) {
-        let d;
-        try { d = JSON.parse(e.data); } catch (err) { return; }
-        if (d.type === 'lobby_joined') {
-            shareWs.send(JSON.stringify({ type: 'lobby_gomoku_invite', room_id: roomId }));
-        } else if (d.type === 'lobby_system' && d.text && d.text.indexOf('对局邀请') !== -1) {
-            finish(d.text);
-        } else if (d.type === 'lobby_error') {
-            finish(d.text || '发送失败');
-        }
-    };
-    shareWs.onerror = function () { finish('发送失败，请重试'); };
-    setTimeout(function () { finish('发送超时，请重试'); }, 8000);
+    ws.send(JSON.stringify({ type: 'gomoku_share_invite' }));
 }
 
 // ==================== 等待页：半屏聊天窗口 ====================

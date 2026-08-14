@@ -40,6 +40,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    position: relative;
 }
 
 
@@ -193,6 +194,27 @@
         linear-gradient(transparent 97%, var(--chat-grid) 97%);
     background-size: 100% 32px;
     line-height: 32px;
+}
+
+/* 进入聊天室时的加载指示器（覆盖聊天区域，身份确认后隐藏） */
+.lobby-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: var(--surface-white);
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.lobby-loading .bili-spinner {
+    width: 36px;
+    height: 36px;
+    color: var(--ink-blue);
 }
 
 
@@ -2359,6 +2381,28 @@ main {
     display: flex;
 }
 
+.embed-body {
+    position: relative;
+}
+
+.embed-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--surface-white);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.embed-loading .bili-spinner {
+    width: 20px;
+    height: 20px;
+}
+
 .embed-body iframe {
     width: 100%;
     height: 100%;
@@ -2550,6 +2594,22 @@ main {
 .md-modal-body .md-music audio {
     height: 32px;
     max-width: 220px;
+}
+
+.lobby-msg-text .md-music .plyr,
+.md-modal-body .md-music .plyr {
+    --plyr-audio-controls-background: transparent;
+    --plyr-audio-control-color: var(--ink-black);
+    --plyr-audio-control-color-hover: var(--ink-black);
+    --plyr-audio-progress-buffered: rgba(0, 0, 0, 0.12);
+    width: 220px;
+    max-width: 220px;
+    min-width: 160px;
+}
+
+.lobby-msg-text .md-music .plyr__controls,
+.md-modal-body .md-music .plyr__controls {
+    padding: 0;
 }
 
 .lobby-msg-text .md-music-title,

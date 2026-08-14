@@ -59,6 +59,8 @@ class RedisService
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
     public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send';  // last_send → hash  fd => 最后发言时间戳
     public const KP_LOBBY_BTN_CLICK = self::LOBBY_PREFIX . 'btn_click';  // btn_click → 按钮点击次数前缀
+    public const KP_LOBBY_POLL_COUNTS = self::LOBBY_PREFIX . 'poll:counts:'; // poll:counts:{pollKey} → hash 选项票数
+    public const KP_LOBBY_POLL_USERS  = self::LOBBY_PREFIX . 'poll:users:';  // poll:users:{pollKey}  → hash 用户已选选项
 
     // ====== 点歌系统 = ======
     public const KP_LOBBY_SONG_POOL    = self::LOBBY_PREFIX . 'song:pool';       // zset   投票池 {songId: votes}

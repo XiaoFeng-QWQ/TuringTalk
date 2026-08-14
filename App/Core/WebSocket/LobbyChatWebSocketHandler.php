@@ -270,6 +270,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->handleBtnClick($server, $fd, $data);
                     break;
 
+                case 'lobby_poll_vote':
+                    $this->handlePollVote($server, $fd, $data);
+                    break;
+
                 case 'lobby_nudge':
                     $this->handleNudge($server, $fd, $data);
                     break;
@@ -648,6 +652,83 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
     }
 
+    /**
+     * MD 投票（vote: 组件）：匿名计票 + 实时广播
+     * 前端点击后上报“该用户当前全部已选选项”，服务端按用户做差分更新票数并广播。
+     * 说明：仅实时同步（不写入历史），客户端刷新/新用户进入后票数从 0 开始。
+     */
+    private function handlePollVote(Server $server, int $fd, array $data): void
+    {
+        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
+        if ($playerId === '') {
+            $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '请先进入聊天室']);
+            return;
+        }
+
+        $messageId = (int)($data['message_id'] ?? 0);
+        $voteId    = Sanitizer::identifier($data['vote_id'] ?? '');
+        if ($messageId <= 0 || $voteId === '') return;
+
+        // 清洗选项：仅保留 0~19 的整数，去重，最多 10 项（防滥用）
+        $rawOptions = $data['options'] ?? null;
+        if (!is_array($rawOptions)) $rawOptions = [];
+        $seen = [];
+        foreach ($rawOptions as $o) {
+            if (is_int($o) && $o >= 0 && $o < 20) $seen[$o] = true;
+        }
+        $options = array_keys($seen);
+        if (count($options) > 10) $options = array_slice($options, 0, 10);
+
+        $voteKey   = $messageId . ':' . $voteId;
+        $redis     = RedisService::connect();
+        $countsKey = RedisService::KP_LOBBY_POLL_COUNTS . $voteKey;
+        $usersKey  = RedisService::KP_LOBBY_POLL_USERS . $voteKey;
+
+        // 读取该用户旧选择
+        $old = [];
+        $oldRaw = $redis->hGet($usersKey, $playerId);
+        if ($oldRaw !== false && $oldRaw !== null && $oldRaw !== '') {
+            $decoded = json_decode($oldRaw, true);
+            if (is_array($decoded)) $old = array_values($decoded);
+        }
+
+        // 差分更新票数：移除的选项 -1，新增的选项 +1
+        $removed = array_values(array_diff($old, $options));
+        $added   = array_values(array_diff($options, $old));
+        foreach ($removed as $idx) {
+            $redis->hIncrBy($countsKey, (string)$idx, -1);
+            if ((int)$redis->hGet($countsKey, (string)$idx) <= 0) {
+                $redis->hDel($countsKey, (string)$idx);
+            }
+        }
+        foreach ($added as $idx) {
+            $redis->hIncrBy($countsKey, (string)$idx, 1);
+        }
+
+        // 更新该用户选择（空则删除）
+        if (empty($options)) {
+            $redis->hDel($usersKey, $playerId);
+        } else {
+            $redis->hSet($usersKey, $playerId, json_encode($options));
+        }
+
+        // 投票为实时数据，设置 TTL 防止历史消息的投票键无限累积
+        $redis->expire($countsKey, 86400);
+        $redis->expire($usersKey, 86400);
+
+        // 读取最终票数并广播
+        $counts = [];
+        foreach ($redis->hGetAll($countsKey) ?: [] as $idx => $cnt) {
+            $counts[(int)$idx] = (int)$cnt;
+        }
+
+        $this->broadcastLobby($server, 0, [
+            'type'     => 'lobby_poll_update',
+            'vote_key' => $voteKey,
+            'counts'   => $counts,
+        ]);
+    }
+
 
     // ==================== 举报 ====================
 
@@ -988,7 +1069,26 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        $nickname = $info['nickname'];
+        $this->publishGomokuInvite($server, $info, $roomId);
+
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_system',
+            'text' => '对局邀请已发送到聊天室',
+        ]);
+    }
+
+    /**
+     * 生成并广播五子棋对局邀请卡片（供聊天室与五子棋处理器内部共用）
+     */
+    public function publishGomokuInvite(Server $server, array $sender, string $roomId): void
+    {
+        $nickname = Sanitizer::nickname($sender['nickname'] ?? '');
+        $playerId = $sender['player_id'] ?? '';
+        if ($nickname === '' || $playerId === '') return;
+
+        $roomId = Sanitizer::identifier($roomId);
+        if ($roomId === '' || strlen($roomId) !== 5) return;
+
         $card = [
             'type'    => 'gomoku_invite',
             'version' => 1,
@@ -1000,11 +1100,11 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
 
         $msg = $this->lobbyService->sendCard(
-            $info['nickname'],
+            $nickname,
             $playerId,
             $cardJson,
-            $this->clientInfo[(string)$fd]['ip'] ?? '',
-            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+            $sender['ip'] ?? '',
+            $sender['fingerprint'] ?? '',
             \App\Enums\LobbyMessageType::CARD_INVITE_GOMOKU
         );
 
@@ -1014,14 +1114,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'sender_name' => $msg['sender_name'],
             'sender_id'   => $msg['sender_id'] ?? '',
             'content'     => $msg['content'],
-            'msg_type'    => $msg['type'], // card.invite.gomoku
+            'msg_type'    => $msg['type'],
             'time'        => $msg['time'],
             'created_at'  => $msg['created_at'],
-        ]);
-
-        $this->sendToPlayer($server, $fd, [
-            'type' => 'lobby_system',
-            'text' => '对局邀请已发送到聊天室',
         ]);
     }
 

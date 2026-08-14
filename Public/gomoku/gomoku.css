@@ -214,6 +214,15 @@
     align-items: center;
     gap: 6px;
     font-size: 14px;
+    padding: 3px 10px;
+    border: 2px solid transparent;
+    border-radius: 999px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.player-info.active {
+    background: var(--note-yellow);
+    border-color: var(--ink-black);
 }
 
 .stone-dot {
@@ -269,23 +278,85 @@
     padding: 6px 14px;
 }
 
-/* 聊天区 */
+/* 聊天区：右下角弹出浮层（默认隐藏，由气泡按钮切换） */
 .game-chat-area {
-    width: 240px;
-    flex-shrink: 0;
+    position: fixed;
+    right: 20px;
+    bottom: 84px;
+    width: 300px;
+    height: 400px;
+    max-height: calc(100vh - 120px);
     background: var(--surface-white);
     border: 2px solid var(--ink-black);
     border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
     box-shadow: 4px 6px 0 var(--shadow-md);
     display: flex;
     flex-direction: column;
-    height: 500px;
+    z-index: 900;
+}
+
+/* 聊天气泡按钮 */
+.chat-toggle {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 2px solid var(--ink-black);
+    background: var(--note-yellow);
+    color: var(--ink-black);
+    box-shadow: 4px 6px 0 var(--shadow-md);
+    cursor: pointer;
+    z-index: 900;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.chat-toggle:hover {
+    transform: scale(1.08);
+    box-shadow: 6px 8px 0 var(--shadow-md);
+}
+.chat-toggle:active {
+    transform: scale(0.95);
+    box-shadow: 1px 2px 0 var(--shadow-md);
+}
+
+/* 未读红点 */
+.chat-toggle-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--danger);
+    border: 2px solid var(--surface-white);
+}
+
+/* 聊天头部右侧操作区 */
+.chat-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.chat-close {
+    border: none;
+    background: transparent;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--ink-black);
+    padding: 0 2px;
+}
+.chat-close:hover {
+    color: var(--danger);
 }
 
 .game-chat-area .chat-header {
     padding: 10px 14px;
     border-bottom: 2px solid var(--ink-black);
-    background: var(--note-yellow);
     font-size: 14px;
     font-weight: bold;
     color: var(--ink-blue);
@@ -336,6 +407,7 @@
 }
 
 .game-chat-area .chat-input-area {
+    background: unset !important;
     display: flex;
     padding: 8px;
     border-top: 2px solid var(--ink-black);
@@ -439,9 +511,15 @@
     }
 
     .game-chat-area {
-        width: 100%;
-        max-width: 500px;
-        height: 280px;
+        left: 12px;
+        right: 12px;
+        width: auto;
+        height: 320px;
+    }
+
+    .chat-toggle {
+        right: 12px;
+        bottom: 12px;
     }
 
     .game-info-bar {
@@ -965,4 +1043,26 @@
     display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px;
     text-decoration: none; cursor: pointer; border: 1.5px solid var(--ink-black);
     background: var(--surface-white); color: var(--ink-black); margin: 2px;
+}
+
+/* 进入战局 / 创建房间时的加载指示器 */
+.gomoku-loading {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(255, 255, 255, 0.86);
+    backdrop-filter: blur(3px);
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+.gomoku-spinner {
+    width: 40px;
+    height: 40px;
+    color: var(--ink-blue);
 }

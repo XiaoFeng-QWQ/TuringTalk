@@ -209,18 +209,28 @@
                     </div>
                 </div>
 
-                <div class="game-chat-area" id="chat-area">
-                    <div class="chat-header">
-                        <span>飞鸽传书</span>
+            </div>
+
+            <!-- 对局内聊天：右下角气泡按钮 + 弹出浮层 -->
+            <button class="chat-toggle" id="chat-toggle" type="button" aria-label="聊天" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span class="chat-toggle-badge" id="chat-toggle-badge" style="display:none;"></span>
+            </button>
+
+            <div class="game-chat-area" id="chat-area" style="display:none;">
+                <div class="chat-header">
+                    <span>飞鸽传书</span>
+                    <div class="chat-header-actions">
                         <span id="spectator-badge" style="display:none;font-size:12px;color:var(--warn);">观战中</span>
+                        <button class="chat-close" id="chat-close" type="button" aria-label="关闭">&times;</button>
                     </div>
-                    <div class="chat-messages" id="chat-messages">
-                        <div class="chat-msg sys">对局开始，落子为定</div>
-                    </div>
-                    <div class="chat-input-area">
-                        <input type="text" id="chat-input" placeholder="说点什么…" maxlength="300" autocomplete="off">
-                        <button class="doodle-btn" id="btn-chat-send">发送</button>
-                    </div>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-msg sys">对局开始，落子为定</div>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="说点什么…" maxlength="300" autocomplete="off">
+                    <button class="doodle-btn" id="btn-chat-send">发送</button>
                 </div>
             </div>
         </section>
@@ -248,6 +258,11 @@
             <div id="gomoku-chat-stickers" style="display:none;"></div>
             <div id="gomoku-chat-at" style="display:none;"></div>
         </div>
+    </div>
+
+    <div id="gomoku-loading" class="gomoku-loading" style="display:none;">
+        <svg class="gomoku-spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>
+        <span id="gomoku-loading-text">处理中…</span>
     </div>
 
 </body>
