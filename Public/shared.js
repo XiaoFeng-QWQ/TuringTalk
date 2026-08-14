@@ -70,7 +70,9 @@ function dequeueAnnounce() {
         const item = announceQueue.shift();
         const text = item.text || item;
         const label = item.label || '全服公告';
-        const ms = item.durationSec > 0 ? item.durationSec * 1000 : ANNOUNCE_DISPLAY_MS;
+        const ms = item.durationSec === Infinity
+            ? Infinity
+            : (item.durationSec > 0 ? item.durationSec * 1000 : ANNOUNCE_DISPLAY_MS);
         announceShowing++;
         const banner = document.createElement('div');
         banner.className = 'announcement-banner' + (label !== '全服公告' ? ' room-warn' : '');
@@ -97,7 +99,9 @@ function dequeueAnnounce() {
             }, { once: true });
         };
 
-        setTimeout(dismiss, ms);
+        if (ms !== Infinity) {
+            setTimeout(dismiss, ms);
+        }
     }
 }
 

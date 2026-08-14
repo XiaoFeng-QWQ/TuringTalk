@@ -12,6 +12,9 @@ enum LobbyMessageType: string
     /** 普通文本消息 */
     case TEXT = 'text';
 
+    /** 结构化 Markdown 消息（content 为 {"v":1,"blocks":[...]} JSON） */
+    case MARKDOWN = 'markdown';
+
     /** 表情消息 */
     case STICKER = 'sticker';
 

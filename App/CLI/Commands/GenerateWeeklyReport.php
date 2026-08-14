@@ -4,7 +4,6 @@ namespace App\CLI\Commands;
 
 use App\CLI\Command;
 use App\Services\Infrastructure\Database;
-use App\Services\Infrastructure\Logger;
 use PDO;
 
 /**
@@ -35,7 +34,7 @@ class GenerateWeeklyReport extends Command
 
     public function handle(array $args): int
     {
-        Logger::info('=== 开始生成周榜 ===');
+        echo "=== 开始生成周榜 ===\n";
 
         try {
             $mysql = Database::connect();
@@ -50,11 +49,11 @@ class GenerateWeeklyReport extends Command
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (empty($rows)) {
-                Logger::info('player_data 表中无数据，跳过');
+                echo "player_data 表中无数据，跳过\n";
                 return 0;
             }
 
-            Logger::info('读取到 ' . count($rows) . ' 条玩家记录');
+            echo '读取到 ' . count($rows) . " 条玩家记录\n";
 
             // ── 汇总每个玩家的综合战绩 ──
             $players = [];
@@ -65,7 +64,7 @@ class GenerateWeeklyReport extends Command
                 }
             }
 
-            Logger::info('有效玩家（至少一局游戏）: ' . count($players) . ' 人');
+            echo '有效玩家（至少一局游戏）: ' . count($players) . " 人\n";
 
             // ── 计算总览 ──
             $overview = $this->buildOverview($players);
@@ -86,8 +85,8 @@ class GenerateWeeklyReport extends Command
                 throw $e;
             }
 
-            Logger::info("周榜已写入: " . self::DB_PATH . " (week={$weekLabel})");
-            Logger::info('=== 周榜生成完成 ===');
+            echo "周榜已写入: " . self::DB_PATH . " (week={$weekLabel})\n";
+            echo "=== 周榜生成完成 ===\n";
 
             echo "周榜已写入: " . self::DB_PATH . "\n";
             echo "  周标识: {$weekLabel}\n";
@@ -96,7 +95,7 @@ class GenerateWeeklyReport extends Command
 
             return 0;
         } catch (\Throwable $e) {
-            Logger::error('生成周榜失败: ' . $e->getMessage());
+            echo '生成周榜失败: ' . $e->getMessage() . "\n";
             echo "ERROR: {$e->getMessage()}\n";
             return 1;
         }
@@ -300,7 +299,7 @@ class GenerateWeeklyReport extends Command
             ]);
         }
 
-        Logger::info("已写入 " . count($players) . " 条玩家周榜数据");
+        echo "已写入 " . count($players) . " 条玩家周榜数据\n";
     }
 
     // ================================================================

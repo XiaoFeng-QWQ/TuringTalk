@@ -430,9 +430,13 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $replyToText = mb_substr(Sanitizer::text($data['reply_to_text'] ?? ''), 0, 100);
         }
 
-        // 解析 @提及
+        // 解析 @提及（含特殊 MD 语法的消息跳过，避免语法内的 @ 被误判为提及）
         $mentions = [];
-        if (preg_match_all('/@(\S{1,20})/u', $content, $matches)) {
+        $hasSpecialSyntax = (bool) preg_match(
+            '/\[![^\]]+\]\((modal|send|copy|embed|confirm|details|rand|input|get|ok|cancel|close|switch|var|def|cipher|table|music|timer|bar|if|hide|text|board|vote|dice|at|gallery):/',
+            $content
+        );
+        if (!$hasSpecialSyntax && preg_match_all('/@(\S{1,20})/u', $content, $matches)) {
             $mentionedNames = array_unique($matches[1]);
             foreach ($mentionedNames as $mentionedName) {
                 if ($mentionedName === $nickname) continue;
@@ -461,6 +465,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'sender_name' => $msg['sender_name'],
             'sender_id'   => $msg['sender_id'] ?? '',
             'content'     => $msg['content'],
+            'msg_type'    => $msg['type'] ?? '', // markdown
             'reply_to'    => $msg['reply_to'],
             'mentions'    => $mentions,
             'time'        => $msg['time'],
@@ -482,7 +487,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     'type'        => 'lobby_mentioned',
                     'message_id'  => $msg['id'],
                     'sender_name' => $nickname,
-                    'content'     => $msg['content'],
+                    'content'     => $content,
                 ]);
             } else {
                 // 玩家离线，无需额外处理

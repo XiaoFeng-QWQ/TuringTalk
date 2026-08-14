@@ -137,6 +137,45 @@
     background: var(--note-green);
 }
 
+/* 顶部更多菜单 */
+.header-more {
+    position: relative;
+}
+
+.header-more-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 150px;
+    padding: 6px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 120;
+}
+
+.header-more-menu.open {
+    display: flex;
+}
+
+.header-more-menu .doodle-btn {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.header-more-menu .doodle-btn:hover {
+    transform: none;
+    background: var(--highlighter);
+}
+
 @keyframes statusPulse {
 
     0%,
@@ -1078,6 +1117,10 @@
         padding: 10px 14px;
         gap: 8px;
     }
+
+    .lobby-input-row {      
+        padding: 0;
+    }
 }
 
 @media (max-width: 480px) {
@@ -1348,6 +1391,53 @@
 .song-listen-toggle input:checked+.toggle-track .toggle-thumb {
     left: 16px;
     background: var(--ink-blue);
+}
+
+/* 系统消息显示设置面板 */
+.lobby-sysmsg-panel {
+    position: fixed;
+    width: 180px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-blue);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 110;
+    display: flex;
+    flex-direction: column;
+}
+
+.sysmsg-panel-header {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    border-bottom: 1px dashed var(--border-light);
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--ink-blue);
+    gap: 6px;
+}
+
+.sysmsg-panel-header span {
+    flex: 1;
+}
+
+.sysmsg-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 10px 12px;
+}
+
+.sysmsg-panel-body .song-listen-toggle {
+    font-size: 13px;
+    justify-content: space-between;
+    color: var(--text-secondary);
+}
+
+.sysmsg-panel-body .song-listen-toggle .toggle-label {
+    flex: 1;
 }
 
 .lobby-song-panel {

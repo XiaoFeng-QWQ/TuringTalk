@@ -4,7 +4,6 @@ namespace App\CLI\Commands;
 
 use App\CLI\Command;
 use App\Services\Infrastructure\Database;
-use App\Services\Infrastructure\Logger;
 
 /**
  * 清理非活跃玩家数据
@@ -31,14 +30,14 @@ class CleanupInactivePlayers extends Command
             $inactiveDays = 14;
         }
 
-        Logger::info('=== 开始清理非活跃玩家数据 ===');
-        Logger::info("不活跃阈值: {$inactiveDays} 天");
+        echo "=== 开始清理非活跃玩家数据 ===\n";
+        echo "不活跃阈值: {$inactiveDays} 天\n";
 
         try {
             $pdo = Database::connect();
 
             $cutoffTime = time() - ($inactiveDays * 86400);
-            Logger::info('截止时间戳: ' . $cutoffTime . ' (' . date('Y-m-d H:i:s', $cutoffTime) . ')');
+            echo '截止时间戳: ' . $cutoffTime . ' (' . date('Y-m-d H:i:s', $cutoffTime) . ")\n";
 
             // 统计待删除数量
             $countStmt = $pdo->prepare(
@@ -48,12 +47,12 @@ class CleanupInactivePlayers extends Command
             $inactiveCount = (int)$countStmt->fetchColumn();
 
             if ($inactiveCount === 0) {
-                Logger::info('没有找到非活跃玩家记录，无需清理');
-                Logger::info('=== 清理任务完成 ===');
+                echo "没有找到非活跃玩家记录，无需清理\n";
+                echo "=== 清理任务完成 ===\n";
                 return 0;
             }
 
-            Logger::info("找到 {$inactiveCount} 条非活跃记录，准备删除");
+            echo "找到 {$inactiveCount} 条非活跃记录，准备删除\n";
 
             // 列出待删除玩家（用于审计追溯）
             $selectStmt = $pdo->prepare(
@@ -63,7 +62,7 @@ class CleanupInactivePlayers extends Command
             );
             $selectStmt->execute([$cutoffTime]);
             foreach ($selectStmt->fetchAll() as $player) {
-                Logger::info("  待删除: id={$player['id']} nickname=\"{$player['nickname']}\" last_played={$player['last_played_str']}");
+                echo "  待删除: id={$player['id']} nickname=\"{$player['nickname']}\" last_played={$player['last_played_str']}\n";
             }
 
             // 事务内删除 + 验证
@@ -84,23 +83,23 @@ class CleanupInactivePlayers extends Command
 
                 if ($remainingCount === 0) {
                     $pdo->commit();
-                    Logger::info("删除成功: 预期 {$inactiveCount} 条，实际删除 {$deletedCount} 条，验证剩余 0 条");
+                    echo "删除成功: 预期 {$inactiveCount} 条，实际删除 {$deletedCount} 条，验证剩余 0 条\n";
                 } else {
                     $pdo->rollBack();
-                    Logger::error("验证失败: 删除后仍有 {$remainingCount} 条非活跃记录，已回滚事务");
+                    echo "验证失败: 删除后仍有 {$remainingCount} 条非活跃记录，已回滚事务\n";
                     return 1;
                 }
             } catch (\Throwable $e) {
                 $pdo->rollBack();
-                Logger::error('删除事务失败: ' . $e->getMessage());
+                echo '删除事务失败: ' . $e->getMessage() . "\n";
                 return 1;
             }
         } catch (\Throwable $e) {
-            Logger::error('执行失败: ' . $e->getMessage());
+            echo '执行失败: ' . $e->getMessage() . "\n";
             return 1;
         }
 
-        Logger::info('=== 清理任务完成 ===');
+        echo "=== 清理任务完成 ===\n";
         return 0;
     }
 }

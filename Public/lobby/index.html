@@ -57,35 +57,62 @@
                     <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                 </svg>
             </button>
-            <button class="doodle-btn" id="btn-theme" title="主题切换" style="padding:8px 8px;">
+            <button class="doodle-btn" id="lobby-btn-sysmsg" title="系统消息显示" style="padding:8px 8px;">
                 <svg class="icon" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="5" />
-                    <path d="M12 1v2" />
-                    <path d="M12 21v2" />
-                    <path d="M4.22 4.22l1.42 1.42" />
-                    <path d="M18.36 18.36l1.42 1.42" />
-                    <path d="M1 12h2" />
-                    <path d="M21 12h2" />
-                    <path d="M4.22 19.78l1.42-1.42" />
-                    <path d="M18.36 5.64l1.42-1.42" />
+                    <line x1="4" y1="21" x2="4" y2="14" />
+                    <line x1="4" y1="10" x2="4" y2="3" />
+                    <line x1="12" y1="21" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12" y2="3" />
+                    <line x1="20" y1="21" x2="20" y2="16" />
+                    <line x1="20" y1="12" x2="20" y2="3" />
+                    <line x1="1" y1="14" x2="7" y2="14" />
+                    <line x1="9" y1="8" x2="15" y2="8" />
+                    <line x1="17" y1="16" x2="23" y2="16" />
                 </svg>
             </button>
-            <button class="doodle-btn" id="btn-toggle-users" title="在线用户" style="padding:8px 8px;">
-                <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                    <circle cx="9" cy="7" r="4" />
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-            </button>
-            <a class="doodle-btn" id="lobby-btn-md-help" href="javascript:void(0)" data-embed="https://docs.xiaofengqwq.com/%E5%9B%BE%E7%81%B5%E6%B5%8B%E8%AF%95/md%E7%BB%84%E4%BB%B6/01.%E8%81%8A%E5%A4%A9%E5%AE%A4MD%E6%A0%BC%E5%BC%8F%E5%AE%8C%E6%95%B4%E6%95%99%E7%A8%8B.html" title="聊天室 MD 语法教程" style="padding:8px 8px;">
-                <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <path d="M14 2v6h6" />
-                    <path d="M9 15h6" />
-                    <path d="M9 11h2" />
-                </svg>
-            </a>
+            <div class="header-more">
+                <button class="doodle-btn" id="lobby-btn-more" title="更多" style="padding:8px 8px;">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <circle cx="12" cy="5" r="1.5" />
+                        <circle cx="12" cy="12" r="1.5" />
+                        <circle cx="12" cy="19" r="1.5" />
+                    </svg>
+                </button>
+                <div class="header-more-menu" id="lobby-header-more-menu">
+                    <button class="doodle-btn" id="btn-theme" title="主题切换">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="5" />
+                            <path d="M12 1v2" />
+                            <path d="M12 21v2" />
+                            <path d="M4.22 4.22l1.42 1.42" />
+                            <path d="M18.36 18.36l1.42 1.42" />
+                            <path d="M1 12h2" />
+                            <path d="M21 12h2" />
+                            <path d="M4.22 19.78l1.42-1.42" />
+                            <path d="M18.36 5.64l1.42-1.42" />
+                        </svg>
+                        <span>主题切换</span>
+                    </button>
+                    <button class="doodle-btn" id="btn-toggle-users" title="在线用户">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                        <span>在线用户</span>
+                    </button>
+                    <a class="doodle-btn" id="lobby-btn-md-help" href="javascript:void(0)" data-embed="https://docs.xiaofengqwq.com/%E5%9B%BE%E7%81%B5%E6%B5%8B%E8%AF%95/md%E7%BB%84%E4%BB%B6/01.%E8%81%8A%E5%A4%A9%E5%AE%A4MD%E6%A0%BC%E5%BC%8F%E5%AE%8C%E6%95%B4%E6%95%99%E7%A8%8B.html" title="聊天室 MD 语法教程">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <path d="M14 2v6h6" />
+                            <path d="M9 15h6" />
+                            <path d="M9 11h2" />
+                        </svg>
+                        <span>MD 教程</span>
+                    </a>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -211,6 +238,31 @@
         <img id="lobby-sticker-lightbox-img" alt="">
         <button id="lobby-sticker-lightbox-close" class="doodle-btn"
             style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
+    </div>
+
+    <div id="lobby-sysmsg-panel" class="lobby-sysmsg-panel" style="display:none;">
+        <div class="sysmsg-panel-header">
+            <span>系统消息显示</span>
+            <button class="doodle-btn" id="lobby-btn-close-sysmsg-panel"
+                style="padding:2px 8px;font-size:14px;">&times;</button>
+        </div>
+        <div class="sysmsg-panel-body">
+            <label class="song-listen-toggle">
+                <input type="checkbox" id="lobby-sysmsg-joinleave">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">进入/退出</span>
+            </label>
+            <label class="song-listen-toggle">
+                <input type="checkbox" id="lobby-sysmsg-revoke">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">撤回消息</span>
+            </label>
+            <label class="song-listen-toggle">
+                <input type="checkbox" id="lobby-sysmsg-other">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">其他提示</span>
+            </label>
+        </div>
     </div>
 
     <div id="lobby-song-info" class="lobby-song-info" style="display:none;">

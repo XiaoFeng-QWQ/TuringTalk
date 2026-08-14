@@ -57,6 +57,15 @@
     const $btnSong = document.getElementById('lobby-btn-song');
     // MD 语法教程（嵌入弹窗）
     const $btnMdHelp = document.getElementById('lobby-btn-md-help');
+    // 系统消息显示设置
+    const $btnSysMsg = document.getElementById('lobby-btn-sysmsg');
+    const $sysMsgPanel = document.getElementById('lobby-sysmsg-panel');
+    const $btnCloseSysMsgPanel = document.getElementById('lobby-btn-close-sysmsg-panel');
+    const $sysMsgJoinLeave = document.getElementById('lobby-sysmsg-joinleave');
+    const $sysMsgRevoke = document.getElementById('lobby-sysmsg-revoke');
+    const $sysMsgOther = document.getElementById('lobby-sysmsg-other');
+    const $btnMore = document.getElementById('lobby-btn-more');
+    const $headerMoreMenu = document.getElementById('lobby-header-more-menu');
     const $songPanel = document.getElementById('lobby-song-panel');
     const $songPlaylist = document.getElementById('lobby-song-playlist');
     const $songPlayingInfo = document.getElementById('lobby-song-playing-info');
@@ -113,6 +122,16 @@
 
     // ==================== 浏览器通知 ====================
     let notifyEnabled = getUserdata().lobby_notify ?? false;
+
+    // ==================== 系统消息显示设置 ====================
+    const SYS_MSG_DEFAULT = { joinLeave: true, revoke: true, other: true };
+    let sysMsgSettings = Object.assign({}, SYS_MSG_DEFAULT, getUserdata().lobby_sys_msg || {});
+
+    function saveSysMsgSettings() {
+        const d = getUserdata();
+        d.lobby_sys_msg = sysMsgSettings;
+        saveUserdata(d);
+    }
 
     function updateNotifyUI() {
         if (!$btnNotify) return;
@@ -341,7 +360,13 @@
             case 'lobby_chat':
                 appendMessage(data);
                 if (!isMineMessage(data) && document.hidden) {
-                    let preview = data.content || '';
+                    let preview = '';
+                    if (data.msg_type === 'markdown' || data.type === 'markdown') {
+                        let nb = parseMarkdownBlocks(data.content);
+                        preview = nb ? blocksPlainText(nb) : '';
+                    } else {
+                        preview = data.content || '';
+                    }
                     if (preview.length > 60) preview = preview.substring(0, 60) + '...';
                     sendNotification(data.sender_name, preview);
                 }
@@ -785,9 +810,10 @@
         bubble.dataset.msgId = data.id;
         bubble.dataset.createdAt = data.created_at || '';
         bubble.dataset.senderName = senderName;
+        let markdownBlocks = (data.msg_type === 'markdown' || data.type === 'markdown') ? parseMarkdownBlocks(data.content) : null;
         bubble.dataset.msgContent = (data.type === 'sticker' && data.sticker_id)
             ? '[sticker:' + data.sticker_id + ']'
-            : (data.content || '');
+            : (markdownBlocks ? blocksPlainText(markdownBlocks) : (data.content || ''));
 
         // 已撤回的消息
         if (data.revoked) {
@@ -810,13 +836,9 @@
                 replyTextHtml = replyStickerUrl
                     ? '<img class="reply-sticker-img" src="' + escapeHtmlAttr(replyStickerUrl) + '" alt="表情">'
                     : '[表情]';
-            } else if (hasSpecialMdSyntax(replyText)) {
-                // 引用消息含特殊语法：不渲染内嵌组件，直接显示占位提示
-                replyTextHtml = '<i>[特殊语法暂不支持预览]</i>';
             } else {
-                // 引用块同样走 mdFormat（支持内嵌 md 组件渲染），有 DOMPurify 消毒；
-                // 但视频链接（B站/抖音）不解析成播放器，仅作为普通链接显示
-                replyTextHtml = mdFormat(replyText, { noVideo: true });
+                // 后端已把引用文本存为纯文本摘要，直接转义显示即可
+                replyTextHtml = escapeHtml(replyText);
             }
             replyHtml = '<div class="lobby-msg-reply" data-reply-id="' + data.reply_to.id + '">' +
                 '<span class="reply-name">' + escapeHtml(data.reply_to.name) + '</span>: ' +
@@ -860,6 +882,11 @@
             wrapper.appendChild(avatar);
             wrapper.appendChild(content);
             return wrapper;
+        } else if (markdownBlocks) {
+            // 后端解析好的结构化消息：直接用 blocks 渲染，不再走 mdFormat 文本解析
+            bubble.innerHTML =
+                replyHtml +
+                '<div class="lobby-msg-text">' + renderBlocks(markdownBlocks, {}) + '</div>';
         } else {
             if (isAsciiArt(data.content)) {
                 // 字符画：空格渲染为固定 0.5em 宽的占位（中文 1em = 2 空格），任何字体下严格对齐
@@ -1105,7 +1132,88 @@
         }
     }
 
-    function appendSystem(text, withIcon) {        let div = document.createElement('div');
+    // ==================== 进入/退出消息合并 ====================
+
+    function parseJoinLeave(text) {
+        let m = (text || '').match(/^(.+?)(进入了聊天室|暂时离开了聊天室……)$/);
+        if (!m) return null;
+        return { name: m[1].trim(), enter: m[2] === '进入了聊天室' };
+    }
+
+    function classifySystemMsg(text) {
+        if (parseJoinLeave(text)) return 'joinLeave';
+        if ((text || '').indexOf('撤回了一条消息') !== -1) return 'revoke';
+        return 'other';
+    }
+
+    function addJoinLeaveAgg(agg, name, enter) {
+        if (!agg[name]) agg[name] = { enter: 0, leave: 0 };
+        if (enter) agg[name].enter++; else agg[name].leave++;
+    }
+
+    function renderJoinLeaveSummary(agg) {
+        let parts = [];
+        for (let name in agg) {
+            let s = agg[name];
+            let seg = [];
+            if (s.enter > 0) seg.push('进入了 ' + s.enter + ' 次');
+            if (s.leave > 0) seg.push('离开了 ' + s.leave + ' 次');
+            if (seg.length) parts.push(name + ' ' + seg.join('、'));
+        }
+        return parts.join('，');
+    }
+
+    function appendJoinLeave(parsed) {
+        let last = $messages.lastElementChild;
+
+        if (last && last.getAttribute && last.getAttribute('data-joinleave') === '1') {
+            let agg;
+            let el;
+            if (last.getAttribute('data-agg') === '1') {
+                // 上一条已是汇总行，直接累加
+                agg = JSON.parse(last.getAttribute('data-agg-data') || '{}');
+                el = last;
+            } else {
+                // 上一条是单条进出消息，吸收进统计并替换为汇总行
+                let prev = parseJoinLeave(last.textContent);
+                agg = {};
+                if (prev) addJoinLeaveAgg(agg, prev.name, prev.enter);
+                last.remove();
+                el = document.createElement('div');
+                el.className = 'lobby-msg system';
+                el.setAttribute('data-joinleave', '1');
+                el.setAttribute('data-agg', '1');
+                $messages.appendChild(el);
+            }
+            addJoinLeaveAgg(agg, parsed.name, parsed.enter);
+            el.setAttribute('data-agg-data', JSON.stringify(agg));
+            el.textContent = renderJoinLeaveSummary(agg);
+            scrollToBottom();
+            trimMessages();
+            return;
+        }
+
+        // 连续区间的第一条，正常显示单条，并打上可合并标记
+        let div = document.createElement('div');
+        div.className = 'lobby-msg system';
+        div.textContent = parsed.name + (parsed.enter ? ' 进入了聊天室' : ' 暂时离开了聊天室……');
+        div.setAttribute('data-joinleave', '1');
+        $messages.appendChild(div);
+        scrollToBottom();
+        trimMessages();
+    }
+
+    function appendSystem(text, withIcon) {
+        let kind = classifySystemMsg(text);
+        if (!sysMsgSettings[kind]) return;
+
+        let jl = parseJoinLeave(text);
+        if (jl) {
+            appendJoinLeave(jl);
+            return;
+        }
+
+        let div = document.createElement('div');
         div.className = 'lobby-msg system';
         if (withIcon) {
             div.innerHTML = '<svg class="sys-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg> ' + escapeHtml(text);
@@ -1131,6 +1239,16 @@
     }
 
     function revokeMessageUI(messageId, senderName) {
+        // 撤回开关关闭时：仅移除原消息并更新回复预览，不插入系统提示
+        if (!sysMsgSettings.revoke) {
+            removeMessage(messageId);
+            document.querySelectorAll('.lobby-msg-reply[data-reply-id="' + messageId + '"]').forEach((reply) => {
+                reply.innerHTML = '<span class="reply-name">' + escapeHtml(senderName || '有人') + '</span>: <i>消息已撤回</i>';
+                reply.classList.add('revoked');
+            });
+            return;
+        }
+
         // 先在源消息位置插入系统消息，再移除原消息
         let el = $messages.querySelector('[data-msg-id="' + messageId + '"]');
         let row = el ? el.closest('.lobby-msg-row') : null;
@@ -1827,6 +1945,7 @@
         // 刷新绑定 colorof 该 switch 的组件
         if (msgEl) refreshColorOf(msgEl, id, colorVal);
         if (msgEl) refreshShowIfs(msgEl);
+        if (msgEl) refreshRefs(msgEl);
         // 刷新画板（%值% 引用 switch/变量/输入框，实时重绘）
         if (msgEl) {
             let boards = msgEl.querySelectorAll('.md-board');
@@ -1907,6 +2026,7 @@
         let els = msgEl.querySelectorAll('.md-var[data-var-id="' + name + '"]');
         for (let i = 0; i < els.length; i++) els[i].textContent = state.vars[name];
         refreshShowIfs(msgEl);
+        refreshRefs(msgEl);
     }
 
     // 更新进度条（id, 目标值）
@@ -2337,6 +2457,8 @@
         }
         // 评估条件显示
         refreshShowIfs(msgEl);
+        // 刷新文本流中的 %变量% 引用节点（ref）
+        refreshRefs(msgEl);
     }
 
     // ==================== for 循环（仅按钮触发，最高 300 次） ====================
@@ -2641,6 +2763,7 @@
         state.inputs[inp.getAttribute('data-input-id')] = inp.value;
         refreshMsgGets(msgEl);
         refreshShowIfs(msgEl);
+        refreshRefs(msgEl);
         // onchange 联动
         let oc = inp.getAttribute('data-onchange');
         if (oc) executeMdAction(decodeURIComponent(oc), msgEl);
@@ -2754,10 +2877,11 @@
         }
         let title = decodeURIComponent(btn.dataset.detailsTitle || '详情');
         let content = decodeURIComponent(btn.dataset.detailsContent || '');
+        let detailBlocks = parseBlocksArray(content);
         let panel = document.createElement('div');
         panel.className = 'md-details-panel';
         panel.innerHTML = '<div class="md-details-title">' + escapeHtml(title) + '</div>' +
-            '<div class="md-details-body">' + mdFormat(content) + '</div>';
+            '<div class="md-details-body">' + (detailBlocks ? renderBlocks(detailBlocks, {}) : mdFormat(content)) + '</div>';
         btn.insertAdjacentElement('afterend', panel);
         // 初始化折叠内容里的 md 组件（画板/倒计时/进度条等）
         initMdComponents(panel);
@@ -2959,7 +3083,8 @@
         applyModalAnim(overlay, btn);
         let body = overlay.querySelector('.md-modal-body');
         // 弹窗内容：允许图片（消息内禁止），图片做安全处理
-        body.innerHTML = mdFormat(content, { allowImg: true });
+        let modalBlocks = parseBlocksArray(content);
+        body.innerHTML = modalBlocks ? renderBlocks(modalBlocks, { allowImg: true }) : mdFormat(content, { allowImg: true });
         // 初始化弹窗内 md 组件（画板/倒计时/进度条/条件显示等）
         initMdComponents(body);
         let imgs = body.querySelectorAll('img');
@@ -3501,6 +3626,74 @@
         }
     });
 
+    // ==================== 系统消息显示设置面板 ====================
+
+    function renderSysMsgPanelState() {
+        if ($sysMsgJoinLeave) $sysMsgJoinLeave.checked = !!sysMsgSettings.joinLeave;
+        if ($sysMsgRevoke) $sysMsgRevoke.checked = !!sysMsgSettings.revoke;
+        if ($sysMsgOther) $sysMsgOther.checked = !!sysMsgSettings.other;
+    }
+
+    function repositionSysMsgPanel() {
+        if (!$sysMsgPanel || $sysMsgPanel.style.display !== 'block') return;
+        const btnRect = $btnSysMsg.getBoundingClientRect();
+        const pw = $sysMsgPanel.offsetWidth || 180;
+        let left = btnRect.right - pw;
+        if (left + pw > window.innerWidth) left = window.innerWidth - pw - 10;
+        if (left < 10) left = 10;
+        $sysMsgPanel.style.left = left + 'px';
+        $sysMsgPanel.style.top = (btnRect.bottom + 8) + 'px';
+    }
+
+    $btnSysMsg.addEventListener('click', function () {
+        if ($sysMsgPanel.style.display === 'none' || !$sysMsgPanel.style.display) {
+            renderSysMsgPanelState();
+            $sysMsgPanel.style.display = 'block';
+            repositionSysMsgPanel();
+        } else {
+            $sysMsgPanel.style.display = 'none';
+        }
+    });
+
+    $btnCloseSysMsgPanel.addEventListener('click', function () {
+        $sysMsgPanel.style.display = 'none';
+    });
+
+    $sysMsgJoinLeave.addEventListener('change', function () {
+        sysMsgSettings.joinLeave = $sysMsgJoinLeave.checked;
+        saveSysMsgSettings();
+    });
+    $sysMsgRevoke.addEventListener('change', function () {
+        sysMsgSettings.revoke = $sysMsgRevoke.checked;
+        saveSysMsgSettings();
+    });
+    $sysMsgOther.addEventListener('change', function () {
+        sysMsgSettings.other = $sysMsgOther.checked;
+        saveSysMsgSettings();
+    });
+
+    document.addEventListener('click', function (e) {
+        if ($sysMsgPanel.style.display === 'block' &&
+            !$sysMsgPanel.contains(e.target) &&
+            e.target !== $btnSysMsg &&
+            !$btnSysMsg.contains(e.target)) {
+            $sysMsgPanel.style.display = 'none';
+        }
+    });
+
+    renderSysMsgPanelState();
+
+    // ==================== 顶部更多菜单 ====================
+    $btnMore.addEventListener('click', function (e) {
+        e.stopPropagation();
+        $headerMoreMenu.classList.toggle('open');
+    });
+
+    document.addEventListener('click', function (e) {
+        if (e.target === $btnMore || $btnMore.contains(e.target)) return;
+        $headerMoreMenu.classList.remove('open');
+    });
+
     $stickerLightboxClose.addEventListener('click', function () {
         $stickerLightbox.style.display = 'none';
     });
@@ -3729,6 +3922,395 @@
     function hasSpecialMdSyntax(content) {
         if (!content) return false;
         return /\[!([^\]]+)\]\((modal:|send:|copy:|embed:|confirm:|details:|rand:|input:|get:|ok:|cancel:|close:|switch:|var:|def:|cipher:|table:|music:|timer:|bar:|if:|hide:|text:|board:|vote:|dice:|at:|gallery:)/.test(content);
+    }
+
+    // ==================== blocks 渲染器（后端解析后的结构化消息） ====================
+
+    // 解析 markdown 消息 content 为 blocks 数组；失败或版本不识别返回 null
+    function parseMarkdownBlocks(content) {
+        try {
+            let obj = (typeof content === 'string') ? JSON.parse(content) : content;
+            if (obj && obj.v === 1 && Array.isArray(obj.blocks)) return obj.blocks;
+        } catch (e) { }
+        return null;
+    }
+
+    // 尝试把文本解析为 blocks 数组（弹窗/折叠 children 以 JSON 数组存储）；失败返回 null
+    function parseBlocksArray(text) {
+        try {
+            let arr = JSON.parse(text);
+            if (Array.isArray(arr)) return arr;
+        } catch (e) { }
+        return null;
+    }
+
+    // 从 blocks 提取纯文本摘要（用于桌面通知 / 回复预览 / 右键复制）
+    function blocksPlainText(blocks) {
+        let parts = [];
+        (function walk(list) {
+            if (!Array.isArray(list)) return;
+            for (let i = 0; i < list.length; i++) {
+                let b = list[i];
+                if (!b || typeof b !== 'object') continue;
+                let t = b.t || 'text';
+                if (t === 'text') {
+                    if (b.text) parts.push(b.text);
+                } else if (t === 'ref') {
+                    if (b.var) parts.push('%' + b.var + '%');
+                } else {
+                    if (b.label) parts.push(b.label);
+                    if (b.title) parts.push(b.title);
+                    if (b.text) parts.push(b.text);
+                    if (b.question) parts.push(b.question);
+                    ['cells', 'options', 'values'].forEach(function (k) {
+                        if (Array.isArray(b[k])) {
+                            for (let j = 0; j < b[k].length; j++) {
+                                if (typeof b[k][j] === 'string' && b[k][j] !== '') parts.push(b[k][j]);
+                            }
+                        }
+                    });
+                    if (Array.isArray(b.children)) walk(b.children);
+                }
+            }
+        })(blocks);
+        return parts.join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    // 变量引用节点（%var% → ref）：渲染为本地实时引用，随变量/开关/输入框变化刷新
+    function renderRefNode(block) {
+        let varName = block.var || '';
+        return '<span class="md-ref" data-ref-id="' + escapeHtmlAttr(varName) + '"></span>';
+    }
+
+    // 刷新当前消息内所有 ref 引用节点的显示值
+    function refreshRefs(msgEl) {
+        if (!msgEl) return;
+        let state = getMsgUIState(msgEl);
+        let refs = msgEl.querySelectorAll('.md-ref');
+        for (let i = 0; i < refs.length; i++) {
+            let id = refs[i].getAttribute('data-ref-id') || '';
+            if (!id) { refs[i].textContent = ''; continue; }
+            // 支持 %id|默认值%：引用为空时回退默认值（与 resolveMdPlaceholders 一致）
+            let key = id, def = '';
+            let bar = id.indexOf('|');
+            if (bar > 0) { def = id.slice(bar + 1); key = id.slice(0, bar); }
+            let v = getMdValue(key, msgEl, state);
+            refs[i].textContent = v !== '' ? v : def;
+        }
+    }
+
+    // 把 block 转成按钮公共参数（应用 perm 权限映射）
+    function blockToAb(block) {
+        let permInfo = applyBtnPermission({ content: block.content || '', perm: block.perm || '' }, myNickname);
+        return {
+            label: block.label || '',
+            content: permInfo.content,
+            allowed: permInfo.allowed,
+            fg: block.fg || '',
+            bg: block.bg || '',
+            sound: block.sound || '',
+            anim: block.anim || '',
+            click: block.click || ''
+        };
+    }
+
+    // 渲染单个组件 block 为 HTML（对齐 mdFormat 各组件分支，但直接读取已解析字段）
+    function renderComponentHtml(block) {
+        let ab = blockToAb(block);
+        let label = escapeHtml(ab.label);
+        let ghostClass = ab.bg === '-1' ? ' md-btn-ghost' : '';
+        let disClass = ab.allowed ? '' : ' md-btn-disabled';
+        let disAttr = ab.allowed ? '' : ' data-disabled="1"';
+        let abStyle = buildColorStyle(ab.fg, ab.bg);
+        let soundAttr = ab.sound ? ' data-sound="' + escapeHtmlAttr(ab.sound) + '"' : '';
+        let animAttr = ab.anim ? ' data-anim="' + escapeHtmlAttr(ab.anim) + '"' : '';
+        let clickAttr = ab.click ? ' data-click="' + escapeHtmlAttr(JSON.stringify(parseClickLimit(ab.click))) + '"' : '';
+
+        let t = block.t;
+
+        if (t === 'modal') {
+            let title = block.title || '提示';
+            let children = block.children || [];
+            return '<a class="md-btn md-btn-modal' + ghostClass + disClass + '" href="#" data-modal-title="' +
+                escapeHtmlAttr(encodeURIComponent(title)) + '" data-modal-content="' +
+                escapeHtmlAttr(encodeURIComponent(JSON.stringify(children))) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'copy') {
+            return '<a class="md-btn md-btn-copy' + ghostClass + disClass + '" href="#" data-copy="' + escapeHtmlAttr(ab.content) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'send') {
+            return '<a class="md-btn md-btn-send' + ghostClass + disClass + '" href="#" data-send="' + escapeHtmlAttr(ab.content) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'embed') {
+            return '<a class="md-btn md-btn-embed' + ghostClass + disClass + '" href="#" data-embed="' + escapeHtmlAttr(ab.content) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'confirm') {
+            let cMsg = block.message || '确定执行吗？';
+            let cAct = block.action || '';
+            return '<a class="md-btn md-btn-confirm' + ghostClass + disClass + '" href="#" data-confirm-msg="' +
+                escapeHtmlAttr(encodeURIComponent(cMsg)) + '" data-confirm-action="' +
+                escapeHtmlAttr(encodeURIComponent(cAct)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'details') {
+            let dTitle = block.title || '详情';
+            let dChildren = block.children || [];
+            return '<a class="md-btn md-btn-details' + ghostClass + disClass + '" href="#" data-details-title="' +
+                escapeHtmlAttr(encodeURIComponent(dTitle)) + '" data-details-content="' +
+                escapeHtmlAttr(encodeURIComponent(JSON.stringify(dChildren))) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'rand') {
+            let rList = (block.options || []).join('|');
+            let rMode = block.mode === 'modal' ? 'modal' : 'send';
+            let rTitle = block.title || '';
+            return '<a class="md-btn md-btn-rand' + ghostClass + disClass + '" href="#" data-rand="' +
+                escapeHtmlAttr(encodeURIComponent(rList)) + '" data-rand-mode="' + rMode + '"' +
+                (rTitle ? ' data-rand-title="' + escapeHtmlAttr(encodeURIComponent(rTitle)) + '"' : '') +
+                abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'input') {
+            let inputId = block.id || 'inp0';
+            let okVal = block.ok || '';
+            let placeholder = block.placeholder || '';
+            let colorofAttr = block.colorof ? ' data-colorof="' + escapeHtmlAttr(block.colorof) + '"' : '';
+            let onchangeAttr = block.onchange ? ' data-onchange="' + escapeHtmlAttr(encodeURIComponent(block.onchange)) + '"' : '';
+            return '<span class="md-input-box" data-ui-id="' + escapeHtmlAttr(inputId) + '"' + colorofAttr + abStyle + '>' +
+                (block.label ? '<span class="md-input-label">' + label + '</span>' : '') +
+                '<input class="md-input" type="text" data-input-id="' + escapeHtmlAttr(inputId) + '" data-ok="' + escapeHtmlAttr(okVal) + '" placeholder="' + escapeHtmlAttr(placeholder) + '"' + onchangeAttr + '>' +
+                '</span>';
+        }
+        if (t === 'get') {
+            let gid = block.id || '';
+            let colorofAttr2 = block.colorof ? ' data-colorof="' + escapeHtmlAttr(block.colorof) + '"' : '';
+            return '<span class="md-get" data-get-id="' + escapeHtmlAttr(gid) + '"' + colorofAttr2 + abStyle + '></span>';
+        }
+        if (t === 'ok') {
+            let bindId = block.bind || '';
+            let right = block.right || '';
+            let wrong = block.wrong || '';
+            let obLock = block.lock ? ' data-timer-lock-group="' + escapeHtmlAttr(block.lock) + '"' : '';
+            return '<a class="md-btn md-btn-ok' + ghostClass + disClass + '" href="#" data-ok="' + escapeHtmlAttr(bindId) + '" data-right="' + escapeHtmlAttr(encodeURIComponent(right)) + '" data-wrong="' + escapeHtmlAttr(encodeURIComponent(wrong)) + '"' + obLock + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'cancel') {
+            let cb = block.action || '';
+            return '<a class="md-btn md-btn-cancel' + ghostClass + disClass + '" href="#" data-cancel="' + escapeHtmlAttr(encodeURIComponent(cb)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'close') {
+            let clb = block.action || '';
+            return '<a class="md-btn md-btn-close' + ghostClass + disClass + '" href="#" data-close="' + escapeHtmlAttr(encodeURIComponent(clb)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'switch') {
+            let swId = block.id || 'sw0';
+            let swVals = (block.values && block.values.length) ? block.values : [block.label || ''];
+            let swStyle = abStyle;
+            let swColorAttr = '';
+            if (block.color) {
+                let initColor = (block.colors && block.colors.length) ? block.colors[0] : swVals[0];
+                if (block.colors && block.colors.length) {
+                    swColorAttr = ' data-switch-colors="' + escapeHtmlAttr(JSON.stringify(block.colors)) + '"';
+                }
+                if (/^#?[0-9a-fA-F]{3,8}$/.test(String(initColor).trim())) {
+                    let c0 = String(initColor).trim();
+                    if (c0.charAt(0) !== '#') c0 = '#' + c0;
+                    swStyle = ' style="background-color:' + c0 + '"';
+                }
+            }
+            let swOnchange = block.onchange ? ' data-onchange="' + escapeHtmlAttr(encodeURIComponent(block.onchange)) + '"' : '';
+            let swLock = block.lock ? ' data-timer-lock-group="' + escapeHtmlAttr(block.lock) + '"' : '';
+            return '<a class="md-btn md-btn-switch' + ghostClass + disClass + '" href="#" data-ui-id="' + escapeHtmlAttr(swId) + '" data-switch-id="' + escapeHtmlAttr(swId) + '" data-switch-vals="' + escapeHtmlAttr(JSON.stringify(swVals)) + '"' + (block.color ? ' data-switch-color="1"' : '') + swColorAttr + swOnchange + swLock + swStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(swVals[0]) + '</a>';
+        }
+        if (t === 'var') {
+            let varId = block.var || '';
+            let varInit = block.init !== undefined ? block.init : '';
+            return '<span class="md-var" data-var-id="' + escapeHtmlAttr(varId) + '">' + escapeHtml(varInit) + '</span>';
+        }
+        if (t === 'def') {
+            let defName = block.var || '';
+            let defVal = block.init !== undefined ? block.init : '';
+            return '<span class="md-def" data-def-name="' + escapeHtmlAttr(defName) + '" data-def-value="' + escapeHtmlAttr(defVal) + '" style="display:none"></span>';
+        }
+        if (t === 'cipher') {
+            let cipherKey = block.key || 'md';
+            let enc = mdEncrypt(block.value || '', cipherKey);
+            return '<a class="md-btn md-btn-cipher' + ghostClass + disClass + '" href="#" data-cipher="' + escapeHtmlAttr(enc) + '" data-cipher-key="' + escapeHtmlAttr(cipherKey) + '"' + abStyle + disAttr + clickAttr + '>' + label + '</a>';
+        }
+        if (t === 'table') {
+            let tcols = Math.max(1, block.cols || 2);
+            let cells = block.cells || [];
+            let tHtml = '<table class="md-table"><thead><tr>';
+            for (let ti = 0; ti < Math.min(tcols, cells.length); ti++) tHtml += '<th>' + escapeHtml(cells[ti]) + '</th>';
+            tHtml += '</tr></thead><tbody>';
+            let tBody = cells.slice(tcols);
+            for (let ti = 0; ti < tBody.length; ti += tcols) {
+                tHtml += '<tr>';
+                for (let tj = 0; tj < tcols; tj++) tHtml += '<td>' + escapeHtml(tBody[ti + tj] || '') + '</td>';
+                tHtml += '</tr>';
+            }
+            tHtml += '</tbody></table>';
+            return tHtml;
+        }
+        if (t === 'music') {
+            let mUrl = block.url || '';
+            let mTitle = block.title || '';
+            if (!isValidAudioUrl(mUrl)) return '<span class="md-img-error">[音频链接不合法]</span>';
+            return '<span class="md-music">' +
+                (mTitle ? '<span class="md-music-title">' + escapeHtml(mTitle) + '</span>' : '') +
+                '<audio class="md-music-audio" controls preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
+                '</span>';
+        }
+        if (t === 'timer') {
+            let timerId = block.id || 'tmr0';
+            let timerTotal = block.seconds || 30;
+            let timerEnd = block.end || '';
+            let timerLock = block.lock || '';
+            let timerBar = block.bar || '';
+            return '<span class="md-timer" data-timer-id="' + escapeHtmlAttr(timerId) + '" data-timer-total="' + timerTotal + '"' +
+                (timerEnd ? ' data-timer-end="' + escapeHtmlAttr(encodeURIComponent(timerEnd)) + '"' : '') +
+                (timerLock ? ' data-timer-lock="' + escapeHtmlAttr(timerLock) + '"' : '') +
+                (timerBar ? ' data-timer-bar="' + escapeHtmlAttr(timerBar) + '"' : '') +
+                '>' + timerTotal + '</span>';
+        }
+        if (t === 'bar') {
+            let barId = block.id || 'bar0';
+            let barVal = block.value || 0;
+            let barMax = block.max || 100;
+            return '<span class="md-bar" data-bar-id="' + escapeHtmlAttr(barId) + '" data-bar-max="' + barMax + '" data-bar-init="' + barVal + '">' +
+                '<span class="md-bar-fill" style="width:' + (barMax > 0 ? (barVal / barMax) * 100 : 0) + '%"></span>' +
+                '<span class="md-bar-text">' + barVal + '/' + barMax + '</span>' +
+                '</span>';
+        }
+        if (t === 'if') {
+            let cond = block.cond || '';
+            let thenText = block.then || '';
+            return '<span class="md-if" data-if-cond="' + escapeHtmlAttr(cond) + '">' + escapeHtml(thenText) + '</span>';
+        }
+        if (t === 'hide') {
+            let hType = block.action_type || '';
+            let hContent = block.action || '';
+            if (hType === 'send') {
+                return '<span class="md-hide" data-send="' + escapeHtmlAttr(hContent) + '">' + label + '</span>';
+            }
+            if (hType === 'copy') {
+                return '<span class="md-hide" data-copy="' + escapeHtmlAttr(hContent) + '">' + label + '</span>';
+            }
+            if (hType === 'switch') {
+                let hsId = block.switch_id || 'hs0';
+                let hsVals = (block.switch_values && block.switch_values.length) ? block.switch_values : [block.label || ''];
+                return '<span class="md-hide md-hide-switch" data-switch-id="' + escapeHtmlAttr(hsId) + '" data-switch-vals="' + escapeHtmlAttr(JSON.stringify(hsVals)) + '">' + escapeHtml(hsVals[0]) + '</span>';
+            }
+            return '<span class="md-hide">' + label + '</span>';
+        }
+        if (t === 'textbox') {
+            let txt = block.text || '';
+            let tTitle = block.title || '';
+            let tAlign = block.align || 'left';
+            let tSize = block.size || 'md';
+            let tStyle = block.style || 'note';
+            let tColor = normColor(block.color || '');
+            let tBg = block.bg === '-1' ? '' : normColor(block.bg || '');
+            let tStyleParts = ['text-align:' + tAlign];
+            if (tColor) tStyleParts.push('color:' + tColor);
+            if (tBg) tStyleParts.push('background-color:' + tBg);
+            let tStyleAttr = ' style="' + tStyleParts.join(';') + '"';
+            return '<div class="md-textbox md-textbox-' + tSize + ' md-textbox-' + tStyle + '"' + tStyleAttr + '>' +
+                (tTitle ? '<div class="md-textbox-title">' + escapeHtml(tTitle) + '</div>' : '') +
+                '<div class="md-textbox-body">' + escapeHtml(txt) + '</div>' +
+                '</div>';
+        }
+        if (t === 'board') {
+            let bSize = Math.max(1, Math.min(20, block.size || 20));
+            let bShapes = block.shapes || '';
+            let bText = block.text || '';
+            let bBg = block.canvas_bg || '';
+            let bId = block.id || 'board0';
+            let bModal = !!block.modal;
+            let bHide = !!block.hide;
+            let bGrid = block.grid === '0' ? '0' : '1';
+            let bTx = block.tx !== undefined ? String(block.tx).trim() : '';
+            let bTy = block.ty !== undefined ? String(block.ty).trim() : '';
+            let bTs = block.ts !== undefined ? String(block.ts).trim() : '';
+            let bTc = block.tc !== undefined ? String(block.tc).trim() : '';
+            let boardHtml = '<span class="md-board" data-board-id="' + escapeHtmlAttr(bId) + '" data-board-size="' + bSize + '" data-board-shapes="' + escapeHtmlAttr(bShapes) + '" data-board-text="' + escapeHtmlAttr(bText) + '" data-board-bg="' + escapeHtmlAttr(bBg) + '" data-board-grid="' + bGrid + '"' +
+                (bTx !== '' ? ' data-board-tx="' + escapeHtmlAttr(bTx) + '"' : '') +
+                (bTy !== '' ? ' data-board-ty="' + escapeHtmlAttr(bTy) + '"' : '') +
+                (bTs !== '' ? ' data-board-ts="' + escapeHtmlAttr(bTs) + '"' : '') +
+                (bTc !== '' ? ' data-board-tc="' + escapeHtmlAttr(bTc) + '"' : '') +
+                (bHide ? ' style="display:none"' : '') + '></span>';
+            if (bModal) {
+                return '<a class="md-btn md-btn-board' + ghostClass + disClass + '" href="#" data-board-modal="' + escapeHtmlAttr(bId) + '"' + abStyle + disAttr + '>' + label + '</a>' + boardHtml;
+            }
+            return boardHtml;
+        }
+        if (t === 'vote') {
+            let vId = block.id || 'v0';
+            let vQuestion = block.question || '';
+            let vOpts = (block.options && block.options.length) ? block.options : [block.label || ''];
+            let vMax = block.max || 1;
+            let vMode = block.mode || 'bar';
+            let voteHtml = '<div class="md-vote" data-vote-id="' + escapeHtmlAttr(vId) + '" data-vote-max="' + vMax + '" data-vote-mode="' + escapeHtmlAttr(vMode) + '" data-vote-opts="' + escapeHtmlAttr(JSON.stringify(vOpts)) + '">' +
+                (vQuestion ? '<div class="md-vote-q">' + escapeHtml(vQuestion) + '</div>' : '') +
+                '<div class="md-vote-opts">';
+            for (let vo = 0; vo < vOpts.length; vo++) {
+                voteHtml += '<div class="md-vote-opt" data-vote-opt="' + vo + '" data-vote-picked="0">' +
+                    '<span class="md-vote-opt-name">' + escapeHtml(vOpts[vo]) + '</span>' +
+                    '<span class="md-vote-bar"><i style="width:0%"></i></span>' +
+                    '<span class="md-vote-num">0 票</span>' +
+                    '</div>';
+            }
+            voteHtml += '</div><div class="md-vote-foot">' + (vMax > 1 ? '最多选 ' + vMax + ' 项' : '单选') + '</div></div>';
+            return voteHtml;
+        }
+        if (t === 'dice') {
+            let dExpr = block.expr || '1d6';
+            let dId = block.id || '';
+            return '<span class="md-dice">' +
+                '<a class="md-btn md-btn-dice' + ghostClass + disClass + '" href="#" data-dice="' + escapeHtmlAttr(dExpr) + '"' + (dId ? ' data-dice-id="' + escapeHtmlAttr(dId) + '"' : '') + abStyle + disAttr + soundAttr + animAttr + '>' + (block.label ? label : ('🎲 ' + escapeHtml(dExpr))) + '</a>' +
+                '<span class="md-dice-result"></span></span>';
+        }
+        if (t === 'at') {
+            let aTime = block.time || '00:00';
+            let aId = block.id || 'at0';
+            let aEnd = block.end || '';
+            let aRepeat = !!block.repeat;
+            return '<span class="md-at" data-at-time="' + escapeHtmlAttr(aTime) + '" data-at-id="' + escapeHtmlAttr(aId) + '"' +
+                (aEnd ? ' data-at-end="' + escapeHtmlAttr(encodeURIComponent(aEnd)) + '"' : '') +
+                (aRepeat ? ' data-at-repeat="1"' : '') +
+                '>⏰ 定时 ' + escapeHtml(aTime) + '</span>';
+        }
+        if (t === 'gallery') {
+            let gImgs = (block.images || []).filter(function (u) { return isValidImageUrl(u); });
+            let gTitle = block.title || '';
+            let gAutoplay = block.autoplay || 0;
+            if (!gImgs.length) return '<span class="md-img-error">[图集链接不合法]</span>';
+            return '<a class="md-btn md-btn-gallery' + ghostClass + disClass + '" href="#" data-gallery="' + escapeHtmlAttr(JSON.stringify(gImgs)) + '"' +
+                (gTitle ? ' data-gallery-title="' + escapeHtmlAttr(encodeURIComponent(gTitle)) + '"' : '') +
+                (gAutoplay ? ' data-gallery-autoplay="' + gAutoplay + '"' : '') +
+                abStyle + disAttr + '>' + (block.label ? label : '📸 查看图集') + '</a>';
+        }
+        return '';
+    }
+
+    // 渲染单个 block（文本 / 引用 / 组件）
+    function renderBlock(block, opts) {
+        if (!block || typeof block !== 'object') return '';
+        let t = block.t || 'text';
+        if (t === 'text') {
+            return mdFormat(block.text || '', opts);
+        }
+        if (t === 'ref') {
+            return renderRefNode(block);
+        }
+        return renderComponentHtml(block);
+    }
+
+    // 渲染 blocks 数组为 HTML
+    function renderBlocks(blocks, opts) {
+        opts = opts || {};
+        if (!Array.isArray(blocks)) return '';
+        let html = '';
+        for (let i = 0; i < blocks.length; i++) {
+            html += renderBlock(blocks[i], opts);
+        }
+        return html;
     }
 
     function mdFormat(content, opts) {

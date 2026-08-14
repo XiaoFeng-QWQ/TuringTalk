@@ -54,19 +54,48 @@ class LobbyChatService
         }
     }
 
+    /**
+     * 将存储态消息转换为传输态：markdown 消息的 content 从 JSON 字符串转为对象。
+     * 存储（Redis/MySQL）保持字符串不变，仅在下发给前端前调用。
+     */
+    public function hydrateMessage(array $msg): array
+    {
+        if (($msg['type'] ?? '') === LobbyMessageType::MARKDOWN->value && is_string($msg['content'] ?? null)) {
+            $decoded = json_decode($msg['content'], true);
+            if (is_array($decoded)) {
+                $msg['content'] = $decoded;
+            }
+        }
+        return $msg;
+    }
+
     public function send(string $senderName, string $senderId, string $content, string $ip = '', string $fingerprint = '', ?int $replyToId = null, ?string $replyToName = null, ?string $replyToText = null): array
     {
         $redis = RedisService::connect();
         $this->syncMsgIdFromDb();
         $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
 
+        $rawContent = mb_substr($content, 0, self::MAX_CONTENT_LEN);
+
+        // 仅当包含特殊 MD 语法时才解析为结构化 blocks；普通文本保持纯文本（type 空）
+        if (MarkdownMessageParser::hasSpecialSyntax($rawContent)) {
+            $parser = new MarkdownMessageParser();
+            $parsed = $parser->parse($rawContent);
+            $msgType = LobbyMessageType::MARKDOWN->value;
+            $msgContent = json_encode(['v' => 1, 'blocks' => $parsed['blocks']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $msgType = '';
+            $msgContent = $rawContent;
+        }
+
         $msg = [
             'id'          => $id,
+            'type'        => $msgType,
             'sender_name' => $senderName,
             'sender_id'   => $senderId,
             'sender_ip'   => $ip,
             'sender_fp'   => $fingerprint,
-            'content'     => mb_substr($content, 0, self::MAX_CONTENT_LEN),
+            'content'     => $msgContent,
             'reply_to'    => null,
             'time'        => date('H:i:s'),
             'created_at'  => date('Y-m-d H:i:s'),
@@ -91,7 +120,7 @@ class LobbyChatService
 
         Logger::debug('Lobby message sent', ['id' => $id, 'sender' => $senderName]);
 
-        return $msg;
+        return $this->hydrateMessage($msg);
     }
 
     /**
@@ -181,7 +210,7 @@ class LobbyChatService
                 if (!$keepMeta) {
                     unset($m['sender_ip'], $m['sender_fp']);
                 }
-                $msgs[] = $m;
+                $msgs[] = $this->hydrateMessage($m);
             }
         }
 
@@ -271,7 +300,7 @@ class LobbyChatService
                     'text' => $row['reply_to_text'] ?? '',
                 ];
             }
-            $messages[] = $m;
+            $messages[] = $this->hydrateMessage($m);
         }
 
         return ['total' => $total, 'messages' => $messages];
@@ -381,7 +410,7 @@ class LobbyChatService
                             'text' => $row['reply_to_text'] ?? '',
                         ];
                     }
-                    $allMessages[] = $m;
+                    $allMessages[] = $this->hydrateMessage($m);
                 }
             } catch (\Throwable $e) {
                 Logger::warning('LobbyChatService: getAdminMessages MySQL query failed', ['error' => $e->getMessage()]);
