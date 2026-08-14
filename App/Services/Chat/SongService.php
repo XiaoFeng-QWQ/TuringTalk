@@ -514,6 +514,17 @@ class SongService
     }
 
     /**
+     * 获取播放队列队首的下一首歌曲（含完整信息 url/lrc，供前端预加载无缝衔接）
+     */
+    public function getNextSong(): ?array
+    {
+        $redis = RedisService::connect();
+        $json  = $redis->lIndex(RedisService::KP_LOBBY_SONG_PLAYLIST, 0);
+        if (!$json) return null;
+        return json_decode($json, true) ?: null;
+    }
+
+    /**
      * 清空当前播放状态
      */
     public function clearPlaying(): void

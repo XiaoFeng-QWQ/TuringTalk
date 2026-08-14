@@ -1,4 +1,7 @@
 /* ========== 周报页面 ========== */
+.report-content {
+    padding-top: 30px;
+}
 
 .report-loading {
     text-align: center;

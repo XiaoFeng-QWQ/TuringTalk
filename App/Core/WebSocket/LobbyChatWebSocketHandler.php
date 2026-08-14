@@ -131,15 +131,30 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
             // 禁言：默认全部拦截，仅放行只读/系统/管理消息
             $muteExempt = [
-                'lobby_join', 'lobby_set_fp', 'ping',
-                'get_stickers', 'lobby_song_search', 'lobby_song_list', 'lobby_song_current', 'lobby_song_finished',
-                'lobby_report', 'lobby_revoke',
-                'lobby_mute', 'lobby_unmute', 'lobby_ban', 'lobby_isolate', 'lobby_unisolate',
-                'lobby_delete', 'lobby_song_admin_remove', 'lobby_admin_verify',
+                'lobby_join',
+                'lobby_set_fp',
+                'ping',
+                'get_stickers',
+                'lobby_song_search',
+                'lobby_song_list',
+                'lobby_song_current',
+                'lobby_song_finished',
+                'lobby_report',
+                'lobby_revoke',
+                'lobby_mute',
+                'lobby_unmute',
+                'lobby_ban',
+                'lobby_isolate',
+                'lobby_unisolate',
+                'lobby_delete',
+                'lobby_song_admin_remove',
+                'lobby_admin_verify',
             ];
             $mutedPlayerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
-            if ($mutedPlayerId !== '' && $this->lobbyService->isMuted($mutedPlayerId)
-                && !in_array($data['type'], $muteExempt, true)) {
+            if (
+                $mutedPlayerId !== '' && $this->lobbyService->isMuted($mutedPlayerId)
+                && !in_array($data['type'], $muteExempt, true)
+            ) {
                 $remaining = $this->lobbyService->getMutedRemaining($mutedPlayerId);
                 $this->sendToPlayer($server, $fd, [
                     'type' => 'lobby_system',
@@ -249,6 +264,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 case 'lobby_song_finished':
                     // 客户端本地播完时通知：立即检查并切歌广播（加速下一首同步）
                     $this->checkSongProgress($server);
+                    break;
+
+                case 'lobby_btn_click':
+                    $this->handleBtnClick($server, $fd, $data);
                     break;
 
                 case 'lobby_nudge':
@@ -371,6 +390,16 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
+        // 禁言检查
+        if ($this->lobbyService->isMuted($playerId)) {
+            $remaining = $this->lobbyService->getMutedRemaining($playerId);
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '你已被禁言，剩余 ' . ceil($remaining / 60) . ' 分钟',
+            ]);
+            return;
+        }
+
         // 发言频率检查
         $cooldown = $this->lobbyService->checkRateLimit($playerId);
         if ($cooldown > 0) {
@@ -478,7 +507,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 'type'        => 'sticker',
                 'id'          => $sticker['id'],
                 'sticker_id'  => $sticker['id'],
-                'sticker_name'=> $sticker['name'] ?? '',
+                'sticker_name' => $sticker['name'] ?? '',
                 'sticker_url' => $sticker['url'] ?? '',
                 'sender_name' => $info['nickname'],
                 'sender_id'   => $playerId,
@@ -549,6 +578,77 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         ]);
     }
 
+    /**
+     * 按钮点击次数限制（global / mixed 模式；per-user 模式由前端 localStorage 处理）
+     * 语法：^^N（全局共享）/ ^^*N（每人）/ ^^N@名:M@名:M（全局 + 特定人覆盖）
+     */
+    private function handleBtnClick(Server $server, int $fd, array $data): void
+    {
+        $key = Sanitizer::identifier($data['key'] ?? '');
+        if ($key === '') {
+            return;
+        }
+        $userName = trim($data['userName'] ?? '');
+        $rule = $data['rule'] ?? null;
+        if (!is_array($rule)) {
+            return;
+        }
+
+        $mode = $rule['mode'] ?? 'global';
+        $globalLimit = (int)($rule['globalLimit'] ?? 0);
+        $perUserLimit = (int)($rule['perUserLimit'] ?? 0);
+        $extra = is_array($rule['extra'] ?? null) ? $rule['extra'] : [];
+
+        // 确定当前用户的上限；null 表示无限制
+        $limit = null;
+        $useUserKey = false;
+        if ($mode === 'per-user') {
+            $limit = $perUserLimit > 0 ? $perUserLimit : null;
+            $useUserKey = true;
+        } elseif ($mode === 'mixed' && isset($extra[$userName])) {
+            $limit = (int)$extra[$userName] > 0 ? (int)$extra[$userName] : null;
+            $useUserKey = true;
+        } else {
+            $limit = $globalLimit > 0 ? $globalLimit : null;
+        }
+
+        if ($limit === null) {
+            $this->sendToPlayer($server, $fd, [
+                'type'      => 'lobby_btn_click_result',
+                'key'       => $key,
+                'allowed'   => true,
+                'remaining' => -1,
+            ]);
+            return;
+        }
+
+        $redis = RedisService::connect();
+        $userKey = $useUserKey ? md5($userName) : '';
+        $countKey = RedisService::KP_LOBBY_BTN_CLICK . ':' . $key . ($useUserKey ? ':u:' . $userKey : '');
+        $count = (int)$redis->incr($countKey);
+        $redis->expire($countKey, 604800); // 7 天过期
+
+        $allowed = $count <= $limit;
+        $remaining = max(0, $limit - $count);
+
+        $this->sendToPlayer($server, $fd, [
+            'type'      => 'lobby_btn_click_result',
+            'key'       => $key,
+            'allowed'   => $allowed,
+            'remaining' => $remaining,
+        ]);
+
+        if (!$allowed) {
+            Logger::info('Lobby button click limit reached', [
+                'key'      => $key,
+                'userName' => $userName,
+                'count'    => $count,
+                'limit'    => $limit,
+            ]);
+        }
+    }
+
+
     // ==================== 举报 ====================
 
     /**
@@ -586,7 +686,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
 
         $targetName = Sanitizer::nickname($msg['sender_name'] ?? '');
-        $messageContent = Sanitizer::text($msg['content'] ?? '', 1500);
+        $messageContent = Sanitizer::text($msg['content'] ?? '', LobbyChatService::MAX_CONTENT_LEN);
 
         // 从消息中获取被举报者的 player_id
         $targetPlayerId = $msg['sender_id'] ?? '';
@@ -721,7 +821,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     /**
      * 管理员解除禁言
      */
-    private function handleUnmute(Server $server, int $fd, array $data): void    {
+    private function handleUnmute(Server $server, int $fd, array $data): void
+    {
         if (!$this->isAdmin($fd)) return;
 
         $targetFd = (int)($data['target_fd'] ?? 0);
@@ -824,7 +925,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $nickname = $info['nickname'];
         $card = [
             'type'   => 'record',
-            'version'=> 1,
+            'version' => 1,
             'title'  => $nickname . '的战绩',
             'player' => $nickname,
             'fields' => [
@@ -1192,6 +1293,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     {
         $playing = $this->songService->getPlaying();
         if ($playing) {
+            // 附加下一首（含 url/lrc），供前端提前 60 秒预加载实现无缝衔接
+            $playing['next'] = $this->songService->getNextSong();
             $this->sendToPlayer($server, $fd, [
                 'type' => 'lobby_song_current',
                 'song' => $playing,
@@ -1218,6 +1321,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'pool'     => $this->songService->getPool(),
         ];
         if ($playing) {
+            // 附加下一首（含 url/lrc），供前端提前 60 秒预加载实现无缝衔接
+            $playing['next'] = $this->songService->getNextSong();
             $msg['playing'] = $playing;
         }
 
@@ -1475,5 +1580,4 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
         return $content;
     }
-
 }

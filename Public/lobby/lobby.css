@@ -344,6 +344,16 @@
     color: var(--ink-black);
     line-height: 1.55;
     white-space: normal;
+    min-width: 0;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    /* 手机端长内容安全高度：超高内容容器内滚动，避免消息列表撑爆显示不全 */
+    /* vh 在 iOS Safari/部分 WebView 含地址栏会偏大，优先 dvh 动态视口 */
+    max-height: 60dvh;
+    max-height: 60dvh;
+    max-width: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* 已撤回的消息 */
@@ -2122,7 +2132,8 @@ main {
 }
 
 /* ==================== MD 可点击按钮 ==================== */
-.lobby-msg-text a.md-btn {
+.lobby-msg-text a.md-btn,
+.md-modal-body a.md-btn {
     display: inline-block;
     padding: 6px 16px;
     border-radius: 8px;
@@ -2137,45 +2148,53 @@ main {
     transition: all 0.15s;
 }
 
-.lobby-msg-text a.md-btn:hover {
+.lobby-msg-text a.md-btn:hover,
+.md-modal-body a.md-btn:hover {
     background: var(--note-blue-dark, #2563eb);
     transform: translateY(1px);
     box-shadow: 1px 1px 0 var(--shadow-sm);
 }
 
-.lobby-msg-text a.md-btn:active {
+.lobby-msg-text a.md-btn:active,
+.md-modal-body a.md-btn:active {
     transform: translateY(2px);
     box-shadow: none;
 }
 
 /* MD 动作按钮：复制 / 快捷发送 */
-.lobby-msg-text a.md-btn-copy {
+.lobby-msg-text a.md-btn-copy,
+.md-modal-body a.md-btn-copy {
     background: var(--note-blue);
     color: var(--ink-blue) !important;
 }
 
-.lobby-msg-text a.md-btn-copy:hover {
+.lobby-msg-text a.md-btn-copy:hover,
+.md-modal-body a.md-btn-copy:hover {
     background: var(--note-blue);
     filter: brightness(0.95);
 }
 
-.lobby-msg-text a.md-btn-send {
+.lobby-msg-text a.md-btn-send,
+.md-modal-body a.md-btn-send {
     background: var(--success);
     color: #fff !important;
 }
 
-.lobby-msg-text a.md-btn-send:hover {
+.lobby-msg-text a.md-btn-send:hover,
+.md-modal-body a.md-btn-send:hover {
     background: var(--success);
     filter: brightness(0.95);
 }
 
 /* ==================== MD 弹窗按钮 ==================== */
-.lobby-msg-text a.md-btn-modal {
+.lobby-msg-text a.md-btn-modal,
+.md-modal-body a.md-btn-modal {
     background: var(--note-yellow);
     color: var(--ink-blue) !important;
 }
 
-.lobby-msg-text a.md-btn-modal:hover {
+.lobby-msg-text a.md-btn-modal:hover,
+.md-modal-body a.md-btn-modal:hover {
     filter: brightness(0.96);
 }
 
@@ -2316,19 +2335,21 @@ main {
 }
 
 /* MD 网页内嵌按钮 */
-.lobby-msg-text a.md-btn-embed {
+.lobby-msg-text a.md-btn-embed,
+.md-modal-body a.md-btn-embed {
     background: var(--note-green);
     color: var(--ink-black) !important;
 }
 
-.lobby-msg-text a.md-btn-embed:hover {
+.lobby-msg-text a.md-btn-embed:hover,
+.md-modal-body a.md-btn-embed:hover {
     filter: brightness(0.96);
 }
 
 /* 网页内嵌弹窗：大尺寸 + iframe */
 .md-modal-embed {
-    width: min(880px, 94dvw);
-    height: min(80dvh, 80dvh);
+    width: min(880px, 94vw);
+    height: min(80vh, 80vh);
 }
 
 .md-modal-embed .md-modal-body {
@@ -2346,20 +2367,23 @@ main {
 }
 
 /* 透明按钮：只显示黑边和文本（背景透明 + 默认深色文本） */
-.lobby-msg-text a.md-btn-ghost {
+.lobby-msg-text a.md-btn-ghost,
+.md-modal-body a.md-btn-ghost {
     background: transparent !important;
     color: var(--ink-black) !important;
     box-shadow: none;
 }
 
-.lobby-msg-text a.md-btn-ghost:hover {
+.lobby-msg-text a.md-btn-ghost:hover,
+.md-modal-body a.md-btn-ghost:hover {
     background: transparent !important;
     filter: none;
     transform: translateY(1px);
 }
 
 /* 权限禁用按钮：灰色 + 不可点 */
-.lobby-msg-text a.md-btn-disabled {
+.lobby-msg-text a.md-btn-disabled,
+.md-modal-body a.md-btn-disabled {
     opacity: 0.45;
     filter: grayscale(0.8);
     cursor: not-allowed;
@@ -2367,25 +2391,569 @@ main {
     box-shadow: none;
 }
 
-.lobby-msg-text a.md-btn-disabled:hover {
+.lobby-msg-text a.md-btn-disabled:hover,
+.md-modal-body a.md-btn-disabled:hover {
     transform: none;
     filter: grayscale(0.8);
 }
 
 /* MD 确认/折叠/随机 按钮配色 */
-.lobby-msg-text a.md-btn-confirm {
+.lobby-msg-text a.md-btn-confirm,
+.md-modal-body a.md-btn-confirm {
     background: var(--danger, #d32f2f);
     color: #fff !important;
 }
 
-.lobby-msg-text a.md-btn-details {
+.lobby-msg-text a.md-btn-details,
+.md-modal-body a.md-btn-details {
     background: var(--note-yellow);
     color: var(--ink-blue) !important;
 }
 
-.lobby-msg-text a.md-btn-randsend,
-.lobby-msg-text a.md-btn-randmodal {
+.lobby-msg-text a.md-btn-rand,
+.md-modal-body a.md-btn-rand {
     background: #9c6ade;
+    color: #fff !important;
+}
+
+/* 交互式 MD：输入框 / 获取内容 / 确认 / 取消 / 关闭 / 可改变内容 */
+.lobby-msg-text .md-input-box,
+.md-modal-body .md-input-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    vertical-align: middle;
+    margin: 2px 4px 2px 0;
+    padding: 4px 8px;
+    background: #fff;
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+}
+
+.lobby-msg-text .md-input-label,
+.md-modal-body .md-input-label {
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--ink-blue);
+    white-space: nowrap;
+}
+
+.lobby-msg-text .md-input,
+.md-modal-body .md-input {
+    width: 120px;
+    max-width: 180px;
+    padding: 3px 8px;
+    font-size: 0.85em;
+    border: 1.5px solid var(--border-light);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--ink-black);
+    outline: none;
+}
+
+.lobby-msg-text .md-input:focus,
+.md-modal-body .md-input:focus {
+    border-color: var(--ink-blue);
+}
+
+.lobby-msg-text .md-get,
+.md-modal-body .md-get {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--note-yellow);
+    border: 1.5px dashed var(--border-light);
+    font-size: 0.9em;
+    color: var(--ink-blue);
+    font-weight: 600;
+    min-width: 20px;
+    vertical-align: middle;
+    margin: 2px 4px 2px 0;
+}
+
+.lobby-msg-text a.md-btn-ok,
+.md-modal-body a.md-btn-ok {
+    background: #22c55e;
+    color: #fff !important;
+}
+
+.lobby-msg-text a.md-btn-cancel,
+.md-modal-body a.md-btn-cancel {
+    background: #94a3b8;
+    color: #fff !important;
+}
+
+.lobby-msg-text a.md-btn-close,
+.md-modal-body a.md-btn-close {
+    background: #ef4444;
+    color: #fff !important;
+}
+
+.lobby-msg-text a.md-btn-switch,
+.md-modal-body a.md-btn-switch {
+    background: #f59e0b;
+    color: #fff !important;
+}
+
+/* 交互式 MD 扩展：全局变量 / 加密 / 表格 / 音乐播放器 / 倒计时 / 进度条 / 条件显示 / 隐藏按钮 */
+.lobby-msg-text .md-var,
+.md-modal-body .md-var {
+    font-weight: 700;
+    color: var(--ink-blue);
+    padding: 0 2px;
+}
+
+.lobby-msg-text a.md-btn-cipher,
+.md-modal-body a.md-btn-cipher {
+    background: #7c3aed;
+    color: #fff !important;
+}
+
+.lobby-msg-text .md-table,
+.md-modal-body .md-table {
+    border-collapse: collapse;
+    margin: 4px 0;
+    font-size: 0.9em;
+    max-width: 100%;
+}
+
+.lobby-msg-text .md-table th,
+.lobby-msg-text .md-table td,
+.md-modal-body .md-table th,
+.md-modal-body .md-table td {
+    border: 1.5px solid var(--border-light);
+    padding: 4px 10px;
+    text-align: left;
+}
+
+.lobby-msg-text .md-table th,
+.md-modal-body .md-table th {
+    background: var(--note-blue);
+    font-weight: 600;
+}
+
+.lobby-msg-text .md-music,
+.md-modal-body .md-music {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    background: var(--note-yellow);
+    margin: 2px 4px 2px 0;
+    vertical-align: middle;
+}
+
+.lobby-msg-text .md-music audio,
+.md-modal-body .md-music audio {
+    height: 32px;
+    max-width: 220px;
+}
+
+.lobby-msg-text .md-music-title,
+.md-modal-body .md-music-title {
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+.lobby-msg-text .md-timer,
+.md-modal-body .md-timer {
+    display: inline-block;
+    padding: 4px 12px;
+    font-size: 1.1em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    margin: 2px 4px 2px 0;
+    vertical-align: middle;
+}
+
+.lobby-msg-text .md-timer.md-timer-done,
+.md-modal-body .md-timer.md-timer-done {
+    background: #d4edda;
+    color: var(--ink-blue);
+}
+
+.lobby-msg-text .md-bar,
+.md-modal-body .md-bar {
+    display: inline-block;
+    width: 180px;
+    max-width: 60vw;
+    height: 16px;
+    background: #e2e8f0;
+    border: 1.5px solid var(--ink-black);
+    border-radius: 8px;
+    position: relative;
+    margin: 2px 4px 2px 0;
+    vertical-align: middle;
+    overflow: hidden;
+}
+
+.lobby-msg-text .md-bar-fill,
+.md-modal-body .md-bar-fill {
+    display: block;
+    height: 100%;
+    background: var(--ink-blue);
+    border-radius: 6px;
+    transition: width 0.3s;
+}
+
+.lobby-msg-text .md-bar-text,
+.md-modal-body .md-bar-text {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--ink-black);
+    text-shadow: 0 0 3px #fff;
+}
+
+.lobby-msg-text .md-if,
+.md-modal-body .md-if {
+    display: inline;
+}
+
+.lobby-msg-text .md-hide,
+.md-modal-body .md-hide {
+    cursor: pointer;
+    text-decoration: underline dotted;
+    color: inherit;
+}
+
+.lobby-msg-text .md-hide:hover,
+.md-modal-body .md-hide:hover {
+    text-decoration: underline;
+}
+
+/* ==================== 投票 vote ==================== */
+.lobby-msg-text .md-vote,
+.md-modal-body .md-vote {
+    display: inline-block;
+    min-width: 220px;
+    max-width: 100%;
+    padding: 8px 12px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 10px;
+    margin: 4px 0;
+    vertical-align: middle;
+}
+
+.lobby-msg-text .md-vote-q,
+.md-modal-body .md-vote-q {
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.lobby-msg-text .md-vote-opt,
+.md-modal-body .md-vote-opt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    margin: 3px 0;
+    border: 1.5px solid var(--border-light);
+    border-radius: 8px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    background: #f8fafc;
+    user-select: none;
+}
+
+.lobby-msg-text .md-vote-opt:hover,
+.md-modal-body .md-vote-opt:hover {
+    border-color: var(--ink-blue);
+}
+
+.lobby-msg-text .md-vote-opt[data-vote-picked="1"],
+.md-modal-body .md-vote-opt[data-vote-picked="1"] {
+    border-color: var(--ink-blue);
+    background: #e0f2fe;
+    font-weight: 700;
+}
+
+.lobby-msg-text .md-vote-opt-name,
+.md-modal-body .md-vote-opt-name {
+    flex: 1;
+    z-index: 1;
+}
+
+.lobby-msg-text .md-vote-bar,
+.md-modal-body .md-vote-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    pointer-events: none;
+}
+
+.lobby-msg-text .md-vote-bar i,
+.md-modal-body .md-vote-bar i {
+    display: block;
+    height: 100%;
+    background: #dbeafe;
+    transition: width 0.3s;
+}
+
+.lobby-msg-text .md-vote-num,
+.md-modal-body .md-vote-num {
+    z-index: 1;
+    font-size: 0.85em;
+    color: var(--ink-blue);
+    white-space: nowrap;
+}
+
+.lobby-msg-text .md-vote-foot,
+.md-modal-body .md-vote-foot {
+    font-size: 0.8em;
+    color: #64748b;
+    margin-top: 4px;
+    text-align: right;
+}
+
+/* ==================== 骰子 dice ==================== */
+.lobby-msg-text .md-dice,
+.md-modal-body .md-dice {
+    display: inline-block;
+    vertical-align: middle;
+    margin: 2px 4px 2px 0;
+}
+
+.lobby-msg-text .md-dice-result,
+.md-modal-body .md-dice-result {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 3px 10px;
+    font-size: 0.9em;
+    font-weight: 700;
+    background: var(--note-yellow);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 8px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    vertical-align: middle;
+}
+
+.lobby-msg-text .md-dice-result.md-dice-done,
+.md-modal-body .md-dice-result.md-dice-done {
+    opacity: 1;
+}
+
+/* ==================== 定时到点 at ==================== */
+.lobby-msg-text .md-at,
+.md-modal-body .md-at {
+    display: inline-block;
+    padding: 4px 12px;
+    font-size: 0.95em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    margin: 2px 4px 2px 0;
+    vertical-align: middle;
+}
+
+.lobby-msg-text .md-at.md-at-done,
+.md-modal-body .md-at.md-at-done {
+    background: #d4edda;
+    color: var(--ink-blue);
+}
+
+/* ==================== 图集 gallery ==================== */
+.md-gallery-modal {
+    width: 560px;
+    max-width: 94vw;
+}
+
+.md-gallery-body {
+    position: relative;
+    background: #0f172a;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 8px 12px;
+    min-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.md-gallery-stage {
+    width: 100%;
+    max-height: 55vh;
+    max-height: 55dvh;
+}
+
+.md-gallery-slide {
+    display: none;
+}
+
+.md-gallery-slide.md-gallery-active {
+    display: block;
+}
+
+.md-gallery-slide img {
+    display: block;
+    width: 100%;
+    max-height: 55vh;
+    max-height: 55dvh;
+    object-fit: contain;
+}
+
+.md-gallery-prev,
+.md-gallery-next {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 34px;
+    border: 2px solid var(--ink-black);
+    background: var(--surface-white);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.md-gallery-prev {
+    left: 8px;
+}
+
+.md-gallery-next {
+    right: 8px;
+}
+
+.md-gallery-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 0 12px;
+}
+
+.md-gallery-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #cbd5e1;
+    border: 1.5px solid var(--ink-black);
+    cursor: pointer;
+}
+
+.md-gallery-dot.md-gallery-dot-active {
+    background: var(--ink-blue);
+}
+
+.md-gallery-page {
+    font-weight: 400;
+    font-size: 0.85em;
+    color: #64748b;
+}
+
+/* 文本框 */
+.lobby-msg-text .md-textbox,
+.md-modal-body .md-textbox {
+    display: block;
+    margin: 4px 0;
+    padding: 8px 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px;
+    background: var(--note-yellow);
+    line-height: 1.5;
+    max-width: 100%;
+}
+
+.lobby-msg-text .md-textbox-title,
+.md-modal-body .md-textbox-title {
+    font-weight: 700;
+    font-size: 0.95em;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1.5px dashed var(--border-light);
+}
+
+.lobby-msg-text .md-textbox-body,
+.md-modal-body .md-textbox-body {
+    font-size: 0.95em;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.lobby-msg-text .md-textbox-sm .md-textbox-body,
+.md-modal-body .md-textbox-sm .md-textbox-body {
+    font-size: 0.8em;
+}
+
+.lobby-msg-text .md-textbox-lg .md-textbox-body,
+.md-modal-body .md-textbox-lg .md-textbox-body {
+    font-size: 1.15em;
+}
+
+.lobby-msg-text .md-textbox-note,
+.md-modal-body .md-textbox-note {
+    background: var(--note-yellow);
+}
+
+.lobby-msg-text .md-textbox-info,
+.md-modal-body .md-textbox-info {
+    background: var(--note-blue);
+}
+
+.lobby-msg-text .md-textbox-warn,
+.md-modal-body .md-textbox-warn {
+    background: #ffe0b3;
+    border-color: #f59e0b;
+}
+
+.lobby-msg-text .md-textbox-success,
+.md-modal-body .md-textbox-success {
+    background: #d4edda;
+    border-color: #22c55e;
+}
+
+.lobby-msg-text .md-textbox-danger,
+.md-modal-body .md-textbox-danger {
+    background: #fde2e2;
+    border-color: #ef4444;
+}
+
+/* 画板 */
+.lobby-msg-text .md-board,
+.md-modal-body .md-board {
+    display: inline-block;
+    width: min(60vw, 240px);
+    max-width: 100%;
+    margin: 4px 4px 4px 0;
+    vertical-align: middle;
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    background: #fff;
+    padding: 2px;
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+}
+
+.lobby-msg-text .md-board-svg,
+.md-modal-body .md-board-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.lobby-msg-text a.md-btn-board,
+.md-modal-body a.md-btn-board {
+    background: #0ea5e9;
     color: #fff !important;
 }
 

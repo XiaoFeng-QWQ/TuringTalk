@@ -58,6 +58,7 @@ class RedisService
     public const KP_LOBBY_REPORTED = self::LOBBY_PREFIX . 'reported';    // reported  → set   已举报的消息 ID 集合
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
     public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send';  // last_send → hash  fd => 最后发言时间戳
+    public const KP_LOBBY_BTN_CLICK = self::LOBBY_PREFIX . 'btn_click';  // btn_click → 按钮点击次数前缀
 
     // ====== 点歌系统 = ======
     public const KP_LOBBY_SONG_POOL    = self::LOBBY_PREFIX . 'song:pool';       // zset   投票池 {songId: votes}

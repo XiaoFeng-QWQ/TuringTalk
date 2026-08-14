@@ -20,7 +20,7 @@ use App\Enums\LobbyMessageType;
 class LobbyChatService
 {
     private const MAX_REDIS_MSGS = 100;
-    private const MAX_CONTENT_LEN = 1500;
+    public const MAX_CONTENT_LEN = 3500;
 
     /**
      * 发送消息：写入 Redis 缓存 + 推送异步写入队列
@@ -551,7 +551,7 @@ class LobbyChatService
     // ==================== 管理 ====================
 
     /**
-     * 撤回消息（玩家自行操作，限3分钟内）
+     * 撤回消息（玩家自行操作，验证发送者身份）
      * 用 senderId（player_data.id）验证发送者，防止昵称冒用
      * @return array|null 撤回成功返回消息数据，失败返回 null
      */
@@ -570,12 +570,6 @@ class LobbyChatService
                 $msgSenderId = $m['sender_id'] ?? '';
                 if ($msgSenderId !== '' && $msgSenderId !== $senderId) {
                     Logger::info('Lobby revoke denied: not sender (id)', ['id' => $messageId, 'senderId' => $senderId, 'owner' => $msgSenderId]);
-                    return null;
-                }
-                // 检查3分钟限制
-                $createdAt = $m['created_at'] ?? '';
-                if ($createdAt !== '' && (time() - strtotime($createdAt)) > 180) {
-                    Logger::info('Lobby revoke denied: timeout', ['id' => $messageId, 'created_at' => $createdAt]);
                     return null;
                 }
                 $targetIndex = $idx;
