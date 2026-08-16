@@ -346,19 +346,6 @@ class AsyncDbWriter
             INDEX idx_created (created_at),
             INDEX idx_ip     (sender_ip)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-        // 兼容旧表：确保 type 列存在并扩展为 VARCHAR(32)（支持 card.* 卡片类型）
-        try {
-            $pdo->exec("ALTER TABLE `{$tableName}` MODIFY COLUMN type VARCHAR(32) NOT NULL DEFAULT '' COMMENT '消息类型：空=文本, markdown=结构化, sticker=表情, card.*=卡片'");
-        } catch (\Throwable $e) {
-            // type 列不存在，补充新增
-            try {
-                $pdo->exec("ALTER TABLE `{$tableName}` ADD COLUMN type VARCHAR(32) NOT NULL DEFAULT '' COMMENT '消息类型：空=文本, markdown=结构化, sticker=表情, card.*=卡片'");
-            } catch (\Throwable $e2) {
-                // 忽略（已存在或权限等原因）
-            }
-        }
-
         return $tableName;
     }
 }

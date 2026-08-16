@@ -58,26 +58,6 @@ class PlayerStatsRepository
             PRIMARY KEY (player_id, tag),
             INDEX idx_player_tags_id (player_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-
-        // 兼容旧表：以下 ALTER 各自独立幂等，避免前一个抛错导致后一个永不执行
-        // 补充佩戴标签列
-        try {
-            $pdo->exec('ALTER TABLE player_data ADD COLUMN worn_tags TEXT');
-        } catch (\Throwable $e) {
-            // 列已存在或权限等原因，忽略
-        }
-        // 补充佩戴的特殊标签列
-        try {
-            $pdo->exec('ALTER TABLE player_data ADD COLUMN worn_special_tags TEXT');
-        } catch (\Throwable $e) {
-            // 列已存在或权限等原因，忽略
-        }
-        // 补充特殊标签标记列
-        try {
-            $pdo->exec('ALTER TABLE player_tags ADD COLUMN is_special TINYINT(1) NOT NULL DEFAULT 0');
-        } catch (\Throwable $e) {
-            // 列已存在或权限等原因，忽略
-        }
     }
 
     // ================================================================
