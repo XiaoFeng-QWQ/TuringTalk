@@ -47,6 +47,11 @@ class ErrorHandler
      */
     public static function handleError(int $code, string $message, string $file, int $line): bool
     {
+        // 尊重 @ 抑制与 error_reporting() 设置（标准行为），避免探测类调用刷日志
+        if (!(error_reporting() & $code)) {
+            return false;
+        }
+
         $type = match ($code) {
             E_WARNING, E_USER_WARNING         => 'WARNING',
             E_NOTICE, E_USER_NOTICE           => 'NOTICE',

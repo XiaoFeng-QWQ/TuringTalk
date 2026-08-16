@@ -25,6 +25,16 @@ return [
         'Enable' => true,
         'Route' => '/ws'
     ],
+    // 多进程拆分架构的模块端口表（proxy 对外入口固定 9502，其余为内网端口仅绑 127.0.0.1）
+    'Modules' => [
+        'proxy'   => 9502, // 对外统一入口：WS path 路由 + HTTP 转发
+        'web'     => 9503, // HTTP：静态页面 + API
+        'game'    => 9504, // 经典1v1 /ws
+        'whoisai' => 9505, // /ws/WhoisAI
+        'lobby'   => 9506, // /ws/lobby 聊天室
+        'gomoku'  => 9507, // /ws/gomoku
+        'admin'   => 9508, // /admin/ws 管理后台
+    ],
     // 日志配置
     'Log' => [
         // 日志级别：LogLevel::DEBUG / INFO / WARNING / ERROR

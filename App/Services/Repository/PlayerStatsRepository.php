@@ -46,6 +46,8 @@ class PlayerStatsRepository
             WhoisAI TEXT,
             gomoku TEXT,
             messages TEXT,
+            worn_tags TEXT NULL DEFAULT NULL COMMENT "佩戴标签 JSON 数组",
+            worn_special_tags TEXT NULL DEFAULT NULL COMMENT "佩戴特殊标签 JSON 数组",
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
@@ -55,6 +57,7 @@ class PlayerStatsRepository
             player_id VARCHAR(64) NOT NULL,
             tag VARCHAR(50) NOT NULL,
             count INT NOT NULL DEFAULT 1,
+            is_special TINYINT(1) NOT NULL DEFAULT 0 COMMENT "官方特殊称号标记",
             PRIMARY KEY (player_id, tag),
             INDEX idx_player_tags_id (player_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');

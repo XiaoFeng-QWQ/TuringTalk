@@ -18,8 +18,8 @@ use App\Services\Infrastructure\Logger;
  */
 class WebSocketHandler
 {
-    private AdminWebSocketHandler $adminHandler;
-    private string $adminWsPath;
+    private ?AdminWebSocketHandler $adminHandler = null;
+    private string $adminWsPath = '';
 
     /** @var array<string, BaseGameHandler> path => handler 路由表 */
     private array $routeByPath = [];
@@ -36,10 +36,10 @@ class WebSocketHandler
     /** 在线 fd 集合（所有非 admin 端点） */
     private array $onlineFds = [];
 
-    public function __construct()
+    public function __construct(?array $gameHandlers = null, bool $enableAdmin = true)
     {
-        // ===== 注册所有游戏模式（新增只需加一行 new XxxHandler()） =====
-        $this->gameHandlers = [
+        // ===== 注册游戏模式（默认全部；模块化启动时仅注入本模块的 handler） =====
+        $this->gameHandlers = $gameHandlers ?? [
             new GameWebSocketHandler(),
             new WhoisAIWebSocketHandler(),
             new LobbyChatWebSocketHandler(),
@@ -52,12 +52,14 @@ class WebSocketHandler
             $this->routeByPrefix[$h::routePrefix()] = $h;
         }
 
-        // ===== Admin Handler =====
-        $this->adminHandler = new AdminWebSocketHandler($this->gameHandlers);
+        // ===== Admin Handler（拆分模式下 admin 独立进程，业务模块不装配） =====
+        if ($enableAdmin) {
+            $this->adminHandler = new AdminWebSocketHandler($this->gameHandlers);
 
-        // 注入 Tracker
-        foreach ($this->gameHandlers as $h) {
-            $h->setTracker($this->adminHandler->getTracker());
+            // 注入 Tracker
+            foreach ($this->gameHandlers as $h) {
+                $h->setTracker($this->adminHandler->getTracker());
+            }
         }
 
         // 五子棋分享邀请直接调用聊天室广播（无需前端再开 lobby 连接）
@@ -78,7 +80,7 @@ class WebSocketHandler
         $path = rtrim($request->server['request_uri'] ?? '/ws', '/');
 
         // Admin 端点不拦截（管理员始终可连）
-        if ($path === $this->adminWsPath) {
+        if ($this->adminHandler !== null && $path === $this->adminWsPath) {
             $this->fdHandler[$request->fd] = $this->adminHandler;
             $this->adminHandler->onOpen($server, $request);
             return;
@@ -123,20 +125,21 @@ class WebSocketHandler
     {
         // admin_connect 消息走 adminHandler（此时 fd 尚未在 Tracker 中注册）
         $data = json_decode($frame->data, true);
-        if (is_array($data) && ($data['type'] ?? '') === 'admin_connect') {
+        if ($this->adminHandler !== null
+            && is_array($data) && ($data['type'] ?? '') === 'admin_connect') {
             $this->adminHandler->onMessage($server, $frame);
             return;
         }
 
         // 心跳类消息按 fd 归属路由，确保各 Handler 的 lastActivity 被刷新
         if (is_array($data) && in_array($data['type'] ?? '', ['ping', 'pong'])) {
-            $h = $this->fdHandler[$frame->fd] ?? $this->adminHandler;
+            $h = $this->fdHandler[$frame->fd] ?? $this->adminHandler ?? reset($this->gameHandlers);
             $h->onMessage($server, $frame);
             return;
         }
 
         // Admin fd → admin handler
-        if ($this->adminHandler->getTracker()->isAdminFd($frame->fd)) {
+        if ($this->adminHandler !== null && $this->adminHandler->getTracker()->isAdminFd($frame->fd)) {
             $this->adminHandler->onMessage($server, $frame);
             return;
         }
@@ -158,7 +161,7 @@ class WebSocketHandler
 
     public function onClose(Server $server, int $fd): void
     {
-        if ($this->adminHandler->getTracker()->isAdminFd($fd)) {
+        if ($this->adminHandler !== null && $this->adminHandler->getTracker()->isAdminFd($fd)) {
             $this->adminHandler->onClose($server, $fd);
         }
 
@@ -183,17 +186,17 @@ class WebSocketHandler
         return $this->routeByPath['/ws'] ?? $this->gameHandlers[0];
     }
 
-    public function getWhoisAIHandler(): WhoisAIWebSocketHandler
+    public function getWhoisAIHandler(): ?WhoisAIWebSocketHandler
     {
         return $this->routeByPath['/ws/WhoisAI'] ?? null;
     }
 
-    public function getLobbyHandler(): LobbyChatWebSocketHandler
+    public function getLobbyHandler(): ?LobbyChatWebSocketHandler
     {
         return $this->routeByPath['/ws/lobby'] ?? null;
     }
 
-    public function getGomokuHandler(): GomokuWebSocketHandler
+    public function getGomokuHandler(): ?GomokuWebSocketHandler
     {
         return $this->routeByPath['/ws/gomoku'] ?? null;
     }
@@ -215,7 +218,7 @@ class WebSocketHandler
         foreach ($server->connections as $clientFd) {
             if ($clientFd === $excludeFd) continue;
             if (!$server->isEstablished($clientFd)) continue;
-            if ($this->adminHandler->getTracker()->isAdminFd($clientFd)) continue;
+            if ($this->adminHandler !== null && $this->adminHandler->getTracker()->isAdminFd($clientFd)) continue;
             // 跳过聊天室连接（聊天室有独立的 lobby_online_count）
             $h = $this->fdHandler[$clientFd] ?? null;
             if ($h instanceof LobbyChatWebSocketHandler) continue;
