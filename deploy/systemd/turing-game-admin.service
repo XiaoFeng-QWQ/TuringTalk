@@ -1,0 +1,21 @@
+[Unit]
+Description=Turing Game - Admin Module (管理后台)
+Documentation=https://github.com/your-repo/turing-game
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=xiaofengqwq
+Group=xiaofengqwq
+WorkingDirectory=/media/xiaofengqwq/共享文件/web/wwwroot/Swoole/对面是AI吗
+ExecStart=/usr/bin/php /media/xiaofengqwq/共享文件/web/wwwroot/Swoole/对面是AI吗/cli.php server:start admin
+ExecStop=/bin/kill -SIGTERM $MAINPID
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

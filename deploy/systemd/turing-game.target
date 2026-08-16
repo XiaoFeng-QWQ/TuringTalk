@@ -1,0 +1,9 @@
+[Unit]
+Description=Turing Game - 所有服务模块
+Documentation=https://github.com/your-repo/turing-game
+Requires=network.target
+Wants=turing-game-proxy.service turing-game-web.service turing-game-game.service turing-game-whoisai.service turing-game-lobby.service turing-game-gomoku.service turing-game-admin.service
+After=network.target redis.service
+
+[Install]
+WantedBy=multi-user.target

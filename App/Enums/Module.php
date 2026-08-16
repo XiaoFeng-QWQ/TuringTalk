@@ -77,11 +77,12 @@ enum Module: string
 
     /**
      * 所有可独立启动的 WS 模块（full 除外）
+     * 注意：admin 模块依赖各 handler 的直接引用，仅支持 full 模式。
      *
      * @return Module[]
      */
     public static function wsModules(): array
     {
-        return [self::GAME, self::WHOISAI, self::LOBBY, self::GOMOKU, self::ADMIN];
+        return [self::GAME, self::WHOISAI, self::LOBBY, self::GOMOKU];
     }
 }

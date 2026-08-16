@@ -31,10 +31,85 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
     /** @var array<string, array{admin_id:int, username:string, role:string}> fd => info 通过 lobby_admin_verify 验证的管理员 */
     private array $lobbyAdminFds = [];
 
+    /** 是否启动了跨模块 Redis 订阅（防重复启动） */
+    private bool $crossModuleSubscriberStarted = false;
+
     public function __construct()
     {
         $this->lobbyService = new LobbyChatService();
         $this->songService = new SongService();
+    }
+
+    /**
+     * 启动跨模块 Redis pub/sub 订阅。
+     * 多进程拆分模式下，game/gomoku 模块通过 Redis 发布卡片消息，
+     * lobby 模块在此订阅并广播到聊天室。
+     */
+    public function startCrossModuleSubscriber(Server $server): void
+    {
+        if ($this->crossModuleSubscriberStarted) return;
+        $this->crossModuleSubscriberStarted = true;
+
+        $channels = [
+            RedisService::CHANNEL_CARD_RECORD,
+            RedisService::CHANNEL_GOMOKU_INVITE,
+        ];
+
+        go(function () use ($server, $channels) {
+            try {
+                $redis = RedisService::subscribeConnection();
+                $redis->subscribe($channels, function (\Redis $redis, string $channel, string $message) use ($server) {
+                    try {
+                        if ($channel === RedisService::CHANNEL_CARD_RECORD) {
+                            $this->handleCrossModuleCardRecord($server, $message);
+                        } elseif ($channel === RedisService::CHANNEL_GOMOKU_INVITE) {
+                            $this->handleCrossModuleGomokuInvite($server, $message);
+                        }
+                    } catch (\Throwable $e) {
+                        Logger::error('Cross-module subscriber error', [
+                            'channel' => $channel,
+                            'error'   => $e->getMessage(),
+                        ]);
+                    }
+                });
+            } catch (\Throwable $e) {
+                Logger::error('Cross-module subscriber failed to start', [
+                    'error' => $e->getMessage(),
+                ]);
+                $this->crossModuleSubscriberStarted = false;
+            }
+        });
+    }
+
+    /**
+     * 处理跨模块战绩分享卡片消息
+     */
+    private function handleCrossModuleCardRecord(Server $server, string $message): void
+    {
+        $data = json_decode($message, true);
+        if (!$data || empty($data['sender_name']) || empty($data['card_json'])) return;
+
+        $this->publishRecordCard(
+            $server,
+            $data['sender_name'],
+            $data['sender_id'] ?? '',
+            $data['card_json'],
+            $data['ip'] ?? '',
+            $data['fingerprint'] ?? '',
+            $data['titles'] ?? [],
+            $data['special_titles'] ?? []
+        );
+    }
+
+    /**
+     * 处理跨模块五子棋邀请卡片消息
+     */
+    private function handleCrossModuleGomokuInvite(Server $server, string $message): void
+    {
+        $data = json_decode($message, true);
+        if (!$data || empty($data['sender']) || empty($data['room_id'])) return;
+
+        $this->publishGomokuInvite($server, $data['sender'], $data['room_id']);
     }
 
     public static function routePath(): string

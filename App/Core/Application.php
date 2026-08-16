@@ -6,6 +6,7 @@ use Swoole\Http\Server;
 use Swoole\WebSocket\Server as WebSocketServer;
 use App\Core\ErrorHandler;
 use App\Core\Http\HttpHandler;
+use App\Core\Proxy\ProxyHandler;
 use App\Core\WebSocket\WebSocketHandler;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
@@ -66,7 +67,7 @@ class Application
         Logger::initialize();
 
         if ($this->module === Module::PROXY) {
-            Logger::error('proxy 模块将在阶段 2 提供');
+            $this->buildProxy();
             return;
         }
 
@@ -174,12 +175,44 @@ class Application
         }
     }
 
+    /**
+     * 构建 proxy 模块（对外统一入口，WS path 路由 + HTTP 转发）
+     */
+    private function buildProxy(): void
+    {
+        $host = Config::get('Server.Host', '0.0.0.0');
+        $port = (int)Config::get('Server.Port', 9502);
+        $serverOptions = Config::get('Server.Options', []);
+
+        $this->server = new WebSocketServer($host, $port);
+        $this->server->set($serverOptions);
+
+        $proxyHandler = new ProxyHandler();
+
+        // HTTP 请求转发到 web 模块
+        $this->server->on('request', [$proxyHandler, 'onRequest']);
+
+        // WebSocket 代理：open 时连接后端、message 转发、close 清理
+        $this->server->on('open', [$proxyHandler, 'onOpen']);
+        $this->server->on('message', [$proxyHandler, 'onMessage']);
+        $this->server->on('close', [$proxyHandler, 'onClose']);
+
+        // 注册标准事件（Start/Shutdown 等日志）
+        $this->registerServerEvents();
+
+        Logger::info('Proxy server initialized, ready to start', [
+            'host' => $host,
+            'port' => $port,
+            'ws_routes' => $proxyHandler->getWsRoutes(),
+        ]);
+    }
+
     // ==================== 运行 ====================
 
     public function run(): void
     {
         if ($this->module === Module::PROXY) {
-            echo "模块 'proxy' 将在阶段 2 提供，当前请使用 'full' 模式启动。" . PHP_EOL;
+            $this->server->start();
             return;
         }
 
@@ -204,6 +237,9 @@ class Application
         $module = $this->module;
 
         $this->server->on('WorkerStart', function (Server $server, int $workerId) use ($webSocketHandler, $module) {
+            // 确保协程钩子在 Worker 进程中生效（Swoole 6.x 下 fork 后需重新 enable）
+            \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
+
             Logger::info("Worker started", ['worker_id' => $workerId, 'module' => $module->value]);
 
             // 启动时清理 Redis 死数据（仅 full 模式：多进程下避免重启一个模块清掉全局状态，阶段 5 按模块清理）
@@ -217,13 +253,16 @@ class Application
             }
 
             // 异步 DB 写入队列（lPop 原子，多进程各消费一份安全）
-            AsyncDbWriter::start();
+            if ($module !== Module::PROXY) {
+                AsyncDbWriter::start();
 
-            // 表情包服务（MySQL 建表，幂等）
-            StickerService::start();
+                // 表情包服务（MySQL 建表，幂等）
+                StickerService::start();
+            }
 
-            // 在线人数 SQLite 存储（full 模式记录，多进程聚合在阶段 5）
+            // ====== 在线人数上报 ======
             if ($module === Module::FULL) {
+                // 单进程模式：SQLite 存储
                 OnlineCountRepository::initialize();
                 \Swoole\Timer::tick(900000, function () use ($webSocketHandler) {
                     try {
@@ -234,6 +273,27 @@ class Application
                         Logger::error('Failed to record online count', ['error' => $e->getMessage()]);
                     }
                 });
+            } elseif ($module !== Module::PROXY && $module->isWebSocket()) {
+                // 多进程拆分模式：各模块独立上报在线人数到 Redis（每 15 秒）
+                \Swoole\Timer::tick(15000, function () use ($webSocketHandler, $module) {
+                    try {
+                        $count = $webSocketHandler !== null ? $webSocketHandler->getOnlineCount() : 0;
+                        RedisService::reportModuleOnline($module->value, $count);
+                    } catch (\Throwable $e) {
+                        Logger::error('Failed to report online count', [
+                            'module' => $module->value,
+                            'error'  => $e->getMessage(),
+                        ]);
+                    }
+                });
+            }
+
+            // ====== 跨模块 Redis 订阅（仅 lobby 模块需要） ======
+            if ($module === Module::LOBBY && $webSocketHandler !== null) {
+                $lobbyHandler = $webSocketHandler->getLobbyHandler();
+                if ($lobbyHandler !== null) {
+                    $lobbyHandler->startCrossModuleSubscriber($server);
+                }
             }
 
             // 经典 1v1：每 60 秒清理过期会话

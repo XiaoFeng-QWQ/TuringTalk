@@ -2420,15 +2420,6 @@ class GameWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        if ($this->lobbyHandler === null) {
-            $this->sendToPlayer($server, $fd, [
-                'type' => 'share_record_status',
-                'success' => false,
-                'message' => '分享通道未就绪，请稍后再试',
-            ]);
-            return;
-        }
-
         // 服务端读取真实战绩（不信任前端数据，防伪造）
         $record = PlayerStatsRepository::getRecordStats($playerId);
         $totalGames = max(0, (int)($record['games'] ?? 0));
@@ -2452,17 +2443,34 @@ class GameWebSocketHandler extends BaseGameHandler
         ];
         $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
 
-        // 经 lobby 通道落库并广播给聊天室
-        $this->lobbyHandler->publishRecordCard(
-            $server,
-            $nickname,
-            $playerId,
-            $cardJson,
-            $this->clientInfo[(string)$fd]['ip'] ?? '',
-            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
-            PlayerStatsRepository::getWornTags($playerId),
-            PlayerStatsRepository::getWornSpecialTags($playerId)
-        );
+        if ($this->lobbyHandler !== null) {
+            // 单进程模式：直接调用 lobby handler
+            $this->lobbyHandler->publishRecordCard(
+                $server,
+                $nickname,
+                $playerId,
+                $cardJson,
+                $this->clientInfo[(string)$fd]['ip'] ?? '',
+                $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+                PlayerStatsRepository::getWornTags($playerId),
+                PlayerStatsRepository::getWornSpecialTags($playerId)
+            );
+        } else {
+            // 多进程模式：通过 Redis pub/sub 发送到 lobby 模块
+            $payload = json_encode([
+                'sender_name'    => $nickname,
+                'sender_id'      => $playerId,
+                'card_json'      => $cardJson,
+                'ip'             => $this->clientInfo[(string)$fd]['ip'] ?? '',
+                'fingerprint'    => $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+                'titles'         => PlayerStatsRepository::getWornTags($playerId),
+                'special_titles' => PlayerStatsRepository::getWornSpecialTags($playerId),
+            ], JSON_UNESCAPED_UNICODE);
+            \App\Services\Infrastructure\RedisService::publish(
+                \App\Services\Infrastructure\RedisService::CHANNEL_CARD_RECORD,
+                $payload
+            );
+        }
 
         $this->sendToPlayer($server, $fd, [
             'type'    => 'share_record_status',
