@@ -18,22 +18,22 @@ return [
             'heartbeat_check_interval' => 15, // 心跳检测间隔：15 秒
             'max_wait_time' => 3, // Worker 退出前等待 3 秒，给客户端重连窗口
             'max_connection' => 1024, // 允许的最大连接数
-        ]
+        ],
+        // 多进程拆分架构的模块端口表（proxy 对外入口固定 9502，其余为内网端口仅绑 127.0.0.1）
+        'Modules' => [
+            'proxy'   => 9502, // 对外统一入口：WS path 路由 + HTTP 转发
+            'web'     => 9503, // HTTP：静态页面 + API
+            'game'    => 9504, // 经典1v1 /ws
+            'whoisai' => 9505, // /ws/WhoisAI
+            'lobby'   => 9506, // /ws/lobby 聊天室
+            'gomoku'  => 9507, // /ws/gomoku
+            'admin'   => 9508, // /admin/ws 管理后台
+        ],
     ],
     // WebSocket 配置请勿随意修改
     'WebSocket' => [
         'Enable' => true,
         'Route' => '/ws'
-    ],
-    // 多进程拆分架构的模块端口表（proxy 对外入口固定 9502，其余为内网端口仅绑 127.0.0.1）
-    'Modules' => [
-        'proxy'   => 9502, // 对外统一入口：WS path 路由 + HTTP 转发
-        'web'     => 9503, // HTTP：静态页面 + API
-        'game'    => 9504, // 经典1v1 /ws
-        'whoisai' => 9505, // /ws/WhoisAI
-        'lobby'   => 9506, // /ws/lobby 聊天室
-        'gomoku'  => 9507, // /ws/gomoku
-        'admin'   => 9508, // /admin/ws 管理后台
     ],
     // 日志配置
     'Log' => [

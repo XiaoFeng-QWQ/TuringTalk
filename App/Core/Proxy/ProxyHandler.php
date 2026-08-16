@@ -30,7 +30,7 @@ class ProxyHandler
 
     public function __construct()
     {
-        $modules = Config::get('Modules', []);
+        $modules = Config::get('Server.Modules', []);
         $this->webPort = (int)($modules['web'] ?? 9503);
 
         foreach (Module::wsModules() as $module) {
