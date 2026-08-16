@@ -13,11 +13,13 @@ for svc in "$SCRIPT_DIR"/*.service; do
     echo "  - 安装 $name"
     cp "$svc" /etc/systemd/system/"$name"
     chmod 644 /etc/systemd/system/"$name"
+    sed -i "s|__PROJECT_DIR__|$PROJECT_DIR|g" /etc/systemd/system/"$name"
 done
 
 # 安装 target
 cp "$SCRIPT_DIR/turing-game.target" /etc/systemd/system/turing-game.target
 chmod 644 /etc/systemd/system/turing-game.target
+sed -i "s|__PROJECT_DIR__|$PROJECT_DIR|g" /etc/systemd/system/turing-game.target
 
 echo "==> 重载 systemd 配置..."
 systemctl daemon-reload

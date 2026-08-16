@@ -23,7 +23,7 @@ enum Module: string
     case ADMIN   = 'admin';
 
     /**
-     * 模块默认端口（full 沿用 Server.Port 兼容旧配置，其余为拆分后的内部端口）
+     * 模块默认端口（full 沿用 Server.Modules.proxy 端口，其余为拆分后的内部端口）
      */
     public function defaultPort(): int
     {

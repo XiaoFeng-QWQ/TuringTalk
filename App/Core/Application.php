@@ -103,7 +103,7 @@ class Application
     {
         $host = Config::get('Server.Host', '0.0.0.0');
         if ($this->module === Module::FULL) {
-            $port = (int)Config::get('Server.Port', 9502);
+            $port = (int)Config::get('Server.Modules.proxy', 9502);
         } else {
             $port = (int)Config::get('Server.Modules.' . $this->module->value, $this->module->defaultPort());
         }
@@ -113,16 +113,12 @@ class Application
     private function resolveServerOptions(): array
     {
         $options = Config::get('Server.Options', []);
+        $basePath = dirname(__DIR__, 2);
 
-        // 多进程拆分时每个模块使用独立的 pid/log 文件，避免互相覆盖
-        if ($this->module !== Module::FULL) {
-            if (!empty($options['pid_file'])) {
-                $options['pid_file'] = dirname($options['pid_file']) . '/swoole.' . $this->module->value . '.pid';
-            }
-            if (!empty($options['log_file'])) {
-                $options['log_file'] = dirname($options['log_file']) . '/swoole.' . $this->module->value . '.log';
-            }
-        }
+        // 各模块使用独立的 pid/log 文件，避免互相覆盖
+        $suffix = $this->module === Module::FULL ? '' : '.' . $this->module->value;
+        $options['pid_file'] = $basePath . '/Storage/swoole' . $suffix . '.pid';
+        $options['log_file'] = $basePath . '/Storage/Logs/swoole' . $suffix . '.log';
 
         return $options;
     }
@@ -181,7 +177,7 @@ class Application
     private function buildProxy(): void
     {
         $host = Config::get('Server.Host', '0.0.0.0');
-        $port = (int)Config::get('Server.Port', 9502);
+        $port = (int)Config::get('Server.Modules.proxy', 9502);
         $serverOptions = Config::get('Server.Options', []);
 
         $this->server = new WebSocketServer($host, $port);

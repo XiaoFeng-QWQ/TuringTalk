@@ -1,6 +1,7 @@
 [Unit]
 Description=Turing Game - Admin Module (管理后台)
-Documentation=https://github.com/your-repo/turing-game
+Documentation=https://docs.xiaofengqwq.com/%E5%9B%BE%E7%81%B5%E6%B5%8B%E8%AF%95
+PartOf=turing-game.target
 After=network.target redis.service
 Wants=redis.service
 
@@ -8,8 +9,8 @@ Wants=redis.service
 Type=simple
 User=xiaofengqwq
 Group=xiaofengqwq
-WorkingDirectory=/media/xiaofengqwq/共享文件/web/wwwroot/Swoole/对面是AI吗
-ExecStart=/usr/bin/php /media/xiaofengqwq/共享文件/web/wwwroot/Swoole/对面是AI吗/cli.php server:start admin
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=/usr/bin/php __PROJECT_DIR__/cli.php server:start admin
 ExecStop=/bin/kill -SIGTERM $MAINPID
 Restart=always
 RestartSec=3

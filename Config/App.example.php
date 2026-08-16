@@ -6,13 +6,10 @@ return [
     // 服务器配置
     'Server' => [
         'Host' => '0.0.0.0',
-        'Port' => 9502,
         'DenyMultiConnection' => false, // 是否拒绝多连接，为 true 时每个 IP 只能连接一次
         'Options' => [
             'worker_num' => 1,  // 尽量保持单 Worker，因为代码还没完善，避免跨进程竞态🤓
             'daemonize' => false,
-            'log_file' => __DIR__ . '/../Storage/Logs/swoole.log',
-            'pid_file' => __DIR__ . '/../Storage/swoole.pid',
             'max_request' => 0, // 不限制请求数，避免 Worker 重启导致所有 WebSocket 玩家掉线
             'heartbeat_idle_time' => 60, // 心跳检测：60 秒无消息则判定连接死亡
             'heartbeat_check_interval' => 15, // 心跳检测间隔：15 秒

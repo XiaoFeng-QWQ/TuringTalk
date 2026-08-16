@@ -15,11 +15,11 @@ class ModulePaths
      */
     public static function pidFile(Module $module): string
     {
-        $basePid = Config::get('Server.Options.pid_file', __DIR__ . '/../../Storage/swoole.pid');
+        $basePath = __DIR__ . '/../../Storage';
         if ($module === Module::FULL) {
-            return $basePid;
+            return $basePath . '/swoole.pid';
         }
-        return dirname($basePid) . '/swoole.' . $module->value . '.pid';
+        return $basePath . '/swoole.' . $module->value . '.pid';
     }
 
     /**
@@ -28,7 +28,7 @@ class ModulePaths
     public static function port(Module $module): int
     {
         if ($module === Module::FULL) {
-            return (int)Config::get('Server.Port', 9502);
+            return (int)Config::get('Server.Modules.proxy', 9502);
         }
         return (int)Config::get('Server.Modules.' . $module->value, $module->defaultPort());
     }

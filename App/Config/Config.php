@@ -20,10 +20,11 @@ class Config
      */
     public static function load(string $configFile): void
     {
-        self::$configFile = $configFile;
+        self::$configFile = '';
         if (file_exists($configFile)) {
-            self::$config   = require $configFile;
-            self::$lastMtime = filemtime($configFile) ?: 0;
+            self::$configFile = $configFile;
+            self::$config     = require $configFile;
+            self::$lastMtime  = filemtime($configFile) ?: 0;
             self::loadPromptMd();
         }
     }
