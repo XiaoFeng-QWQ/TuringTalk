@@ -428,6 +428,8 @@ class GameController
     {
         $response->setHeader('Content-Type', 'application/json');
 
+        $token = $request->get('token', '');
+
         if (empty($token)) {
             $response->setContent(json_encode(['error' => '参数错误'], JSON_UNESCAPED_UNICODE));
             $response->send();

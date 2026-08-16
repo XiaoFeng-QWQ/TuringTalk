@@ -20,7 +20,7 @@ use App\Enums\LobbyMessageType;
 class LobbyChatService
 {
     private const MAX_REDIS_MSGS = 100;
-    public const MAX_CONTENT_LEN = 3500;
+    public const MAX_CONTENT_LEN = 4000;
 
     /**
      * 发送消息：写入 Redis 缓存 + 推送异步写入队列
@@ -82,7 +82,7 @@ class LobbyChatService
             $parser = new MarkdownMessageParser();
             $parsed = $parser->parse($rawContent);
             $msgType = LobbyMessageType::MARKDOWN->value;
-            $msgContent = json_encode(['v' => 1, 'blocks' => $parsed['blocks']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $msgContent = json_encode(['v' => 1, 'blocks' => $parsed['blocks']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
         } else {
             $msgType = '';
             $msgContent = $rawContent;
@@ -480,12 +480,14 @@ class LobbyChatService
 
     /**
      * 禁言玩家 N 分钟
+     * 使用 per-player key + TTL 自动过期，无需手动清理
      */
     public function mute(string $playerId, int $durationMinutes): void
     {
         $redis = RedisService::connect();
-        $expiresAt = time() + ($durationMinutes * 60);
-        $redis->hSet(RedisService::KP_LOBBY_MUTED, $playerId, $expiresAt);
+        $key = RedisService::KP_LOBBY_MUTED . $playerId;
+        $ttl = $durationMinutes * 60;
+        $redis->setex($key, max(1, $ttl), (string)(time() + $ttl));
         Logger::info('Lobby player muted', ['player_id' => $playerId, 'minutes' => $durationMinutes]);
     }
 
@@ -495,7 +497,7 @@ class LobbyChatService
     public function unmute(string $playerId): void
     {
         $redis = RedisService::connect();
-        $redis->hDel(RedisService::KP_LOBBY_MUTED, $playerId);
+        $redis->del(RedisService::KP_LOBBY_MUTED . $playerId);
         Logger::info('Lobby player unmuted', ['player_id' => $playerId]);
     }
 
@@ -505,14 +507,10 @@ class LobbyChatService
     public function isMuted(string $playerId): bool
     {
         $redis = RedisService::connect();
-        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, $playerId);
+        $expiresAt = (int)$redis->get(RedisService::KP_LOBBY_MUTED . $playerId);
 
         if ($expiresAt <= 0) return false;
-
-        if (time() >= $expiresAt) {
-            $redis->hDel(RedisService::KP_LOBBY_MUTED, $playerId);
-            return false;
-        }
+        if (time() >= $expiresAt) return false; // TTL 到期后 Redis 自动删除
 
         return true;
     }
@@ -523,7 +521,7 @@ class LobbyChatService
     public function getMutedRemaining(string $playerId): int
     {
         $redis = RedisService::connect();
-        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_MUTED, $playerId);
+        $expiresAt = (int)$redis->get(RedisService::KP_LOBBY_MUTED . $playerId);
         if ($expiresAt <= 0) return 0;
         $remaining = $expiresAt - time();
         return max(0, $remaining);
@@ -537,15 +535,16 @@ class LobbyChatService
     public function isolate(string $playerId, int $durationMinutes): void
     {
         $redis = RedisService::connect();
-        $expiresAt = time() + ($durationMinutes * 60);
-        $redis->hSet(RedisService::KP_LOBBY_ISOLATED, $playerId, $expiresAt);
+        $key = RedisService::KP_LOBBY_ISOLATED . $playerId;
+        $ttl = $durationMinutes * 60;
+        $redis->setex($key, max(1, $ttl), (string)(time() + $ttl));
         Logger::info('Lobby player isolated', ['player_id' => $playerId, 'minutes' => $durationMinutes]);
     }
 
     public function unisolate(string $playerId): void
     {
         $redis = RedisService::connect();
-        $redis->hDel(RedisService::KP_LOBBY_ISOLATED, $playerId);
+        $redis->del(RedisService::KP_LOBBY_ISOLATED . $playerId);
         Logger::info('Lobby player unisolated', ['player_id' => $playerId]);
     }
 
@@ -556,12 +555,9 @@ class LobbyChatService
     {
         if ($playerId === '') return false;
         $redis = RedisService::connect();
-        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_ISOLATED, $playerId);
+        $expiresAt = (int)$redis->get(RedisService::KP_LOBBY_ISOLATED . $playerId);
         if ($expiresAt <= 0) return false;
-        if (time() >= $expiresAt) {
-            $redis->hDel(RedisService::KP_LOBBY_ISOLATED, $playerId);
-            return false;
-        }
+        if (time() >= $expiresAt) return false; // TTL 到期后 Redis 自动删除
         return true;
     }
 
@@ -571,7 +567,7 @@ class LobbyChatService
     public function getIsolatedRemaining(string $playerId): int
     {
         $redis = RedisService::connect();
-        $expiresAt = (int)$redis->hGet(RedisService::KP_LOBBY_ISOLATED, $playerId);
+        $expiresAt = (int)$redis->get(RedisService::KP_LOBBY_ISOLATED . $playerId);
         if ($expiresAt <= 0) return 0;
         $remaining = $expiresAt - time();
         return max(0, $remaining);
@@ -661,6 +657,9 @@ class LobbyChatService
 
     // ==================== 发言频率限制 ====================
 
+    /** 发言间隔默认值（秒）：Redis 键缺失（清空/从未设置）时兜底，防止无限刷屏 */
+    public const DEFAULT_RATE_LIMIT = 2;
+
     /**
      * 设置发言间隔（管理后台用）
      * @param int $seconds 秒，0 表示不限
@@ -668,11 +667,8 @@ class LobbyChatService
     public function setRateLimit(int $seconds): void
     {
         $redis = RedisService::connect();
-        if ($seconds <= 0) {
-            $redis->del(RedisService::KP_LOBBY_RATE);
-        } else {
-            $redis->set(RedisService::KP_LOBBY_RATE, $seconds);
-        }
+        // 0 也显式存键（'0'=管理员明确不限速），与"键缺失=配置丢失"区分开
+        $redis->set(RedisService::KP_LOBBY_RATE, (string)$seconds);
         Logger::info('Lobby rate limit updated', ['seconds' => $seconds]);
     }
 
@@ -681,11 +677,17 @@ class LobbyChatService
      */
     public function getRateLimit(): int
     {
-        return (int)(RedisService::connect()->get(RedisService::KP_LOBBY_RATE) ?: 0);
+        $v = RedisService::connect()->get(RedisService::KP_LOBBY_RATE);
+        // 键不存在（Redis 清空/从未设置）→ 默认间隔兜底防刷屏；显式 '0' → 管理员明确不限速
+        if ($v === false || $v === null) return self::DEFAULT_RATE_LIMIT;
+        return (int)$v;
     }
 
     /**
      * 检查并记录发言频率，返回仍需等待的秒数（0 表示可以发言）
+     *
+     * 使用每玩家独立 key + TTL 自动过期：`last_send:{playerId}` → 最后发言时间戳，
+     * 到期由 Redis 自动清理，无需手动扫描，避免 hash 随人数无限膨胀。
      */
     public function checkRateLimit(string $playerId): int
     {
@@ -693,7 +695,8 @@ class LobbyChatService
         if ($rate <= 0) return 0;
 
         $redis = RedisService::connect();
-        $lastSend = (int)($redis->hGet(RedisService::KP_LOBBY_LAST_SEND, $playerId) ?: 0);
+        $key = RedisService::KP_LOBBY_LAST_SEND . $playerId;
+        $lastSend = (int)($redis->get($key) ?: 0);
 
         $now = time();
         if ($lastSend > 0) {
@@ -703,43 +706,9 @@ class LobbyChatService
             }
         }
 
-        $redis->hSet(RedisService::KP_LOBBY_LAST_SEND, $playerId, $now);
-
-        // 智能清理：每 100 次写入触发一次，删除超过 1 小时的过期条目
-        if (mt_rand(1, 100) === 1) {
-            $this->pruneStaleLastSend($redis, $now);
-        }
+        // 用 TTL 代替手动清理：超时后 Redis 自动删除，无全表扫描
+        $redis->setex($key, $rate + 5, $now);
 
         return 0;
-    }
-
-    /**
-     * 清理 last_send hash 中超过 1 小时的过期记录
-     */
-    private function pruneStaleLastSend(\Redis $redis, int $now): void
-    {
-        $key = RedisService::KP_LOBBY_LAST_SEND;
-        $cursor = null;
-        $deleted = 0;
-
-        do {
-            $result = $redis->hScan($key, $cursor, '*', 100);
-            $cursor = $result !== false ? (int)$result : 0;
-            if (!is_array($result) || empty($result)) break;
-
-            // hScan 返回 [cursor, [field1, value1, field2, value2, ...]]
-            $pairs = is_array($result[1] ?? null) ? $result[1] : [];
-            for ($i = 0; $i + 1 < count($pairs); $i += 2) {
-                $ts = (int)$pairs[$i + 1];
-                if ($now - $ts > 3600) {
-                    $redis->hDel($key, $pairs[$i]);
-                    $deleted++;
-                }
-            }
-        } while ($cursor > 0);
-
-        if ($deleted > 0) {
-            Logger::debug('Pruned stale last_send entries', ['count' => $deleted]);
-        }
     }
 }

@@ -1135,6 +1135,10 @@ main {
 .announcement-banner .ann-text {
     flex: 1;
     line-height: 1.4;
+    min-width: 0;              /* flex 子项允许收缩（否则长文本不换行） */
+    white-space: normal;
+    word-break: break-all;     /* 长 URL/长串强制断行，防内容被 overflow:hidden 截断 */
+    overflow-wrap: anywhere;
 }
 
 .announcement-banner.ann-leaving {

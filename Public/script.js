@@ -1908,7 +1908,7 @@ btnUploadUserData.addEventListener('click', async () => {
     const payload = {
         nickname: ud.nickname || '',
         fp: browserFingerprint,
-        stats: Object.assign({ stickerFavorites: ud.stickerFavorites || [] }, ud.stats || {}),
+        stats: ud.stats || {},
     };
 
     btn.disabled = true;
@@ -2742,13 +2742,17 @@ let transport, game;
         lang: navigator.language,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
+    // 公开收藏页只做展示，无需建立游戏 WS 连接
+    const isPublicCollection = !!parseCollectionPath();
     try {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-        transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws');
-        game = new GameClient(transport);
-        transport.preconnect();  // 页面加载即建立 WS 连接并启动心跳
-        DebugLogger.log('lifecycle', 'WebSocket preconnect已调用');
-        console.log('[Turing] Game client ready');
+        if (!isPublicCollection) {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws');
+            game = new GameClient(transport);
+            transport.preconnect();  // 页面加载即建立 WS 连接并启动心跳
+            DebugLogger.log('lifecycle', 'WebSocket preconnect已调用');
+            console.log('[Turing] Game client ready');
+        }
         btnStart.disabled = false;
         btnStart.textContent = '马上开始匹配';
     } catch (e) {
@@ -3970,8 +3974,3 @@ if (chatDetailOverlay) {
         }
     };
 })();
-
-// ================================================================
-//  常驻公告（首页顶部横幅，长期显示，不自动关闭）
-// ================================================================
-showDanmaku('今晚 00:00 起，自 7月31日以来仍未完成过一场完整对局的玩家将被删除，请各位互相转告', '公告', Infinity);

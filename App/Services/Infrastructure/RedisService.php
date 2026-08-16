@@ -51,13 +51,13 @@ class RedisService
     public const LOBBY_PREFIX      = self::PREFIX . 'lobby:';
     public const KP_LOBBY_MSGS     = self::LOBBY_PREFIX . 'msgs';       // msgs      → list  最新 100 条消息 JSON
     public const KP_LOBBY_WRITE_Q  = self::LOBBY_PREFIX . 'write_q';    // write_q   → list  异步写 MySQL 队列
-    public const KP_LOBBY_MUTED    = self::LOBBY_PREFIX . 'muted';      // muted     → hash  fd => 解禁时间戳
-    public const KP_LOBBY_ISOLATED = self::LOBBY_PREFIX . 'isolated';   // isolated  → hash  playerId => 解除孤立时间戳
+    public const KP_LOBBY_MUTED    = self::LOBBY_PREFIX . 'muted:';     // muted:{playerId}  → string 解禁时间戳（TTL 自动过期）
+    public const KP_LOBBY_ISOLATED = self::LOBBY_PREFIX . 'isolated:';  // isolated:{playerId} → string 解除孤立时间戳（TTL 自动过期）
     public const KP_LOBBY_REG_LIMIT = self::LOBBY_PREFIX . 'reg_limit';  // reg_limit  → 防批量注册：key ip/fp 前缀，10 分钟自动过期
     public const KP_LOBBY_MSG_ID   = self::LOBBY_PREFIX . 'msg_id';     // msg_id    → int   自增消息 ID
-    public const KP_LOBBY_REPORTED = self::LOBBY_PREFIX . 'reported';    // reported  → set   已举报的消息 ID 集合
+    public const KP_LOBBY_REPORTED = self::LOBBY_PREFIX . 'reported:';   // reported:{messageId} → set 已举报该消息的玩家集合（TTL 自动过期）
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
-    public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send';  // last_send → hash  fd => 最后发言时间戳
+    public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send:';  // last_send:{playerId} → string 最后发言时间戳（TTL 自动过期）
     public const KP_LOBBY_BTN_CLICK = self::LOBBY_PREFIX . 'btn_click';  // btn_click → 按钮点击次数前缀
     public const KP_LOBBY_POLL_COUNTS = self::LOBBY_PREFIX . 'poll:counts:'; // poll:counts:{pollKey} → hash 选项票数
     public const KP_LOBBY_POLL_USERS  = self::LOBBY_PREFIX . 'poll:users:';  // poll:users:{pollKey}  → hash 用户已选选项
@@ -186,9 +186,10 @@ class RedisService
         AsyncDbWriter::drainLobbyMessages();
         $redis->del(self::KP_LOBBY_MSGS);                      // 聊天室消息缓存
         $redis->del(self::KP_LOBBY_WRITE_Q);                   // 聊天室写入队列
-        $redis->del(self::KP_LOBBY_MUTED);                     // 聊天室禁言
+        $redis->del(self::LOBBY_PREFIX . 'muted');              // 旧版禁言 hash（已改为 per-player key + TTL）
         $redis->del(self::KP_LOBBY_MSG_ID);                    // 聊天室消息 ID 计数器
-        $redis->del(self::KP_LOBBY_REPORTED);                 // 聊天室已举报集合
+        $redis->del(self::LOBBY_PREFIX . 'last_send');          // 旧版 last_send hash（已改为按玩家 key + TTL）
+        $redis->del(self::LOBBY_PREFIX . 'reported');           // 旧版已举报集合（已改为 per-message key + TTL）
         $redis->del(self::KP_LOBBY_SONG_POOL);               // 点歌投票池
         $redis->del(self::KP_LOBBY_SONG_PLAYING);            // 点歌当前播放
         $redis->del(self::KP_LOBBY_SONG_CACHE);              // 点歌缓存
@@ -211,6 +212,9 @@ class RedisService
             self::KP_LOBBY_SONG_REQ_Q,        // tg:lobby:song:req_q:*
             self::KP_LOBBY_SONG_VOTE_Q,       // tg:lobby:song:vote_q:*
             self::KP_LOBBY_SONG_FINISHED,     // tg:lobby:song:finished:*
+            self::KP_LOBBY_MUTED,             // tg:lobby:muted:*（重启后旧禁言全失效）
+            self::KP_LOBBY_ISOLATED,          // tg:lobby:isolated:*（重启后旧孤立全失效）
+            self::KP_LOBBY_REPORTED,          // tg:lobby:reported:*（重启后旧举报去重失效）
         ];
 
         $totalScanned = 0;

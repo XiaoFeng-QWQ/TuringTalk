@@ -13,12 +13,16 @@ use App\Services\Infrastructure\RedisService;
 use App\Services\Game\GameService;
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
+use App\Services\Chat\MarkdownMessageParser;
 
 /**
  * 聊天室 WebSocket 处理器
  */
 class LobbyChatWebSocketHandler extends BaseGameHandler
 {
+    /** 单条广播负载最大字节数（超过降级为纯文本截断，防内存/发送缓冲问题） */
+    private const MAX_BROADCAST_BYTES = 64 * 1024;
+
     private LobbyChatService $lobbyService;
     private SongService $songService;
     private string $lastOnlineHash = '';
@@ -144,6 +148,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 'lobby_mute',
                 'lobby_unmute',
                 'lobby_ban',
+                'lobby_kick',
                 'lobby_isolate',
                 'lobby_unisolate',
                 'lobby_delete',
@@ -199,6 +204,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
                 case 'lobby_ban':
                     $this->handleBan($server, $fd, $data);
+                    break;
+
+                case 'lobby_kick':
+                    $this->handleKick($server, $fd, $data);
                     break;
 
                 case 'lobby_isolate':
@@ -432,19 +441,29 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
 
         // 解析 @提及（含特殊 MD 语法的消息跳过，避免语法内的 @ 被误判为提及）
         $mentions = [];
-        $hasSpecialSyntax = (bool) preg_match(
-            '/\[![^\]]+\]\((modal|send|copy|embed|confirm|details|rand|input|get|ok|cancel|close|switch|var|def|cipher|table|music|timer|bar|if|hide|text|board|vote|dice|at|gallery):/',
-            $content
-        );
+        $hasSpecialSyntax = MarkdownMessageParser::hasSpecialSyntax($content);
         if (!$hasSpecialSyntax && preg_match_all('/@(\S{1,20})/u', $content, $matches)) {
             $mentionedNames = array_unique($matches[1]);
             foreach ($mentionedNames as $mentionedName) {
                 if ($mentionedName === $nickname) continue;
+                // 防护：@全体成员 仅管理员有效；普通用户手动输入视为无效（即使有同名用户也不@到）
+                if ($mentionedName === '全体成员' && !$this->isAdmin($fd)) continue;
                 $targetFd = $this->findFdByNickname($mentionedName);
                 if ($targetFd !== null) {
                     $mentions[] = $mentionedName;
                 }
             }
+        }
+        // @全体成员（仅管理员）：提醒所有在线用户（不封禁/不限制，重新进入正常）
+        // 仅对纯文本消息生效，避免 v3 组件参数/内容里的 @全体成员 误触发
+        if (!$hasSpecialSyntax && $this->isAdmin($fd) && mb_strpos($content, '@全体成员') !== false) {
+            foreach ($this->clientInfo as $cfd => $cinfo) {
+                $cn = $cinfo['nickname'] ?? '';
+                if ($cn !== '' && $cn !== $nickname) {
+                    $mentions[] = $cn;
+                }
+            }
+            $mentions = array_values(array_unique($mentions));
         }
 
         $msg = $this->lobbyService->send(
@@ -763,16 +782,24 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        // 防止重复举报（同一玩家对同一消息）
+        // 防止重复举报（同一玩家对同一消息）：per-message key + TTL，自动过期无需手动清理
         $redis = RedisService::connect();
-        $dedupKey = 'lobby:' . $messageId . ':' . $reporterPlayerId;
-        if ($redis->sIsMember(RedisService::KP_LOBBY_REPORTED, $dedupKey)) {
+        $reportedKey = RedisService::KP_LOBBY_REPORTED . $messageId;
+        if ($redis->sIsMember($reportedKey, $reporterPlayerId)) {
             $this->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '该消息已被举报，请等待管理处理']);
             return;
         }
 
         $targetName = Sanitizer::nickname($msg['sender_name'] ?? '');
-        $messageContent = Sanitizer::text($msg['content'] ?? '', LobbyChatService::MAX_CONTENT_LEN);
+        // markdown 消息 content 为 blocks JSON：hydrate 后提取纯文本作为举报证据（避免管理后台看到 JSON 原文）
+        $hydrated = $this->lobbyService->hydrateMessage($msg);
+        $rawContent = $hydrated['content'] ?? '';
+        if (is_array($rawContent)) {
+            $blocks = $rawContent['blocks'] ?? $rawContent;
+            $parser = new MarkdownMessageParser();
+            $rawContent = $parser->plainTextOf(is_array($blocks) ? $blocks : []);
+        }
+        $messageContent = Sanitizer::text((string)$rawContent, LobbyChatService::MAX_CONTENT_LEN);
 
         // 从消息中获取被举报者的 player_id
         $targetPlayerId = $msg['sender_id'] ?? '';
@@ -804,7 +831,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         ]);
 
         if ($result['success']) {
-            $redis->sAdd(RedisService::KP_LOBBY_REPORTED, $dedupKey);
+            $redis->sAdd($reportedKey, $reporterPlayerId);
+            $redis->expire($reportedKey, 604800); // 7 天 TTL，到期自动清理
         }
 
         Logger::info('Lobby message reported', [
@@ -1150,6 +1178,32 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
 
         Logger::info('Lobby player banned', ['fd' => $targetFd, 'by' => $fd]);
+    }
+
+    /**
+     * 踢出玩家：断开连接但不封禁，被踢者可重新进入聊天室。
+     */
+    private function handleKick(Server $server, int $fd, array $data): void
+    {
+        if (!$this->isAdmin($fd)) return;
+
+        $targetFd = (int)($data['target_fd'] ?? 0);
+        if ($targetFd <= 0) return;
+
+        $targetInfo = $this->getClientInfo($targetFd);
+        if (!$targetInfo) return;
+
+        if ($server->isEstablished($targetFd)) {
+            // 先通知被踢者，再断开连接
+            $this->sendToPlayer($server, $targetFd, [
+                'type'    => 'lobby_kicked',
+                'message' => '您已被管理员踢出聊天室',
+            ]);
+            usleep(50000); // 等待消息发出
+            $server->close($targetFd);
+        }
+
+        Logger::info('Lobby player kicked', ['fd' => $targetFd, 'by' => $fd]);
     }
 
     /**
@@ -1542,16 +1596,64 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
      * 直接同步 push，$server->push() 本身非阻塞（写入缓冲区即返回），
      * 无需 go() 协程包装，避免协程调度遗漏导致消息丢失。
      */
+    /**
+     * 广播消息给所有在线用户（发送缓冲保护 + 超大消息降级，防内存溢出/卡死）
+     *
+     * 防护：
+     * 1. payload 单次 json_encode 复用（不重复序列化）
+     * 2. 超过 MAX_BROADCAST_BYTES（64KB）降级为纯文本截断广播
+     * 3. 逐连接检查发送缓冲剩余空间，不足则跳过（防止缓冲堆积导致内存暴涨）
+     * 4. 跳过发送者 / 失效连接 / 管理员连接
+     */
     private function broadcastLobby(Server $server, int $excludeFd, array $data): void
     {
         $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
         if ($payload === false) return;
+        $payloadLen = strlen($payload);
+
+        // 超大消息保护：超过 64KB 降级为纯文本截断广播（丢弃 blocks 等大字段）
+        if ($payloadLen > self::MAX_BROADCAST_BYTES) {
+            // 仅含 content 的消息可降级；其他类型（歌单/系统等）直接跳过防异常
+            if (array_key_exists('content', $data)) {
+                $rawContent = $data['content'] ?? '';
+                if (is_array($rawContent)) {
+                    // markdown blocks（hydrate 后为数组）：提取纯文本摘要，避免截断 JSON 或直接丢弃
+                    $blocks = $rawContent['blocks'] ?? $rawContent;
+                    $parser = new MarkdownMessageParser();
+                    $text = $parser->plainTextOf(is_array($blocks) ? $blocks : []);
+                    $rawContent = ($text !== '') ? $text : '[特殊格式消息]';
+                }
+                $data = [
+                    'type'        => $data['type'] ?? 'lobby_chat',
+                    'sender_name' => $data['sender_name'] ?? '',
+                    'sender_id'   => $data['sender_id'] ?? '',
+                    'content'     => is_string($rawContent) ? mb_substr($rawContent, 0, 2000) : '[特殊格式消息]',
+                    'msg_type'    => '',
+                    'reply_to'    => $data['reply_to'] ?? null,
+                    'mentions'    => $data['mentions'] ?? [],
+                    'time'        => $data['time'] ?? date('H:i:s'),
+                    'created_at'  => $data['created_at'] ?? '',
+                    'degraded'    => true,
+                ];
+                $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
+                if ($payload === false) return;
+                $payloadLen = strlen($payload);
+                error_log('[lobby] 广播消息超限降级为纯文本: ' . $payloadLen . ' bytes');
+            } else {
+                error_log('[lobby] 广播消息超限已跳过: ' . $payloadLen . ' bytes type=' . ($data['t'] ?? ($data['type'] ?? '?')));
+                return;
+            }
+        }
 
         foreach ($this->clientInfo as $fdKey => $info) {
             $fd = (int)$fdKey;
             if ($fd === $excludeFd) continue;
             if (!$server->isEstablished($fd)) continue;
             if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
+
+            // 发送缓冲剩余空间不足 → 跳过该连接（防止缓冲堆积导致内存溢出/服务卡死）
+            $sendBuf = $server->getClientInfo($fd, false, 'send_buffer_size');
+            if (is_int($sendBuf) && $sendBuf < $payloadLen) continue;
 
             $server->push($fd, $payload);
         }

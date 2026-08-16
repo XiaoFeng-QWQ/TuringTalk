@@ -42,7 +42,6 @@ class PlayerStatsRepository
             turing_test TEXT,
             WhoisAI TEXT,
             gomoku TEXT,
-            sticker_favorites TEXT,
             messages TEXT,
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
@@ -210,8 +209,8 @@ class PlayerStatsRepository
         self::saveGameStats($playerId, 'turing_test', $merged);
 
         $pdo = Database::connect();
-        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ?, sticker_favorites = ? WHERE id = ?');
-        $stmt->execute([time(), json_encode($localStats['stickerFavorites'] ?? [], JSON_UNESCAPED_UNICODE), $playerId]);
+        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE id = ?');
+        $stmt->execute([time(), $playerId]);
 
         Logger::info('UserData synced', ['player_id' => $playerId]);
 

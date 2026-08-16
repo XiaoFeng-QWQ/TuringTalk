@@ -55,7 +55,7 @@
     const $btnGoHome = document.getElementById('lobby-btn-go-home');
     // 点歌系统
     const $btnSong = document.getElementById('lobby-btn-song');
-    // MD 语法教程（嵌入弹窗）
+    // MD 语法教程（跳转网站新窗口）
     const $btnMdHelp = document.getElementById('lobby-btn-md-help');
     // 系统消息显示设置
     const $btnSysMsg = document.getElementById('lobby-btn-sysmsg');
@@ -217,6 +217,10 @@
 
         ws.onopen = function () {
             console.log('[Lobby] WS connected');
+            // 重连成功提示
+            if (reconnecting) {
+                showTopToast('已重新连接', false);
+            }
             reconnecting = false;
             // 指纹
             send({ type: 'lobby_set_fp', fingerprint: getFingerprint() });
@@ -239,7 +243,11 @@
         ws.onclose = function () {
             console.log('[Lobby] WS closed');
             stopHeartbeat();
-            if (!intentionalClose && !banned) scheduleReconnect();
+            if (!intentionalClose && !banned) {
+                // 断开链接提示
+                showTopToast('连接已断开，正在重连…', true);
+                scheduleReconnect();
+            }
             intentionalClose = false;
         };
 
@@ -440,6 +448,11 @@
 
             case 'error':
                 showBanned(data.message || '您已被管理员封禁');
+                break;
+
+            case 'lobby_kicked':
+                // 被管理员踢出：显示类似封禁的页面（不封禁，刷新/返回可重新进入）
+                showBanned(data.message || '您已被管理员踢出聊天室');
                 break;
 
             case 'lobby_error':
@@ -828,6 +841,10 @@
         let replyHtml = '';
         if (data.reply_to && data.reply_to.id) {
             let replyText = String(data.reply_to.text || '');
+            // 兼容历史消息：引用文本若是 blocks JSON（旧版 markdown 回复残留）→ 不解析显示为不支持
+            if (replyText.indexOf('"blocks"') >= 0 || replyText.indexOf('{"v"') === 0) {
+                replyText = '特殊格式不支持预览';
+            }
             // 回复的是表情消息：引用块显示表情包图片
             let replyStickerMatch = replyText.match(/^\[sticker:(.+?)\]$/);
             let replyTextHtml;
@@ -836,13 +853,20 @@
                 replyTextHtml = replyStickerUrl
                     ? '<img class="reply-sticker-img" src="' + escapeHtmlAttr(replyStickerUrl) + '" alt="表情">'
                     : '[表情]';
+            } else if (replyText === '特殊格式不支持预览') {
+                // markdown 特殊格式：不解析，显示提示文字
+                replyTextHtml = '<span class="reply-unsupported">' + escapeHtml(replyText) + '</span>';
             } else {
-                // 后端已把引用文本存为纯文本摘要，直接转义显示即可
-                replyTextHtml = escapeHtml(replyText);
+                // 后端已把引用文本存为纯文本摘要，直接转义显示即可；超长截断省略（JS 层保证，不依赖 CSS）
+                let displayText = replyText;
+                if (displayText.length > 60) {
+                    displayText = displayText.substring(0, 60) + '...';
+                }
+                replyTextHtml = escapeHtml(displayText);
             }
             replyHtml = '<div class="lobby-msg-reply" data-reply-id="' + data.reply_to.id + '">' +
-                '<span class="reply-name">' + escapeHtml(data.reply_to.name) + '</span>: ' +
-                replyTextHtml +
+                '<span class="reply-name">' + escapeHtml(data.reply_to.name) + '</span>' +
+                '<span class="reply-text">' + replyTextHtml + '</span>' +
                 '</div>';
         }
 
@@ -1322,10 +1346,22 @@
             label: '回复',
             class: '',
             action: function () {
+                // 表情消息：引用显示小表情图片（[sticker:id] 供渲染时解析）
+                let replyToText = '';
+                // content 可能是字符串（blocks JSON）或对象（已解析）——统一转字符串判断
+                let contentStr = (typeof data.content === 'string') ? data.content : JSON.stringify(data.content || '');
+                if (data.type === 'sticker' && data.sticker_id) {
+                    replyToText = '[sticker:' + data.sticker_id + ']';
+                } else if (data.msg_type === 'markdown' || contentStr.indexOf('"blocks"') >= 0 || contentStr.indexOf('"v":1') >= 0) {
+                    // markdown 消息：引用显示"特殊格式不支持预览"（不解析内容）
+                    replyToText = '特殊格式不支持预览';
+                } else {
+                    replyToText = contentStr || extractSurfaceText(contentStr) || '';
+                }
                 replyTarget = {
                     id: data.id,
                     name: data.sender_name,
-                    text: data.content || extractSurfaceText(data.content)
+                    text: replyToText
                 };
                 showReplyPreview();
             }
@@ -1460,6 +1496,20 @@
             let room = btn.getAttribute('data-room');
             if (room) {
                 window.location.href = '/gomoku?room=' + encodeURIComponent(room);
+            }
+        }
+        // 委托：解析错误气泡 → 复制原文
+        let copyBtn = e.target.closest('.md-error-copy');
+        if (copyBtn) {
+            let enc = copyBtn.getAttribute('data-raw');
+            if (enc) {
+                try {
+                    let raw = decodeURIComponent(escape(atob(enc)));
+                    copyToClipboard(raw);
+                    showTopToast('已复制原文');
+                } catch (err) {
+                    showTopToast('复制失败', true);
+                }
             }
         }
     });
@@ -1654,10 +1704,18 @@
     function parseNewMdParams(content) {
         let parts = splitTopLevelByPipe(String(content || ''));
         let result = { value: parts[0] || '' };
+        // 首段也可能是键=值（无内容写法，如 [!计时|id=c2]），一并解析（value 保留原文）
+        if (parts.length > 0) {
+            let p0 = parts[0];
+            let eq0 = p0.indexOf('=');
+            if (eq0 > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(p0.slice(0, eq0).trim())) {
+                result[p0.slice(0, eq0).trim()] = p0.slice(eq0 + 1);
+            }
+        }
         for (let i = 1; i < parts.length; i++) {
             let p = parts[i];
             let eq = p.indexOf('=');
-            if (eq > 0) {
+            if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(p.slice(0, eq).trim())) {
                 result[p.slice(0, eq).trim()] = p.slice(eq + 1);
             }
         }
@@ -1723,22 +1781,44 @@
     function parseBoardShapes(shapesStr) {
         let result = [];
         let parts = String(shapesStr || '').split(';');
+        let typeMap = { l:'line', p:'polyline', c:'curve', r:'rect', o:'circle', d:'dot',
+                        t:'triangle', h:'heart', pt:'poly', dl:'diamond', st:'star',
+                        fr:'frame', tx:'text' };
         for (let i = 0; i < parts.length; i++) {
             let p = parts[i].trim();
             if (!p) continue;
             let segs = p.split(':');
             let type = (segs[0] || '').trim().toLowerCase();
+            type = typeMap[type] || type;
             let params = (segs[1] || '').trim();
-            let color = (segs[2] || '#000000').trim();
-            // text 图形兼容两种写法：
+            let color = (segs[2] || '').trim();
+            // text 图形兼容三种写法：
             //   text:x,y,字号,内容（逗号写法，第 3 段为颜色可选）
             //   text:x,y,字号:内容（冒号写法，文档推荐，第 3 段非颜色时视为文本内容）
-            if (type === 'text' && segs.length === 3) {
-                let third = segs[2].trim();
-                if (!/^#?[0-9a-fA-F]{3,8}$/.test(third)) {
-                    params = params + ',' + third;
-                    color = '#000000';
+            //   text:x,y,字号:内容:#f00（冒号+颜色，v3.7：第 3 段为内容、末段为 #hex 颜色）
+            if (type === 'text') {
+                if (segs.length === 3) {
+                    let third = segs[2].trim();
+                    if (!/^#?[0-9a-fA-F]{3,8}$/.test(third)) {
+                        params = params + ',' + third;
+                        color = '#000000';
+                    }
+                } else if (segs.length >= 4) {
+                    let lastSeg = segs[segs.length - 1].trim();
+                    if (/^#?[0-9a-fA-F]{3,8}$/.test(lastSeg)) {
+                        params = params + ',' + segs.slice(2, segs.length - 1).join(':');
+                        color = lastSeg;
+                    } else {
+                        params = params + ',' + segs.slice(2).join(':');
+                        color = '#000000';
+                    }
                 }
+            }
+            // |参数（闭合填充 |fXX / 线宽 |wXX）从坐标段后提取
+            let bar = params.indexOf('|');
+            if (bar >= 0 && type !== 'text') {
+                color = (color ? color + '|' : '|') + params.slice(bar + 1);
+                params = params.slice(0, bar);
             }
             if (!type || !params) continue;
             result.push({ type: type, params: params, color: color });
@@ -1746,15 +1826,36 @@
         return result;
     }
 
-    // 渲染单个画板图形（SVG）
+    // 渲染单个画板图形（SVG）——与 board_studio 预览完全一致
     function renderBoardShape(shape) {
         let t = shape.type;
         let p = String(shape.params).split(',');
-        let c = escapeHtmlAttr(shape.color || '#000000');
         let num = function (v, d) { let n = parseFloat(v); return isNaN(n) ? d : n; };
+        // 颜色段解析：颜色|f填充|w线宽（|f 闭合填充，|w 线宽倍率）
+        let rawSeg = String(shape.color || '').trim();
+        let strokeC = '#000', fillC = '', w = 0.12, closed = false;
+        if (rawSeg.indexOf('|') >= 0) {
+            let segs2 = rawSeg.split('|');
+            strokeC = normColor(segs2[0]) || '#000';
+            for (let k = 1; k < segs2.length; k++) {
+                let e = segs2[k].trim();
+                if (!e) continue;
+                if (e.charAt(0) === 'f') {
+                    closed = true;
+                    if (e.length === 1) fillC = '#000';
+                    else fillC = normColor(e) || normColor(e.slice(1)) || '#000';
+                } else if (e.charAt(0) === 'w') {
+                    let wv = parseFloat(e.slice(1));
+                    if (!isNaN(wv) && wv > 0) w = 0.12 * wv;
+                }
+            }
+        } else { strokeC = normColor(rawSeg) || '#000'; }
+        let c = escapeHtmlAttr(strokeC);
+        let wAttr = ' stroke-width="' + w + '"';
+        let fillAttr = (fillC ? ' fill="' + escapeHtmlAttr(fillC) + '"' : ' fill="none"');
         if (t === 'line') {
             // line:x1,y1,x2,y2
-            return '<line x1="' + num(p[0], 0) + '" y1="' + num(p[1], 0) + '" x2="' + num(p[2], 10) + '" y2="' + num(p[3], 10) + '" stroke="' + c + '" stroke-width="0.12"/>';
+            return '<line x1="' + num(p[0], 0) + '" y1="' + num(p[1], 0) + '" x2="' + num(p[2], 10) + '" y2="' + num(p[3], 10) + '" stroke="' + c + '"' + wAttr + '/>';
         }
         if (t === 'polyline') {
             // polyline:x1,y1,x2,y2,x3,y3,... （折线，多点直线相连）
@@ -1763,7 +1864,8 @@
                 pts.push(num(p[i], 0) + ',' + num(p[i + 1], 0));
             }
             if (pts.length < 2) return '';
-            return '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + c + '" stroke-width="0.12"/>';
+            if (closed && pts.length >= 3) return '<polygon points="' + pts.join(' ') + '"' + fillAttr + ' stroke="' + c + '"' + wAttr + '/>';
+            return '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + c + '"' + wAttr + '/>';
         }
         if (t === 'curve') {
             // curve:x1,y1,x2,y2,x3,y3,... （平滑曲线穿过各点，Catmull-Rom → 三次贝塞尔）
@@ -1784,25 +1886,36 @@
                 let cp2y = p2[1] - (p3[1] - p1[1]) / 6;
                 d += ' C ' + cp1x.toFixed(3) + ',' + cp1y.toFixed(3) + ' ' + cp2x.toFixed(3) + ',' + cp2y.toFixed(3) + ' ' + p2[0] + ',' + p2[1];
             }
-            return '<path d="' + d + '" fill="none" stroke="' + c + '" stroke-width="0.12"/>';
+            if (closed && pts.length >= 3) d += ' Z';
+            return '<path d="' + d + '"' + (closed ? fillAttr : ' fill="none"') + ' stroke="' + c + '"' + wAttr + '/>';
+        }
+        if (t === 'poly') {
+            // poly:x1,y1,x2,y2,... （闭合多边形，颜色即填充+描边）
+            let pts = [];
+            for (let i = 0; i + 1 < p.length; i += 2) {
+                pts.push(num(p[i], 0) + ',' + num(p[i + 1], 0));
+            }
+            if (pts.length < 3) return '';
+            let pc = escapeHtmlAttr(normColor(rawSeg) || '#000');
+            return '<polygon points="' + pts.join(' ') + '" fill="' + pc + '" stroke="' + pc + '"' + wAttr + '/>';
         }
         if (t === 'rect') {
-            return '<rect x="' + num(p[0], 0) + '" y="' + num(p[1], 0) + '" width="' + Math.max(0.1, num(p[2], 1)) + '" height="' + Math.max(0.1, num(p[3], 1)) + '" fill="' + c + '"/>';
+            return '<rect x="' + num(p[0], 0) + '" y="' + num(p[1], 0) + '" width="' + Math.max(0.1, num(p[2], 1)) + '" height="' + Math.max(0.1, num(p[3], 1)) + '" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'circle') {
-            return '<circle cx="' + num(p[0], 5) + '" cy="' + num(p[1], 5) + '" r="' + Math.max(0.1, num(p[2], 1)) + '" fill="' + c + '"/>';
+            return '<circle cx="' + num(p[0], 5) + '" cy="' + num(p[1], 5) + '" r="' + Math.max(0.1, num(p[2], 1)) + '" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'dot') {
-            return '<circle cx="' + num(p[0], 5) + '" cy="' + num(p[1], 5) + '" r="0.15" fill="' + c + '"/>';
+            return '<circle cx="' + num(p[0], 5) + '" cy="' + num(p[1], 5) + '" r="0.15" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'triangle') {
             // triangle:x1,y1,x2,y2,x3,y3
-            return '<polygon points="' + num(p[0], 0) + ',' + num(p[1], 0) + ' ' + num(p[2], 10) + ',' + num(p[3], 0) + ' ' + num(p[4], 5) + ',' + num(p[5], 10) + '" fill="' + c + '"/>';
+            return '<polygon points="' + num(p[0], 0) + ',' + num(p[1], 0) + ' ' + num(p[2], 10) + ',' + num(p[3], 0) + ' ' + num(p[4], 5) + ',' + num(p[5], 10) + '" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'diamond') {
             // diamond:cx,cy,r
             let cx = num(p[0], 10), cy = num(p[1], 10), r = Math.max(0.1, num(p[2], 3));
-            return '<polygon points="' + cx + ',' + (cy - r) + ' ' + (cx + r) + ',' + cy + ' ' + cx + ',' + (cy + r) + ' ' + (cx - r) + ',' + cy + '" fill="' + c + '"/>';
+            return '<polygon points="' + cx + ',' + (cy - r) + ' ' + (cx + r) + ',' + cy + ' ' + cx + ',' + (cy + r) + ' ' + (cx - r) + ',' + cy + '" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'star') {
             // star:cx,cy,r（五角星）
@@ -1813,16 +1926,16 @@
                 let rad = (i % 2 === 0) ? r : r * 0.4;
                 pts.push((cx + rad * Math.cos(ang)).toFixed(2) + ',' + (cy + rad * Math.sin(ang)).toFixed(2));
             }
-            return '<polygon points="' + pts.join(' ') + '" fill="' + c + '"/>';
+            return '<polygon points="' + pts.join(' ') + '" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'heart') {
             // heart:cx,cy,s（简化心形 path）
             let cx = num(p[0], 10), cy = num(p[1], 10), s = Math.max(0.1, num(p[2], 3));
-            return '<path d="M ' + cx + ',' + (cy + s) + ' C ' + (cx - s) + ',' + cy + ' ' + (cx - s) + ',' + (cy - s) + ' ' + cx + ',' + (cy - s * 0.4) + ' C ' + (cx + s) + ',' + (cy - s) + ' ' + (cx + s) + ',' + cy + ' ' + cx + ',' + (cy + s) + ' Z" fill="' + c + '"/>';
+            return '<path d="M ' + cx + ',' + (cy + s) + ' C ' + (cx - s) + ',' + cy + ' ' + (cx - s) + ',' + (cy - s) + ' ' + cx + ',' + (cy - s * 0.4) + ' C ' + (cx + s) + ',' + (cy - s) + ' ' + (cx + s) + ',' + cy + ' ' + cx + ',' + (cy + s) + ' Z" fill="' + c + '"' + wAttr + '/>';
         }
         if (t === 'frame') {
             // frame:x,y,w,h
-            return '<rect x="' + num(p[0], 0) + '" y="' + num(p[1], 0) + '" width="' + num(p[2], 20) + '" height="' + num(p[3], 20) + '" fill="none" stroke="' + c + '" stroke-width="0.12"/>';
+            return '<rect x="' + num(p[0], 0) + '" y="' + num(p[1], 0) + '" width="' + num(p[2], 20) + '" height="' + num(p[3], 20) + '" fill="none" stroke="' + c + '"' + wAttr + '/>';
         }
         if (t === 'text') {
             // text:x,y,字号:文本（文本在参数第 4 个逗号后）
@@ -1904,7 +2017,7 @@
         // 归一化到消息容器（.lobby-msg-content / .md-modal-body）：初始化与交互共用同一状态
         let root = msgEl.closest ? (msgEl.closest('.lobby-msg-content, .md-modal-body') || msgEl) : msgEl;
         let s = msgUIStates.get(root);
-        if (!s) { s = { inputs: {}, switches: {}, vars: {}, timers: {}, bars: {}, votes: {}, ats: {} }; msgUIStates.set(root, s); }
+        if (!s) { s = { inputs: {}, switches: {}, vars: {}, timers: {}, bars: {}, votes: {}, ats: {}, chains: {} }; msgUIStates.set(root, s); }
         return s;
     }
 
@@ -2010,7 +2123,20 @@
     function evalMdMath(expr) {
         let s = String(expr).trim();
         if (!s) return s;
-        if (!/^[\d+\-*/().\s]+$/.test(s)) return s; // 含非数学字符 → 按普通字符串
+        // v3.5 数学函数：取余/取整/绝对值/最大/最小
+        let hasFn = /取余|取整|绝对值|最大|最小/.test(s);
+        if (hasFn) {
+            s = s.replace(/取余\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)/g, '($1 % $2)');
+            s = s.replace(/取整\s*\(\s*([^()]+?)\s*\)/g, 'Math.floor($1)');
+            s = s.replace(/绝对值\s*\(\s*([^()]+?)\s*\)/g, 'Math.abs($1)');
+            s = s.replace(/最大\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)/g, 'Math.max($1,$2)');
+            s = s.replace(/最小\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)/g, 'Math.min($1,$2)');
+            // 安全校验：剥离白名单 Math 函数后必须只剩数字/运算符/括号/逗号/空格/%
+            let stripped = s.replace(/Math\.(floor|abs|max|min)\s*\(/g, '(');
+            if (!/^[\d+\-*/().\s,%]+$/.test(stripped)) return String(expr).trim();
+        } else {
+            if (!/^[\d+\-*/().\s]+$/.test(s)) return s; // 含非数学字符 → 按普通字符串
+        }
         try {
             let v = Function('"use strict";return (' + s + ')')();
             if (typeof v === 'number' && isFinite(v)) return String(Math.round(v * 1000000) / 1000000);
@@ -2027,6 +2153,7 @@
         for (let i = 0; i < els.length; i++) els[i].textContent = state.vars[name];
         refreshShowIfs(msgEl);
         refreshRefs(msgEl);
+        refreshMsgGets(msgEl);
     }
 
     // 更新进度条（id, 目标值）
@@ -2046,39 +2173,177 @@
     }
 
     // 启动倒计时
+    // ==================== 倒计时 / 计时器（v3） ====================
+
+    // 解析时长：90(秒) / 5分 / 2时 / 1时30分15秒 / 1:30 → 总秒数
+    function parseMdDuration(str) {
+        let s = String(str || '').trim();
+        if (!s) return 0;
+        if (/^\d+$/.test(s)) return parseInt(s, 10);
+        if (/^\d{1,2}:\d{1,2}(:\d{1,2})?$/.test(s)) {
+            let p = s.split(':').map(Number);
+            return p[0] * 3600 + (p[1] || 0) * 60 + (p[2] || 0);
+        }
+        let total = 0;
+        let re = /(\d+(?:\.\d+)?)\s*(小时|时|分钟|分|秒)/g;
+        let m;
+        while ((m = re.exec(s))) {
+            let v = parseFloat(m[1]);
+            let u = m[2];
+            if (u === '小时' || u === '时') total += v * 3600;
+            else if (u === '分钟' || u === '分') total += v * 60;
+            else total += v;
+        }
+        return Math.round(total);
+    }
+
+    // 格式化秒数为 时:分:秒（00:00:00）
+    function formatMdHMS(seconds) {
+        let s = Math.max(0, Math.floor(seconds || 0));
+        let h = Math.floor(s / 3600);
+        let m = Math.floor((s % 3600) / 60);
+        let sec = s % 60;
+        return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    // 可见性监控：划出消息可见区域暂停计时，回到可见区域恢复
+    let mdVisibleObserver = null;
+    let mdElVisibleMap = new Map();
+    function ensureMdVisibleObserver() {
+        if (mdVisibleObserver) return;
+        if (typeof IntersectionObserver === 'undefined') { mdVisibleObserver = {}; return; }
+        mdVisibleObserver = new IntersectionObserver(function (entries) {
+            for (let i = 0; i < entries.length; i++) {
+                let ent = entries[i];
+                let el = ent.target;
+                mdElVisibleMap.set(el, ent.isIntersecting);
+                let id = el.getAttribute('data-timer-id');
+                if (!id) continue;
+                let msgEl = el.closest('.lobby-msg-content, .md-modal-body') || el.parentElement;
+                let state = getMsgUIState(msgEl);
+                let t = state.timers[id];
+                if (!t || t.el !== el) continue;
+                if (ent.isIntersecting) {
+                    if (!t.running) runMdClock(t);
+                } else {
+                    if (t.running) { clearInterval(t.timer); t.running = false; }
+                }
+            }
+        }, { threshold: 0.1 });
+    }
+    function isMdElVisible(el) {
+        if (mdElVisibleMap.has(el)) return mdElVisibleMap.get(el);
+        if (!el.getBoundingClientRect) return true;
+        let r = el.getBoundingClientRect();
+        let vh = (window.innerHeight || document.documentElement.clientHeight || 0);
+        return r.top < vh && r.bottom > 0 && r.width > 0;
+    }
+    function observeMdEl(el) {
+        ensureMdVisibleObserver();
+        if (mdVisibleObserver && mdVisibleObserver.observe) {
+            mdElVisibleMap.set(el, isMdElVisible(el));
+            mdVisibleObserver.observe(el);
+        } else {
+            mdElVisibleMap.set(el, true);
+        }
+    }
+
+    // 统一时钟：t = {id, el, msgEl, kind:'countdown'|'stopwatch', left, max, end, lock, bar, repeat}
+    function runMdClock(t) {
+        if (t.running) return;
+        let state = getMsgUIState(t.msgEl);
+        t.timer = setInterval(function () {
+            if (t.kind === 'countdown') {
+                t.left--;
+                if (t.left <= 0) {
+                    clearInterval(t.timer);
+                    delete state.timers[t.id];
+                    t.el.textContent = '00:00:00';
+                    t.el.classList.add('md-timer-done');
+                    // 解锁倒计时锁定的按钮组
+                    if (t.lock) {
+                        let locked = t.msgEl.querySelectorAll('[data-timer-lock-group="' + t.lock + '"]');
+                        for (let i = 0; i < locked.length; i++) delete locked[i].dataset.timerLocked;
+                    }
+                    // 联动进度条归零
+                    if (t.bar) updateMdBar(t.bar, 0, t.msgEl);
+                    // 执行结束操作
+                    if (t.end) executeMdAction(decodeURIComponent(t.end), t.msgEl);
+                    return;
+                }
+                t.el.textContent = formatMdHMS(t.left);
+                if (t.bar) updateMdBar(t.bar, t.left, t.msgEl);
+            } else {
+                // 计时器：正向计时
+                t.left++;
+                let max = t.max || 0;
+                if (max > 0 && t.left >= max) {
+                    clearInterval(t.timer);
+                    delete state.timers[t.id];
+                    t.el.textContent = formatMdHMS(max);
+                    t.el.classList.add('md-timer-done');
+                    if (t.bar) updateMdBar(t.bar, max, t.msgEl);
+                    if (t.end) executeMdAction(decodeURIComponent(t.end), t.msgEl);
+                    if (t.repeat) {
+                        // 重复：清状态后重新计时（从0开始）
+                        t.el.classList.remove('md-timer-done');
+                        startMdStopwatch(t.id, t.msgEl);
+                    }
+                    return;
+                }
+                t.el.textContent = formatMdHMS(t.left);
+                if (t.bar) updateMdBar(t.bar, max > 0 ? Math.min(t.left, max) : t.left, t.msgEl);
+            }
+        }, 1000);
+        t.running = true;
+    }
+
+    // 启动倒计时（点击绑定按钮触发 / 未绑定自动启动）
     function startMdTimer(id, msgEl) {
         if (!msgEl) return;
         let state = getMsgUIState(msgEl);
-        if (state.timers[id]) { clearInterval(state.timers[id]); delete state.timers[id]; }
+        if (state.timers[id]) { clearInterval(state.timers[id].timer); delete state.timers[id]; }
         let timerEl = msgEl.querySelector('.md-timer[data-timer-id="' + id + '"]');
         if (!timerEl) return;
         let total = parseInt(timerEl.getAttribute('data-timer-total'), 10) || 0;
-        let left = total;
-        timerEl.textContent = left;
-        state.timers[id] = setInterval(function () {
-            left--;
-            if (left <= 0) {
-                clearInterval(state.timers[id]);
-                delete state.timers[id];
-                timerEl.textContent = '0';
-                timerEl.classList.add('md-timer-done');
-                // 解锁倒计时锁定的按钮组
-                let lockTarget = timerEl.getAttribute('data-timer-lock');
-                if (lockTarget) {
-                    let locked = msgEl.querySelectorAll('[data-timer-lock-group="' + lockTarget + '"]');
-                    for (let i = 0; i < locked.length; i++) delete locked[i].dataset.timerLocked;
-                }
-                // 执行结束操作
-                let endAct = timerEl.getAttribute('data-timer-end');
-                if (endAct) executeMdAction(decodeURIComponent(endAct), msgEl);
-                return;
-            }
-            timerEl.textContent = left;
-            // 联动进度条
-            let barId = timerEl.getAttribute('data-timer-bar');
-            if (barId) updateMdBar(barId, left, msgEl);
-        }, 1000);
+        if (total <= 0) total = 30;
+        let t = {
+            id: id, el: timerEl, msgEl: msgEl, kind: 'countdown',
+            left: total, max: 0, running: false,
+            end: timerEl.getAttribute('data-timer-end') || '',
+            lock: timerEl.getAttribute('data-timer-lock') || '',
+            bar: timerEl.getAttribute('data-timer-bar') || '',
+            repeat: false
+        };
+        state.timers[id] = t;
+        timerEl.textContent = formatMdHMS(total);
+        timerEl.classList.remove('md-timer-done');
+        observeMdEl(timerEl);
+        if (isMdElVisible(timerEl)) runMdClock(t);
     }
+
+    // 启动计时器（正向计时，从0开始；可设最大时长，到达结束或执行动作）
+    function startMdStopwatch(id, msgEl) {
+        if (!msgEl) return;
+        let state = getMsgUIState(msgEl);
+        if (state.timers[id]) { clearInterval(state.timers[id].timer); delete state.timers[id]; }
+        let el = msgEl.querySelector('.md-stopwatch[data-timer-id="' + id + '"]');
+        if (!el) return;
+        let max = parseInt(el.getAttribute('data-stopwatch-max'), 10) || 0;
+        let t = {
+            id: id, el: el, msgEl: msgEl, kind: 'stopwatch',
+            left: 0, max: max, running: false,
+            end: el.getAttribute('data-timer-end') || '',
+            lock: '', bar: '',
+            repeat: el.getAttribute('data-stopwatch-repeat') === '1'
+        };
+        state.timers[id] = t;
+        el.textContent = '00:00:00';
+        el.classList.remove('md-timer-done');
+        observeMdEl(el);
+        if (isMdElVisible(el)) runMdClock(t);
+    }
+
 
     // 刷新条件显示（if: id=期望值 / id 非空 / 比较运算符 == != > >= < <=）
     function refreshShowIfs(msgEl) {
@@ -2134,12 +2399,23 @@
         }
     }
 
-    // ==================== 投票 / 骰子 / 图集 / 定时到点 ====================
+    // ==================== 投票 / 图集 / 定时到点 ====================
 
     // 投票：点击选项（单选默认；max>1 多选；再次点击取消；localStorage 防重复，刷新不重置）
     function handleVoteClick(optEl) {
         let voteEl = optEl.closest('.md-vote');
         if (!voteEl) return;
+        // v3 投票权限（perm=@昵称 白名单 / !@昵称 黑名单；支持 {名} 动态解析，每次点击实时取值）
+        let vPerm = voteEl.getAttribute('data-vote-perm') || '';
+        if (vPerm) {
+            let pMsgEl = voteEl.closest('.lobby-msg, .md-modal-body, .md-details-panel') || null;
+            let realPerm = resolveMdPlaceholders(vPerm, pMsgEl);
+            let pInfo = applyBtnPermission({ content: '', perm: realPerm }, myNickname);
+            if (!pInfo.allowed) {
+                showTopToast('你没有权限参与投票', true);
+                return;
+            }
+        }
         let vMax = parseInt(voteEl.getAttribute('data-vote-max'), 10) || 1;
         let idx = parseInt(optEl.getAttribute('data-vote-opt'), 10);
         let isServer = voteEl.hasAttribute('data-vote-key');
@@ -2201,41 +2477,6 @@
             if (bar) bar.style.width = pct + '%';
             let num = opts[i].querySelector('.md-vote-num');
             if (num) num.textContent = on ? ('✓ ' + c + ' 票 ' + pct + '%') : (c + ' 票 ' + pct + '%');
-        }
-    }
-
-    // 掷骰子：解析 XdY±Z（支持 dY 省略 X、纯数字），生成随机结果，展示并存入 %id% 变量
-    function rollDice(btn) {
-        let expr = btn.getAttribute('data-dice') || '1d6';
-        let dId = btn.getAttribute('data-dice-id') || '';
-        let m = String(expr).match(/^(\d*)d(\d+)([+-]\d+)?$/i);
-        let rolls = [], total = 0, mod = 0;
-        if (m) {
-            let diceCount = m[1] ? parseInt(m[1], 10) : 1;
-            let sides = parseInt(m[2], 10) || 6;
-            if (m[3]) mod = parseInt(m[3], 10) || 0;
-            if (diceCount < 1) diceCount = 1;
-            if (diceCount > 100) diceCount = 100;
-            for (let i = 0; i < diceCount; i++) {
-                let r = Math.floor(Math.random() * sides) + 1;
-                rolls.push(r);
-                total += r;
-            }
-            total += mod;
-        }
-        let resEl = btn.parentElement ? btn.parentElement.querySelector('.md-dice-result') : null;
-        if (resEl) {
-            let txt = '🎲 ' + expr + ' → ';
-            if (rolls.length > 1) txt += rolls.join(' + ');
-            else if (rolls.length === 1) txt += rolls[0];
-            if (mod) txt += (mod > 0 ? ' + ' + mod : ' - ' + Math.abs(mod));
-            txt += ' = ' + total;
-            resEl.textContent = txt;
-            resEl.classList.add('md-dice-done');
-        }
-        if (dId) {
-            let msgEl = btn.closest('.lobby-msg, .md-modal-body');
-            if (msgEl) setMdVar(dId, String(total), msgEl);
         }
     }
 
@@ -2309,48 +2550,55 @@
     // 定时到点：每秒检查 HH:MM[:SS]，到点执行 end 动作；repeat=1 每天重复
     function startMdAt(msgEl) {
         if (!msgEl) return;
-        let state = getMsgUIState(msgEl);
         let ats = msgEl.querySelectorAll('.md-at');
         for (let i = 0; i < ats.length; i++) {
-            (function (el) {
-                let id = el.getAttribute('data-at-id') || '';
-                if (id && state.ats[id]) return;
-                if (id) state.ats[id] = true;
-                let iv = setInterval(function () {
-                    if (!el.isConnected) { clearInterval(iv); if (id) delete state.ats[id]; return; }
-                    let timeStr = el.getAttribute('data-at-time') || '00:00';
-                    let segs = timeStr.split(':').map(function (x) { return parseInt(x, 10) || 0; });
-                    let hh = segs[0] || 0, mm = segs[1] || 0, ss = segs[2] || 0;
-                    let now = new Date();
-                    let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, ss);
-                    let diff = target - now;
-                    if (diff < 0) diff += 24 * 3600 * 1000; // 已过今日则等明天
-                    let pad = function (n) { return (n < 10 ? '0' : '') + n; };
-                    if (el.getAttribute('data-at-done') === '1') {
-                        if (el.getAttribute('data-at-repeat') !== '1') {
-                            clearInterval(iv);
-                            if (id) delete state.ats[id];
-                        }
-                        return;
-                    }
-                    if (diff <= 1000) {
-                        // 到点触发
-                        el.setAttribute('data-at-done', '1');
-                        el.textContent = '⏰ ' + timeStr + ' · 已触发';
-                        el.classList.add('md-at-done');
-                        let endAct = el.getAttribute('data-at-end');
-                        if (endAct) executeMdAction(decodeURIComponent(endAct), msgEl);
-                        if (el.getAttribute('data-at-repeat') === '1') {
-                            el.removeAttribute('data-at-done');
-                            el.classList.remove('md-at-done');
-                        }
-                    } else {
-                        let h = Math.floor(diff / 3600000), m2 = Math.floor(diff % 3600000 / 60000), s2 = Math.floor(diff % 60000 / 1000);
-                        el.textContent = '⏰ ' + timeStr + ' · ' + pad(h) + ':' + pad(m2) + ':' + pad(s2);
-                    }
-                }, 1000);
-            })(ats[i]);
+            let el = ats[i];
+            // v3.7 防刷屏：end 含 发送: 且未绑定 → 不自动启动（需按钮 定时:名 手动启动）
+            let endAct = decodeURIComponent(el.getAttribute('data-at-end') || '');
+            if (el.getAttribute('data-at-bind') !== '1' && /发送[:：]|send:/.test(endAct)) continue;
+            startMdAtOne(el, msgEl);
         }
+    }
+    // 启动单个定时组件（手动 定时:名 或绑定自动启动共用）
+    function startMdAtOne(el, msgEl) {
+        if (!el || !msgEl) return;
+        let state = getMsgUIState(msgEl);
+        let id = el.getAttribute('data-at-id') || '';
+        if (id && state.ats[id]) return;
+        if (id) state.ats[id] = true;
+        let iv = setInterval(function () {
+            if (!el.isConnected) { clearInterval(iv); if (id) delete state.ats[id]; return; }
+            let timeStr = el.getAttribute('data-at-time') || '00:00';
+            let segs = timeStr.split(':').map(function (x) { return parseInt(x, 10) || 0; });
+            let hh = segs[0] || 0, mm = segs[1] || 0, ss = segs[2] || 0;
+            let now = new Date();
+            let target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, ss);
+            let diff = target - now;
+            if (diff < 0) diff += 24 * 3600 * 1000; // 已过今日则等明天
+            let pad = function (n) { return (n < 10 ? '0' : '') + n; };
+            if (el.getAttribute('data-at-done') === '1') {
+                if (el.getAttribute('data-at-repeat') !== '1') {
+                    clearInterval(iv);
+                    if (id) delete state.ats[id];
+                }
+                return;
+            }
+            if (diff <= 1000) {
+                // 到点触发
+                el.setAttribute('data-at-done', '1');
+                el.textContent = '⏰ ' + timeStr + ' · 已触发';
+                el.classList.add('md-at-done');
+                let endAct = el.getAttribute('data-at-end');
+                if (endAct) executeMdAction(decodeURIComponent(endAct), msgEl);
+                if (el.getAttribute('data-at-repeat') === '1') {
+                    el.removeAttribute('data-at-done');
+                    el.classList.remove('md-at-done');
+                }
+            } else {
+                let h = Math.floor(diff / 3600000), m2 = Math.floor(diff % 3600000 / 60000), s2 = Math.floor(diff % 60000 / 1000);
+                el.textContent = '⏰ ' + timeStr + ' · ' + pad(h) + ':' + pad(m2) + ':' + pad(s2);
+            }
+        }, 1000);
     }
 
     // 初始化消息内 md 组件：启动倒计时、初始化进度条、评估条件显示、初始化全局变量
@@ -2370,14 +2618,26 @@
             let vl = defs[d].getAttribute('data-def-value');
             if (nm && state.vars[nm] === undefined) state.vars[nm] = vl;
         }
-        // 启动倒计时
-        let timers = msgEl.querySelectorAll('.md-timer');
+        // 显示组件 get 初始值刷新（[!显示:名] 显示变量初值）
+        refreshMsgGets(msgEl);
+        // 启动倒计时/计时器（v3.6 防刷屏：必须绑定=1 由按钮/动作启动；未绑定的【永不自动启动】，end 动作不会触发）
+        let timers = msgEl.querySelectorAll('.md-timer, .md-stopwatch');
         for (let j = 0; j < timers.length; j++) {
             let id = timers[j].getAttribute('data-timer-id');
-            if (id && !state.timers[id]) startMdTimer(id, msgEl);
+            if (!id || state.timers[id]) continue;
+            // 仅绑定组件可运行，但启动时机在按钮动作（倒计时:名/计时:名），此处不自动启动
+            // 未绑定组件直接忽略：杜绝 end=发送: 自动刷屏
         }
         // 启动定时到点（at:）
         startMdAt(msgEl);
+        // v3.5 动作链初始化（未绑定自动启动；v3.6 防刷屏：未绑定且含 发送: 动作的不自动启动——消息广播全员可见，自动发送会全员同时刷屏，必须绑定=1 由按钮触发）
+        let chains = msgEl.querySelectorAll('.md-chain');
+        for (let ci2 = 0; ci2 < chains.length; ci2++) {
+            let cEl = chains[ci2];
+            let cStepsRaw = decodeURIComponent(cEl.getAttribute('data-chain-steps') || '');
+            if (cEl.getAttribute('data-chain-bind') !== '1' && /发送[:：]/.test(cStepsRaw)) continue;
+            initMdChain(msgEl, cEl);
+        }
         // 初始化投票显示（消息内的投票绑定服务端计票；弹窗/详情内的投票保持本地演示）
         let msgBubble = msgEl.classList && msgEl.classList.contains('lobby-msg') ? msgEl : msgEl.querySelector('.lobby-msg');
         let msgIdForVote = msgBubble ? (msgBubble.dataset.msgId || '') : '';
@@ -2433,6 +2693,9 @@
         for (let bb = 0; bb < boards.length; bb++) {
             renderBoard(msgEl, boards[bb]);
         }
+        // 初始化音乐播放器（自定义UI + 状态变量输出）
+        let musics = msgEl.querySelectorAll('.md-music');
+        for (let mi = 0; mi < musics.length; mi++) initMdMusic(musics[mi]);
         // 倒计时锁定：为锁组内按钮加锁定标记
         let lockGroups = {};
         let tms = msgEl.querySelectorAll('.md-timer[data-timer-lock]');
@@ -2445,14 +2708,14 @@
             for (let m = 0; m < locked.length; m++) locked[m].dataset.timerLocked = '1';
         }
         // 初始化音乐播放器（Plyr）
-        let musics = msgEl.querySelectorAll('.md-music-audio');
-        for (let mi = 0; mi < musics.length; mi++) {
-            if (musics[mi].dataset.plyrInit) continue;
+        let musics2 = msgEl.querySelectorAll('.md-music-audio');
+        for (let mi = 0; mi < musics2.length; mi++) {
+            if (musics2[mi].dataset.plyrInit) continue;
             try {
-                new Plyr(musics[mi], {
+                new Plyr(musics2[mi], {
                     controls: ['play', 'progress', 'current-time', 'mute', 'volume']
                 });
-                musics[mi].dataset.plyrInit = '1';
+                musics2[mi].dataset.plyrInit = '1';
             } catch (e) { }
         }
         // 评估条件显示
@@ -2541,13 +2804,488 @@
         }
     }
 
+    // ==================== v3.5 动作链（隐形编排器） ====================
+
+    // 解析步骤串：步骤1/步骤2，步骤 = 目标=id;操作;延时=ms;条件=exp;跳转=N（步骤内用 ; 分隔，避免与组件参数 | 冲突）
+    function parseChainSteps(raw) {
+        let steps = [];
+        let arr = String(raw || '').split('/');
+        for (let si = 0; si < arr.length; si++) {
+            let step = { target: '', action: '', keyOps: [], delay: 0, cond: '', jump: 0 };
+            let nonKey = [];
+            let params = arr[si].split(';');
+            for (let pi = 0; pi < params.length; pi++) {
+                let p = params[pi].trim();
+                if (!p) continue;
+                let eq = p.indexOf('=');
+                if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(p.slice(0, eq).trim())) {
+                    let k = p.slice(0, eq).trim(), v = p.slice(eq + 1).trim();
+                    if (k === '目标' || k === 'target') step.target = v;
+                    else if (k === '延时' || k === 'delay') step.delay = parseFloat(v) || 0;
+                    else if (k === '条件' || k === 'cond') step.cond = v;
+                    else if (k === '跳转' || k === 'jump') step.jump = parseInt(v, 10) || 0;
+                    else step.keyOps.push({ k: k, v: v });
+                } else {
+                    nonKey.push(p);
+                }
+            }
+            step.action = nonKey.join('&');
+            steps.push(step);
+        }
+        return steps;
+    }
+    // 消息是否在视口内（循环可见性）
+    function isMsgVisible(msgEl) {
+        if (!msgEl) return true;
+        let root = msgEl.closest ? (msgEl.closest('.lobby-msg-content, .md-modal-body') || msgEl) : msgEl;
+        let r = root.getBoundingClientRect();
+        let vh = window.innerHeight || document.documentElement.clientHeight;
+        return r.bottom > -60 && r.top < vh + 60;
+    }
+    function waitVisibleThenResume(chain, msgEl) {
+        if (chain.waitTimer) { clearInterval(chain.waitTimer); chain.waitTimer = null; }
+        chain.waitTimer = setInterval(function () {
+            if (chain.stopped || (chain.el && !chain.el.isConnected)) { clearInterval(chain.waitTimer); chain.waitTimer = null; return; }
+            if (isMsgVisible(msgEl)) { clearInterval(chain.waitTimer); chain.waitTimer = null; chainResume(chain, msgEl); }
+        }, 500);
+    }
+    function chainScheduleNext(chain, msgEl, delay) {
+        if (chain.timer) { clearTimeout(chain.timer); chain.timer = null; }
+        if (chain.stopped || !chain.running || chain.paused) return;
+        chain.timer = setTimeout(function () {
+            if (chain.stopped || !chain.running || chain.paused) return;
+            if (chain.el && !chain.el.isConnected) { chainStop(chain, msgEl); return; }
+            if (!isMsgVisible(msgEl)) { chainPause(chain, msgEl); waitVisibleThenResume(chain, msgEl); return; }
+            chainRunStep(chain, msgEl);
+        }, delay || 0);
+    }
+    function chainRunStep(chain, msgEl) {
+        // 死循环防护：每秒步数上限（500 步/秒），超限自动停止——防 跳转=1 死循环 / 延时=0 无限循环 打满 CPU 卡死主线程（导致 WS 心跳断连）
+        let now = Date.now();
+        if (!chain.guardTs || now - chain.guardTs > 1000) { chain.guardTs = now; chain.guardCount = 0; }
+        chain.guardCount = (chain.guardCount || 0) + 1;
+        if (chain.guardCount > 500) {
+            console.warn('[动作链] ' + chain.id + ' 触发防死循环保护（每秒超过 500 步），自动停止');
+            chainStop(chain, msgEl);
+            return;
+        }
+        let steps = chain.steps;
+        if (!steps.length) { chainFinish(chain, msgEl); return; }
+        if (chain.curStep >= steps.length) {
+            chain.curLoop++;
+            let maxL = parseInt(chain.loop, 10) || 0;
+            if (chain.loop !== 'inf' && maxL === 0) { chainFinish(chain, msgEl); return; }
+            if (chain.loop !== 'inf' && chain.curLoop >= maxL) { chainFinish(chain, msgEl); return; }
+            chain.curStep = 0;
+        }
+        let step = steps[chain.curStep];
+        // 条件：不满足跳下一步
+        if (step.cond) {
+            if (!evalMdCond(step.cond, msgEl)) {
+                chain.curStep++;
+                chainScheduleNext(chain, msgEl, 0);
+                return;
+            }
+        }
+        chainExecStep(step, msgEl);
+        if (step.jump > 0) chain.curStep = step.jump - 1;
+        else chain.curStep++;
+        chainScheduleNext(chain, msgEl, step.delay);
+    }
+    // v3.5 统一 transform 管理：translate/scale/rotate 组合输出（避免循环累积爆炸 / 互相覆盖）
+    function applyMdTransform(target, patch) {
+        let cur = target.style.transform || '';
+        let dx = 0, dy = 0, scale = 1, rotate = 0;
+        let mt = /translate\(([^)]+)\)/.exec(cur);
+        if (mt) { let p = mt[1].split(','); dx = parseFloat(p[0]) || 0; dy = p.length > 1 ? (parseFloat(p[1]) || 0) : 0; }
+        let ms = /scale\(([^)]+)\)/.exec(cur);
+        if (ms) scale = parseFloat(ms[1]) || 1;
+        let mr = /rotate\(([^)]+)\)/.exec(cur);
+        if (mr) rotate = parseFloat(mr[1]) || 0;
+        if (patch.dx !== undefined) dx = patch.dx;
+        if (patch.dy !== undefined) dy = patch.dy;
+        if (patch.scale !== undefined) scale = patch.scale;
+        if (patch.rotate !== undefined) rotate = patch.rotate;
+        target.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + scale + ') rotate(' + rotate + 'deg)';
+    }
+    // 执行单步操作
+    function chainExecStep(step, msgEl) {
+        let target = null;
+        if (step.target) target = msgEl.querySelector('[data-ui-id="' + step.target + '"]');
+        if (step.action) executeMdAction(step.action, msgEl);
+        for (let oi = 0; oi < step.keyOps.length; oi++) {
+            let k = step.keyOps[oi].k, v = step.keyOps[oi].v;
+            if (k === '移动x' || k === '移动y') {
+                if (target) {
+                    let cur = target.style.transform || '';
+                    let dx = 0, dy = 0;
+                    let m = /translate\(([^)]+)\)/.exec(cur);
+                    if (m) {
+                        let parts = m[1].split(',');
+                        dx = parseFloat(parts[0]) || 0;
+                        dy = parts.length > 1 ? (parseFloat(parts[1]) || 0) : 0;
+                    }
+                    if (k === '移动x') dx += parseFloat(v) || 0;
+                    else dy += parseFloat(v) || 0;
+                    target.style.transition = 'transform 0.3s ease';
+                    applyMdTransform(target, { dx: dx, dy: dy });
+                }
+            } else if (k === '缩放') {
+                if (target) { target.style.transition = 'transform 0.3s ease'; applyMdTransform(target, { scale: parseFloat(v) || 1 }); }
+            } else if (k === '旋转') {
+                // 旋转=度数 为累积增量（与移动x/y 一致，持续旋转不跳回）
+                if (target) {
+                    let cur = target.style.transform || '';
+                    let rot = 0;
+                    let mr = /rotate\(([^)]+)\)/.exec(cur);
+                    if (mr) rot = parseFloat(mr[1]) || 0;
+                    target.style.transition = 'transform 0.3s ease';
+                    applyMdTransform(target, { rotate: rot + (parseFloat(v) || 0) });
+                }
+            } else if (k === '透明') {
+                if (target) { target.style.transition = 'opacity 0.3s ease'; target.style.opacity = String(Math.max(0, Math.min(1, parseFloat(v) || 0))); }
+            } else if (k === '闪烁') {
+                if (target) {
+                    let n = Math.max(1, parseInt(v, 10) || 1);
+                    let orig = target.style.opacity || '1';
+                    for (let fi = 0; fi < n; fi++) {
+                        (function (i) {
+                            setTimeout(function () { if (target.isConnected) target.style.opacity = (i % 2 === 0) ? '0.15' : orig; }, i * 150);
+                        })(fi);
+                    }
+                    setTimeout(function () { if (target.isConnected) target.style.opacity = orig; }, n * 150);
+                }
+            } else if (k === '颜色') {
+                if (target) target.style.color = resolveMdPlaceholders(v, msgEl);
+            } else if (k === '文字') {
+                if (target) target.textContent = resolveMdPlaceholders(v, msgEl);
+            } else if (k === '隐藏') {
+                if (target) target.style.display = 'none';
+            } else if (k === '显示') {
+                if (target) target.style.display = '';
+            } else if (k === '状态') {
+                let val = resolveMdPlaceholders(v, msgEl);
+                let state = getMsgUIState(msgEl);
+                if (step.target) {
+                    let sw = msgEl.querySelector('.md-btn-switch[data-switch-id="' + step.target + '"]');
+                    if (sw) {
+                        let vals = [];
+                        try { vals = JSON.parse(sw.getAttribute('data-switch-vals') || '[]'); } catch (e3) { vals = []; }
+                        let idx = vals.indexOf(val);
+                        if (idx >= 0) { state.switches[step.target] = idx; sw.textContent = vals[idx]; }
+                    }
+                    let bar = msgEl.querySelector('.md-bar[data-bar-id="' + step.target + '"]');
+                    if (bar) updateMdBar(step.target, val, msgEl);
+                    if (state.vars[step.target] !== undefined) setMdVar(step.target, val, msgEl);
+                }
+            } else if (k === '变量') {
+                let veq = v.indexOf('=');
+                if (veq > 0) setMdVar(v.slice(0, veq).trim(), evalMdMath(resolveMdPlaceholders(v.slice(veq + 1), msgEl)), msgEl);
+            } else if (k === '音效') {
+                if (v) { try { let a2 = new Audio(v); a2.volume = 0.5; a2.play().catch(function () { }); } catch (e4) { } }
+            } else if (k === '更新') {
+                if (target) {
+                    let bEl = target.classList && target.classList.contains('md-board') ? target : (target.querySelector ? target.querySelector('.md-board') : null);
+                    if (bEl) {
+                        if (v) bEl.setAttribute('data-board-shapes', v);
+                        renderBoard(msgEl, bEl);
+                    }
+                }
+            }
+        }
+    }
+    function chainFinish(chain, msgEl) {
+        chain.running = false;
+        if (chain.timer) { clearTimeout(chain.timer); chain.timer = null; }
+        if (chain.waitTimer) { clearInterval(chain.waitTimer); chain.waitTimer = null; }
+    }
+    function chainStart(chain, msgEl) {
+        chain.stopped = false; chain.paused = false; chain.running = true;
+        chain.curStep = 0; chain.curLoop = 0;
+        chain.guardTs = 0; chain.guardCount = 0;
+        chainScheduleNext(chain, msgEl, 0);
+    }
+    function chainPause(chain, msgEl) {
+        chain.paused = true;
+        if (chain.timer) { clearTimeout(chain.timer); chain.timer = null; }
+    }
+    function chainResume(chain, msgEl) {
+        if (chain.paused) { chain.paused = false; chainScheduleNext(chain, msgEl, 0); }
+    }
+    function chainStop(chain, msgEl) {
+        chain.stopped = true; chain.running = false;
+        if (chain.timer) { clearTimeout(chain.timer); chain.timer = null; }
+        if (chain.waitTimer) { clearInterval(chain.waitTimer); chain.waitTimer = null; }
+    }
+    function chainReplay(chain, msgEl) { chainStop(chain, msgEl); chainStart(chain, msgEl); }
+    // 初始化动作链（渲染后由 initMdComponents 调用）
+    function initMdChain(msgEl, chainEl) {
+        if (!chainEl) return;
+        let id = chainEl.getAttribute('data-chain-id');
+        if (!id) return;
+        let state = getMsgUIState(msgEl);
+        if (state.chains[id]) return;
+        let chain = {
+            id: id, el: chainEl,
+            steps: parseChainSteps(decodeURIComponent(chainEl.getAttribute('data-chain-steps') || '')),
+            loop: chainEl.getAttribute('data-chain-loop') || '0',
+            timer: null, paused: false, stopped: false, running: false,
+            curStep: 0, curLoop: 0,
+            control: function (op) {
+                op = String(op || '开始').trim();
+                if (op === '开始') chainStart(chain, msgEl);
+                else if (op === '暂停') chainPause(chain, msgEl);
+                else if (op === '继续' || op === '恢复') chainResume(chain, msgEl);
+                else if (op === '停止') chainStop(chain, msgEl);
+                else if (op === '重播') chainReplay(chain, msgEl);
+            }
+        };
+        state.chains[id] = chain;
+        if (chainEl.getAttribute('data-chain-bind') !== '1') chainStart(chain, msgEl);
+    }
+
+    // ==================== v3.5 动作串 / 条件动作 ====================
+    // 动作串拆分：按顶层 & 分隔（HTML 实体 &lt; 等不拆；\& 转义为字面 &）
+    // 判断当前累积片段是否处于 URL 查询串中（已含 :// 且其 ? 之后的 & 属于查询参数，不参与动作串拆分）
+    function isInUrlQuery(cur) {
+        let proto = cur.lastIndexOf('://');
+        if (proto < 0) return false;
+        let q = cur.indexOf('?', proto + 3);
+        return q >= 0;
+    }
+    function splitMdActions(action) {
+        let parts = [], cur = '', i = 0;
+        while (i < action.length) {
+            let ch = action[i];
+            if (ch === '\\' && action[i + 1] === '&') { cur += '&'; i += 2; continue; }
+            if (ch === '&') {
+                let rest = action.slice(i, i + 6);
+                if (/^&(lt|gt|amp|quot|#39);/.test(rest)) { cur += ch; i++; continue; }
+                // URL 查询参数中的 & 是字面量（发送:/跳转:/复制:/弹窗: 等含 https://...?...&... 时不拆分）
+                if (isInUrlQuery(cur)) { cur += ch; i++; continue; }
+                parts.push(cur); cur = ''; i++; continue;
+            }
+            cur += ch; i++;
+        }
+        parts.push(cur);
+        return parts.map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+    // 动作串顺序执行器：支持 等待:秒 延时
+    function runMdActionSeq(acts, msgEl, idx) {
+        if (!acts || idx >= acts.length) return;
+        let act = acts[idx];
+        let wm = act.match(/^等待\s*:\s*([\d.]+)/);
+        if (wm) {
+            let ms = Math.max(0, parseFloat(wm[1]) * 1000);
+            setTimeout(function () { runMdActionSeq(acts, msgEl, idx + 1); }, ms);
+            return;
+        }
+        executeMdActionOne(act, msgEl, 0);
+        runMdActionSeq(acts, msgEl, idx + 1);
+    }
+    // v3.5 统一入口：动作串拆分后顺序执行
     function executeMdAction(action, msgEl) {
         if (!action) return;
+        let acts = splitMdActions(action);
+        if (acts.length > 1) { runMdActionSeq(acts, msgEl, 0); return; }
+        executeMdActionOne(acts[0], msgEl, 0);
+    }
+    // 条件值解析：裸名自动补花括号，数字保持
+    function resolveCondVal(x, msgEl) {
+        x = String(x == null ? '' : x).trim();
+        if (/^-?\d+(\.\d+)?$/.test(x)) return x;
+        if (x.indexOf('{') < 0 && x.indexOf('}') < 0) x = '{' + x + '}';
+        return resolveMdPlaceholders(x, msgEl);
+    }
+    // v3.5 条件求值：非空 / = != > >= < <= / ~ 列表包含
+    function evalMdCond(cond, msgEl) {
+        if (!cond) return false;
+        cond = String(cond).trim();
+        if (!cond) return false;
+        let cm = cond.match(/^(.+?)\s*(==|!=|>=|<=|>|<|~|=)\s*(.+)$/);
+        if (cm) {
+            let lhs = cm[1].trim(), op = cm[2], rhs = cm[3].trim();
+            let lv = resolveCondVal(lhs, msgEl);
+            let rv = resolveCondVal(rhs, msgEl);
+            if (op === '~') {
+                // 列表包含：任一测含分隔符即视为列表
+                let lIsList = lv.indexOf('/') >= 0 || lv.indexOf(',') >= 0;
+                let rIsList = rv.indexOf('/') >= 0 || rv.indexOf(',') >= 0;
+                if (!lIsList && !rIsList) return lv === rv;
+                let list = lIsList ? lv : rv;
+                let item = lIsList ? rv : lv;
+                return String(list).split(/[\/,]/).map(function (x) { return x.trim(); }).indexOf(String(item).trim()) >= 0;
+            }
+            if (op === '=' || op === '==') return lv === rv;
+            if (op === '!=') return lv !== rv;
+            let av = parseFloat(lv), bv = parseFloat(rv);
+            if (isNaN(av) || isNaN(bv)) return false;
+            if (op === '>') return av > bv;
+            if (op === '>=') return av >= bv;
+            if (op === '<') return av < bv;
+            if (op === '<=') return av <= bv;
+            return false;
+        }
+        // 无运算符：非空即真
+        let v = resolveCondVal(cond, msgEl);
+        return !!(v && String(v).trim() !== '');
+    }
+    // v3.5 动作链控制（动作链组件实现后启用）
+    function controlMdChain(id, op, msgEl) {
+        if (!msgEl) return;
+        let state = getMsgUIState(msgEl);
+        if (state.chains && state.chains[id] && state.chains[id].control) state.chains[id].control(op, msgEl);
+    }
+    function executeMdActionOne(action, msgEl, depth) {
+        if (!action) return;
+        if (depth === undefined) depth = 0;
         // 解码 HTML 实体（escapeHtml 转义后残留的 &lt; &gt; &amp; 等，恢复为原始字符）
         if (action.indexOf('&') >= 0) {
             action = action.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
         }
-        if (action.indexOf('send:') === 0) {
+        // v3.5 条件动作：动作?条件:否则动作（? 后紧跟 { 才视为条件，防误判 URL）
+        if (depth < 3) {
+            let qq = action.indexOf('?');
+            if (qq > 0 && qq + 1 < action.length) {
+                let afterQ = action.slice(qq + 1).trim();
+                if (afterQ.charAt(0) === '{') {
+                    let colon = afterQ.indexOf(':');
+                    let condStr = colon > 0 ? afterQ.slice(0, colon).trim() : afterQ.trim();
+                    let elseAct = colon > 0 ? afterQ.slice(colon + 1).trim() : '';
+                    let yesAct = action.slice(0, qq).trim();
+                    if (evalMdCond(condStr, msgEl)) executeMdActionOne(yesAct, msgEl, depth + 1);
+                    else if (elseAct) executeMdActionOne(elseAct, msgEl, depth + 1);
+                    return;
+                }
+            }
+        }
+        // v3 中文动作（发送:/复制:/弹窗:/跳转:/开关:/显示:/隐藏:/倒计时:/变量:/循环:/洗牌:）
+        if (action.indexOf('发送:') === 0) {
+            $chatInput.value = resolveMdPlaceholders(action.slice(3), msgEl);
+            $chatInput.style.height = 'auto';
+            sendMessage();
+        } else if (action.indexOf('复制:') === 0) {
+            copyToClipboard(resolveMdPlaceholders(action.slice(3), msgEl));
+            showTopToast('已复制', false);
+        } else if (action.indexOf('弹窗:') === 0) {
+            let mRaw = action.slice(3);
+            let mSep = mRaw.indexOf('|');
+            let mT = mSep >= 0 ? mRaw.slice(0, mSep) : '提示';
+            let mC = mSep >= 0 ? mRaw.slice(mSep + 1) : mRaw;
+            let tmpBtn = document.createElement('a');
+            tmpBtn.dataset.modalTitle = encodeURIComponent(mT);
+            tmpBtn.dataset.modalContent = encodeURIComponent(mC);
+            openMdModal(tmpBtn);
+        } else if (action.indexOf('跳转:') === 0) {
+            let u2 = action.slice(3).trim();
+            if (/^https?:\/\//i.test(u2)) {
+                if (isExternalUrl(u2)) showExternalLinkWarning(u2);
+                else window.open(u2, '_blank', 'noopener');
+            }
+        } else if (action.indexOf('开关:') === 0) {
+            let id = action.slice(3).trim();
+            let btn = msgEl ? msgEl.querySelector('.md-btn-switch[data-switch-id="' + id + '"]') : null;
+            if (btn) switchMdValue(btn, msgEl);
+        } else if (action.indexOf('显示:') === 0) {
+            let id = action.slice(3).trim();
+            if (msgEl) {
+                let el = msgEl.querySelector('.md-board[data-board-id="' + id + '"], [data-ui-id="' + id + '"]');
+                if (el) { el.style.display = ''; renderBoard(msgEl, el); }
+            }
+        } else if (action.indexOf('隐藏:') === 0) {
+            let id = action.slice(3).trim();
+            if (msgEl) {
+                let el = msgEl.querySelector('.md-board[data-board-id="' + id + '"], [data-ui-id="' + id + '"]');
+                if (el) el.style.display = 'none';
+            }
+        } else if (action.indexOf('倒计时:') === 0) {
+            let id = action.slice(4).trim();
+            startMdTimer(id, msgEl);
+        } else if (action.indexOf('计时:') === 0) {
+            let id = action.slice(3).trim();
+            startMdStopwatch(id, msgEl);
+        } else if (action.indexOf('定时:') === 0) {
+            // 手动启动定时组件：定时:名（未绑定且 end 含发送: 的定时器需按钮手动启动，防刷屏）
+            let id = action.slice(3).trim();
+            if (msgEl) {
+                let el = msgEl.querySelector('.md-at[data-at-id="' + id + '"]');
+                if (el) startMdAtOne(el, msgEl);
+            }
+        } else if (action.indexOf('音乐:') === 0) {
+            let rest = action.slice(3).trim();
+            let comma = rest.indexOf(',');
+            let mId = comma > 0 ? rest.slice(0, comma).trim() : rest.trim();
+            let mSt = comma > 0 ? rest.slice(comma + 1).trim() : '';
+            controlMdMusic(mId, mSt, msgEl);
+        } else if (action.indexOf('变量:') === 0) {
+            // 变量:名=值（支持 {引用} 与数学表达式）
+            let rest = action.slice(3);
+            let eq = rest.indexOf('=');
+            if (eq > 0) {
+                let name = rest.slice(0, eq).trim();
+                let val = resolveMdPlaceholders(rest.slice(eq + 1), msgEl);
+                val = evalMdMath(val);
+                setMdVar(name, val, msgEl);
+            }
+        } else if (action.indexOf('循环:') === 0) {
+            let rest = action.slice(3);
+            let segs = rest.split(';');
+            if (segs.length >= 4) {
+                let header = segs[0] + ';' + segs[1] + ';' + segs[2];
+                let body = segs.slice(3).join(';');
+                executeMdFor(header, body, msgEl);
+            }
+        } else if (action.indexOf('洗牌:') === 0) {
+            executeMdShuffle(action.slice(3), msgEl);
+        } else if (action.indexOf('随机:') === 0) {
+            // 随机:名=最小,最大（闭区间整数）
+            let rest = action.slice(3).trim();
+            let eq = rest.indexOf('=');
+            if (eq > 0) {
+                let name = rest.slice(0, eq).trim();
+                let range = rest.slice(eq + 1).split(',');
+                let min = parseInt(range[0], 10), max = parseInt(range[1], 10);
+                if (isNaN(min) || isNaN(max)) { min = 1; max = 6; }
+                if (min > max) { let tt = min; min = max; max = tt; }
+                let v = min + Math.floor(Math.random() * (max - min + 1));
+                setMdVar(name, String(v), msgEl);
+            }
+        } else if (action.indexOf('分支:') === 0) {
+            // 分支:{名}=值1→动作1;值2→动作2;其他→动作
+            let rest = action.slice(3).trim();
+            let eq = rest.indexOf('=');
+            if (eq > 0) {
+                let key = rest.slice(0, eq).trim();
+                let val = resolveMdPlaceholders(key, msgEl);
+                let cases = rest.slice(eq + 1).split(';');
+                let matched = false;
+                for (let ci = 0; ci < cases.length; ci++) {
+                    let cs = cases[ci].trim();
+                    // 其他 分支优先（避免被 → 分支拦截）
+                    if (cs.indexOf('其他') === 0) {
+                        let elseBody = cs.slice(2).replace(/^→/, '').trim();
+                        if (elseBody) { executeMdAction(elseBody, msgEl); matched = true; break; }
+                    } else {
+                        let arrow = cs.indexOf('→');
+                        if (arrow > 0) {
+                            let cval = resolveMdPlaceholders(cs.slice(0, arrow).trim(), msgEl);
+                            if (cval === val) {
+                                executeMdAction(cs.slice(arrow + 1).trim(), msgEl);
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (action.indexOf('动作链:') === 0) {
+            // 动作链:名[,开始/暂停/继续/停止/重播]
+            let rest = action.slice(4).trim();
+            let comma = rest.indexOf(',');
+            let cId = comma > 0 ? rest.slice(0, comma).trim() : rest.trim();
+            let cOp = comma > 0 ? rest.slice(comma + 1).trim() : '开始';
+            controlMdChain(cId, cOp, msgEl);
+        } else if (action.indexOf('send:') === 0) {
             $chatInput.value = resolveMdPlaceholders(action.slice(5), msgEl);
             $chatInput.style.height = 'auto';
             sendMessage();
@@ -2664,6 +3402,136 @@
         }
     }
 
+
+    // v3 洗牌动作：洗牌:名[,取N] / 洗牌:名1;名2;...[,...取N] / 洗牌:图集,名
+    function executeMdShuffle(rest, msgEl) {
+        rest = String(rest || '').trim();
+        if (!rest) return;
+        // 图集模式：洗牌:图集,名（重排 id=名 图集的图片顺序）
+        if (rest.indexOf('图集,') === 0) {
+            let gid = rest.slice(3).trim();
+            if (msgEl) {
+                let galBtn = msgEl.querySelector('.md-btn-gallery[data-gallery-id="' + gid + '"]');
+                if (galBtn) {
+                    try {
+                        let imgs = JSON.parse(galBtn.getAttribute('data-gallery') || '[]');
+                        for (let i = imgs.length - 1; i > 0; i--) {
+                            let j = Math.floor(Math.random() * (i + 1));
+                            let t = imgs[i]; imgs[i] = imgs[j]; imgs[j] = t;
+                        }
+                        galBtn.setAttribute('data-gallery', JSON.stringify(imgs));
+                    } catch (e) { }
+                }
+            }
+            return;
+        }
+        // 变量模式：洗牌:名1;名2;...[,...取N]（合并打乱，写回第一个变量）
+        let takeN = 0;
+        let m = rest.match(/,取(\d+)\s*$/);
+        if (m) { takeN = parseInt(m[1], 10) || 0; rest = rest.slice(0, m.index); }
+        let names = rest.split(';').map(function (s) { return s.trim(); }).filter(Boolean);
+        if (!names.length) return;
+        let state = msgEl ? getMsgUIState(msgEl) : null;
+        let all = [];
+        for (let ni = 0; ni < names.length; ni++) {
+            let v = getMdValue(names[ni], msgEl, state);
+            if (v !== '') {
+                let items = String(v).split(/[\/,]/).map(function (s) { return s.trim(); }).filter(Boolean);
+                all = all.concat(items);
+            }
+        }
+        if (!all.length) return;
+        // Fisher-Yates 洗牌
+        for (let i = all.length - 1; i > 0; i--) {
+            let j = Math.floor(Math.random() * (i + 1));
+            let t = all[i]; all[i] = all[j]; all[j] = t;
+        }
+        let result = takeN > 0 ? all.slice(0, takeN) : all;
+        setMdVar(names[0], result.join('/'), msgEl);
+    }
+
+
+    // ==================== 音乐播放器（v3.4） ====================
+
+    // 格式化 mm:ss
+    function formatMdClock(sec) {
+        sec = Math.max(0, Math.floor(sec || 0));
+        let m = Math.floor(sec / 60);
+        let s = sec % 60;
+        return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    // 更新音乐播放器UI（按钮/时间/进度/状态变量输出）
+    function updateMdMusicUI(el) {
+        let audio = el.querySelector('audio');
+        if (!audio) return;
+        let btn = el.querySelector('.md-music-btn');
+        let time = el.querySelector('.md-music-time');
+        let bar = el.querySelector('.md-music-bar i');
+        let cur = audio.currentTime || 0;
+        let dur = audio.duration || 0;
+        let curS = formatMdClock(cur);
+        let durS = dur ? formatMdClock(dur) : '00:00';
+        if (time) time.textContent = curS + ' / ' + durS;
+        if (bar) bar.style.width = (dur > 0 ? (cur / dur) * 100 : 0) + '%';
+        let playing = !audio.paused && !audio.ended;
+        // 播放/暂停图标由 CSS 类切换（.playing 显示暂停双竖线）
+        if (btn) btn.classList.toggle('playing', playing);
+        // 状态变量输出：播放/暂停/结束
+        let stateVar = el.getAttribute('data-music-state');
+        if (stateVar) {
+            let msgEl = el.closest('.lobby-msg-content, .md-modal-body') || el.parentElement;
+            setMdVar(stateVar, playing ? '播放' : (audio.ended ? '结束' : '暂停'), msgEl);
+        }
+    }
+
+    // 播放/暂停切换（force: true=播放 false=暂停 undefined=切换）
+    function toggleMdMusic(btn, force) {
+        let el = btn.closest('.md-music');
+        if (!el) return;
+        let audio = el.querySelector('audio');
+        if (!audio) return;
+        if (force === true) { if (audio.paused) { audio.play(); } }
+        else if (force === false) { if (!audio.paused) { audio.pause(); } }
+        else { if (audio.paused) { audio.play(); } else { audio.pause(); } }
+    }
+
+    // 按钮绑定控制：音乐:名[,播放|暂停|停止]
+    function controlMdMusic(id, state, msgEl) {
+        let el = msgEl ? msgEl.querySelector('.md-music[data-music-id="' + id + '"]') : null;
+        if (!el) return;
+        let audio = el.querySelector('audio');
+        if (!audio) return;
+        if (state === '播放') { if (audio.paused) audio.play(); }
+        else if (state === '暂停') { if (!audio.paused) audio.pause(); }
+        else if (state === '停止') { audio.pause(); audio.currentTime = 0; updateMdMusicUI(el); }
+        else { if (audio.paused) { audio.play(); } else { audio.pause(); } }
+    }
+
+    // 初始化音乐播放器（绑定audio事件 + 进度条跳转 + 初始状态）
+    function initMdMusic(el) {
+        let audio = el.querySelector('audio');
+        if (!audio) return;
+        if (el.dataset.musicInited) return;
+        el.dataset.musicInited = '1';
+        audio.addEventListener('play', function () { updateMdMusicUI(el); });
+        audio.addEventListener('pause', function () { updateMdMusicUI(el); });
+        audio.addEventListener('ended', function () { updateMdMusicUI(el); });
+        audio.addEventListener('timeupdate', function () { updateMdMusicUI(el); });
+        audio.addEventListener('loadedmetadata', function () { updateMdMusicUI(el); });
+        let bar = el.querySelector('.md-music-bar');
+        if (bar) {
+            bar.addEventListener('click', function (e) {
+                let r = bar.getBoundingClientRect();
+                let a2 = el.querySelector('audio');
+                if (a2 && r.width > 0 && a2.duration) {
+                    a2.currentTime = (e.clientX - r.left) / r.width * a2.duration;
+                }
+            });
+        }
+        updateMdMusicUI(el);
+    }
+
     document.addEventListener('click', function (e) {
         // 投票选项点击（vote 组件）
         let voteOpt = e.target.closest('.md-vote-opt');
@@ -2672,12 +3540,26 @@
             handleVoteClick(voteOpt);
             return;
         }
+        // 音乐播放器按钮（播放/暂停切换）
+        let musicToggle = e.target.closest('[data-music-toggle]');
+        if (musicToggle) {
+            e.preventDefault();
+            toggleMdMusic(musicToggle);
+            return;
+        }
         let btn = e.target.closest('.md-btn, .md-hide');
         if (!btn) return;
         // 权限禁用按钮：点了没效果（不播放音效）
         if (btn.dataset.disabled !== undefined) {
             e.preventDefault();
             showTopToast('你没有权限使用此按钮', true);
+            return;
+        }
+        // v3 通用动作（data-action）：执行 v3 中文动作（发送:/复制:/弹窗:/跳转:/开关:/显示:/隐藏:/倒计时:/变量:/循环:/洗牌:）
+        if (btn.dataset.action !== undefined) {
+            e.preventDefault();
+            let actMsgEl = btn.closest('.lobby-msg, .md-modal-body, .md-details-panel') || null;
+            executeMdAction(decodeURIComponent(btn.dataset.action), actMsgEl);
             return;
         }
         // 倒计时锁定中：不可操作
@@ -2702,12 +3584,6 @@
         if (btn.dataset.boardModal !== undefined) {
             e.preventDefault();
             openBoardModal(btn.dataset.boardModal);
-            return;
-        }
-        // 骰子：点击掷骰
-        if (btn.dataset.dice !== undefined) {
-            e.preventDefault();
-            rollDice(btn);
             return;
         }
         // 图集：点击打开轮播弹窗
@@ -2840,9 +3716,14 @@
         });
     }
 
-    // 执行按钮动作（确认按钮的后续动作）：send:/copy:/https://embed:/modal:
+    // 执行按钮动作（确认按钮的后续动作）：send:/copy:/https://embed:/modal: 或 v3 中文动作
     function executeBtnAction(action) {
         if (!action) return;
+        // v3 中文动作：直接走 executeMdAction
+        if (/^(发送|复制|弹窗|跳转|开关|显示|隐藏|倒计时|变量|循环|洗牌):/.test(action)) {
+            executeMdAction(action, null);
+            return;
+        }
         if (action.indexOf('send:') === 0) {
             $chatInput.value = action.slice(5);
             $chatInput.style.height = 'auto';
@@ -3245,29 +4126,35 @@
         if (atMatch) {
             ensureMentionDropdown();
             let query = atMatch[1].toLowerCase();
+            // 管理员：第一个候选始终为 @全体成员（@ 后带空格），其余为在线用户
+            let mentionNames = [];
+            if (isLobbyAdmin) {
+                mentionNames.push('@全体成员');
+            }
             let filtered = onlinePlayers.filter((p) => {
                 return p.nickname && p.nickname !== myNickname && p.nickname.toLowerCase().indexOf(query) >= 0;
             });
+            mentionNames = mentionNames.concat(filtered.map((p) => p.nickname));
 
-            if (filtered.length > 0) {
+            if (mentionNames.length > 0) {
                 selectedMentionIndex = 0;
-                renderMentionDropdown(filtered, textBeforeCursor.length - atMatch[0].length);
+                renderMentionDropdown(mentionNames, textBeforeCursor.length - atMatch[0].length);
                 return;
             }
         }
         hideMentionDropdown();
     });
 
-    function renderMentionDropdown(players, startPos) {
+    function renderMentionDropdown(names, startPos) {
         mentionStartPos = startPos;
         $mentionDropdown.innerHTML = '';
-        players.forEach((p, i) => {
+        names.forEach((name, i) => {
             let item = document.createElement('div');
             item.className = 'lobby-mention-item' + (i === 0 ? ' active' : '');
-            item.textContent = p.nickname;
+            item.textContent = name;
             item.addEventListener('mousedown', function (e) {
                 e.preventDefault();
-                insertMention(p.nickname);
+                insertMention(name);
             });
             $mentionDropdown.appendChild(item);
         });
@@ -3298,7 +4185,9 @@
         let value = $chatInput.value;
         let before = value.substring(0, mentionStartPos);
         let after = value.substring($chatInput.selectionStart);
-        $chatInput.value = before + '@' + nickname + ' ' + after;
+        // 昵称已带 @（如 @全体成员）不再重复加前缀
+        let atPrefix = nickname.charAt(0) === '@' ? '' : '@';
+        $chatInput.value = before + atPrefix + nickname + ' ' + after;
         let newCursor = mentionStartPos + nickname.length + 2;
         $chatInput.setSelectionRange(newCursor, newCursor);
         $chatInput.focus();
@@ -3457,6 +4346,20 @@
                     showBanDialog(p);
                 });
                 actions.appendChild(banBtn);
+
+                // 踢出：断开连接但不封禁，用户可重新进入
+                let kickBtn = document.createElement('button');
+                kickBtn.className = 'user-admin-btn kick';
+                kickBtn.textContent = '踢出';
+                kickBtn.title = '踢出（可重新进入）';
+                kickBtn.addEventListener('click', function (ev) {
+                    ev.stopPropagation();
+                    if (window.confirm('确认将 ' + (p.nickname || '该用户') + ' 踢出聊天室？（被踢者仍可重新进入）')) {
+                        send({ type: 'lobby_kick', target_fd: p.fd });
+                        showTopToast('已踢出 ' + (p.nickname || '该用户'), false);
+                    }
+                });
+                actions.appendChild(kickBtn);
 
                 // 孤立 / 解除孤立
                 let isoBtn = document.createElement('button');
@@ -3706,6 +4609,8 @@
     // ==================== 用户列表切换 ====================
     $btnToggleUsers.addEventListener('click', function (e) {
         if (e) e.stopPropagation();
+        // 点击在线列表：自动关闭右上角多功能小弹窗
+        $headerMoreMenu.classList.remove('open');
         if (!$usersPanel) return;
         if ($usersPanel.style.display === 'none') {
             $usersPanel.style.display = 'flex';
@@ -3840,47 +4745,46 @@
     }
 
     function splitBtnParams(raw) {
-        let content = raw, fg = '', bg = '', perm = '', sound = '', anim = '', click = '';
+        let content = raw, label = '', fg = '', bg = '', perm = '', sound = '', anim = '', click = '';
         let rawStr = String(raw);
-        // 兼容旧写法颜色后缀：::前景|背景 / ::前景/背景 / ::单色 / ::-1（透明）
-        // 在 | 分割前提取，避免 ::fg|bg 里的 | 被当成参数分隔符导致颜色混乱
-        // 优先级：显式 color=/color.bg= 参数 > :: 后缀（:: 仅兜底）
-        let ccM = rawStr.match(/::([#0-9a-fA-F]{3,8}|-1)(?:[|/]([#0-9a-fA-F]{3,8}|-1))?\s*$/);
-        if (ccM) {
-            fg = ccM[1] || '';
-            bg = ccM[2] !== undefined ? ccM[2] : '';
-            // ::-1 单独写 = 透明背景（与 color.bg=-1 语义一致）
-            if (fg === '-1' && bg === '') { bg = '-1'; fg = ''; }
-            rawStr = rawStr.slice(0, ccM.index).replace(/\s+$/, '');
-        }
+        // v3 参数：裸色 #hex / 颜色=前[/|]后 / 颜色.bg= / perm= / 音效= / 动画= / 点击=
         let parts = splitTopLevelByPipe(rawStr);
-        // v2 标准：识别命名参数（键=值），其余为主参数
-        let params = {};
-        let mainParts = [];
+        let params = {}, mainParts = [];
         for (let i = 0; i < parts.length; i++) {
             let p = parts[i];
-            // URL（含 ://）作为主参数，不尝试解析命名参数
-            if (p.indexOf('://') >= 0) { mainParts.push(p); continue; }
-            // v2 标准：命名参数只用 键=值 分隔（: 用于类型/动作前缀，不参与参数解析）
             let eq = p.indexOf('=');
-            if (eq > 0) {
-                let key = p.slice(0, eq).trim();
-                if (/^[a-z][a-z0-9.]*$/.test(key)) { params[key] = p.slice(eq + 1); continue; }
+            if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(p.slice(0, eq).trim())) {
+                params[p.slice(0, eq).trim()] = p.slice(eq + 1);
+                continue;
+            }
+            if (p.indexOf('://') >= 0) { mainParts.push(p); continue; }
+            // 裸色简写：#hex（第一个=前景，第二个=背景）
+            let pt = p.trim();
+            if (/^#[0-9a-fA-F]{3,8}$/.test(pt)) {
+                if (!fg) fg = pt;
+                else if (!bg) bg = pt;
+                continue;
             }
             mainParts.push(p);
         }
         content = mainParts.join('|');
-        if (params.color !== undefined) {
-            let cParts = String(params.color).split('|');
+        let cv = params['颜色'] !== undefined ? params['颜色'] : params['color'];
+        // 仅当为合法颜色格式（#hex / hex / -1）才应用；否则留给组件自身解析（如开关的 颜色=1）
+        if (cv !== undefined && /^(#[0-9a-fA-F]{3,8}|[0-9a-fA-F]{3,8}|-1)$/.test(String(cv).trim())) {
+            let cParts = String(cv).split(/[|\/]/);
             if (cParts.length === 1 && cParts[0].trim() === '-1') { fg = ''; bg = '-1'; }
             else { fg = (cParts[0] || '').trim(); bg = (cParts[1] || '').trim(); }
         }
         if (params['color.bg'] !== undefined) bg = params['color.bg'];
-        if (params.perm !== undefined) perm = params.perm;
-        if (params.sound !== undefined) sound = params.sound;
-        if (params.anim !== undefined) anim = params.anim;
-        if (params.click !== undefined) click = params.click;
-        return { content: content, fg: fg, bg: bg, perm: perm, sound: sound, anim: anim, click: click };
+        if (params['perm'] !== undefined) perm = params['perm'];
+        if (params['音效'] !== undefined) sound = params['音效'];
+        if (params['sound'] !== undefined) sound = params['sound'];
+        if (params['动画'] !== undefined) anim = params['动画'];
+        if (params['anim'] !== undefined) anim = params['anim'];
+        if (params['点击'] !== undefined) click = params['点击'];
+        if (params['click'] !== undefined) click = params['click'];
+        if (params['文字'] !== undefined) label = params['文字'];
+        return { content: content, label: label, fg: fg, bg: bg, perm: perm, sound: sound, anim: anim, click: click };
     }
 
     /**
@@ -3918,10 +4822,10 @@
         return { allowed: allowed, content: content };
     }
 
-    // 判断文本是否包含聊天室特殊语法（[!标签](type:...) 自定义组件）
+    // 判断文本是否包含聊天室特殊语法（[!类型:... v3 自定义组件）
     function hasSpecialMdSyntax(content) {
         if (!content) return false;
-        return /\[!([^\]]+)\]\((modal:|send:|copy:|embed:|confirm:|details:|rand:|input:|get:|ok:|cancel:|close:|switch:|var:|def:|cipher:|table:|music:|timer:|bar:|if:|hide:|text:|board:|vote:|dice:|at:|gallery:)/.test(content);
+        return /\[!/u.test(content);
     }
 
     // ==================== blocks 渲染器（后端解析后的结构化消息） ====================
@@ -3957,6 +4861,9 @@
                     if (b.text) parts.push(b.text);
                 } else if (t === 'ref') {
                     if (b.var) parts.push('%' + b.var + '%');
+                } else if (t === 'error') {
+                    // 解析错误节点：整条只含错误信息，用原始文本作为纯文本摘要（通知/复制/回复预览）
+                    if (b.raw) parts.push(b.raw);
                 } else {
                     if (b.label) parts.push(b.label);
                     if (b.title) parts.push(b.title);
@@ -4015,7 +4922,34 @@
     }
 
     // 渲染单个组件 block 为 HTML（对齐 mdFormat 各组件分支，但直接读取已解析字段）
+    // v3.5 文本框自适应大小：按文本长度自动选档（短大长小）；显式 大/小 参数优先
+    function autoTextboxSize(len) {
+        len = parseInt(len, 10) || 0;
+        if (len <= 4) return 'lg';
+        if (len <= 12) return 'md';
+        if (len <= 40) return 'sm';
+        return 'xs';
+    }
+
+    // v3.5 统一 ID + x/y 定位（blocks 渲染路径：id= → data-ui-id；x=/y= → 弹窗内位置偏移）
     function renderComponentHtml(block) {
+        let html = renderComponentHtmlInner(block);
+        if (!html) return html;
+        if (block.id && html.indexOf('data-ui-id') < 0) {
+            html = html.replace(/^<([a-zA-Z][a-zA-Z0-9]*)(\s|>)/, '<$1 data-ui-id="' + escapeHtmlAttr(String(block.id)) + '"$2');
+        }
+        if (block.x !== undefined || block.y !== undefined) {
+            let sty = '';
+            if (block.x !== undefined) sty += 'left:' + (parseFloat(block.x) || 0) + 'px;';
+            if (block.y !== undefined) sty += 'top:' + (parseFloat(block.y) || 0) + 'px;';
+            if (sty) {
+                if (html.indexOf('style="') >= 0) html = html.replace(/style="/, 'style="position:relative;' + sty);
+                else html = html.replace(/^<([a-zA-Z][a-zA-Z0-9]*)(\s|>)/, '<$1 style="position:relative;' + sty + '"$2');
+            }
+        }
+        return html;
+    }
+    function renderComponentHtmlInner(block) {
         let ab = blockToAb(block);
         let label = escapeHtml(ab.label);
         let ghostClass = ab.bg === '-1' ? ' md-btn-ghost' : '';
@@ -4151,10 +5085,18 @@
         if (t === 'music') {
             let mUrl = block.url || '';
             let mTitle = block.title || '';
+            let mId = block.id || ('music' + (block._idx || 0));
+            let mState = block.state_var || '';
             if (!isValidAudioUrl(mUrl)) return '<span class="md-img-error">[音频链接不合法]</span>';
-            return '<span class="md-music">' +
+            return '<span class="md-music" data-music-id="' + escapeHtmlAttr(mId) + '"' +
+                (mState ? ' data-music-state="' + escapeHtmlAttr(mState) + '"' : '') + '>' +
+                '<audio class="md-music-audio" preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
                 (mTitle ? '<span class="md-music-title">' + escapeHtml(mTitle) + '</span>' : '') +
-                '<audio class="md-music-audio" controls preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
+                '<span class="md-music-controls">' +
+                '<button class="md-music-btn" data-music-toggle="1" type="button"></button>' +
+                '<span class="md-music-time">00:00 / 00:00</span>' +
+                '<span class="md-music-bar" data-music-bar="1"><i></i></span>' +
+                '</span>' +
                 '</span>';
         }
         if (t === 'timer') {
@@ -4163,11 +5105,26 @@
             let timerEnd = block.end || '';
             let timerLock = block.lock || '';
             let timerBar = block.bar || '';
+            let timerBind = !!block.bind;
             return '<span class="md-timer" data-timer-id="' + escapeHtmlAttr(timerId) + '" data-timer-total="' + timerTotal + '"' +
                 (timerEnd ? ' data-timer-end="' + escapeHtmlAttr(encodeURIComponent(timerEnd)) + '"' : '') +
                 (timerLock ? ' data-timer-lock="' + escapeHtmlAttr(timerLock) + '"' : '') +
                 (timerBar ? ' data-timer-bar="' + escapeHtmlAttr(timerBar) + '"' : '') +
-                '>' + timerTotal + '</span>';
+                (timerBind ? ' data-timer-bind="1"' : '') +
+                '>' + formatMdHMS(timerTotal) + '</span>';
+        }
+        if (t === 'stopwatch') {
+            // 计时器：[!计时:最大时长|id=名|绑定=1|end=动作|重复=1]
+            let stId = block.id || 'swt0';
+            let stMax = block.max || 0;
+            let stEnd = block.end || '';
+            let stBind = !!block.bind;
+            let stRepeat = !!block.repeat;
+            return '<span class="md-stopwatch" data-timer-id="' + escapeHtmlAttr(stId) + '" data-stopwatch-max="' + stMax + '"' +
+                (stEnd ? ' data-timer-end="' + escapeHtmlAttr(encodeURIComponent(stEnd)) + '"' : '') +
+                (stBind ? ' data-timer-bind="1"' : '') +
+                (stRepeat ? ' data-stopwatch-repeat="1"' : '') +
+                '>00:00:00</span>';
         }
         if (t === 'bar') {
             let barId = block.id || 'bar0';
@@ -4184,18 +5141,14 @@
             return '<span class="md-if" data-if-cond="' + escapeHtmlAttr(cond) + '">' + escapeHtml(thenText) + '</span>';
         }
         if (t === 'hide') {
+            // v3 隐藏：[!隐藏:文字|动作] —— data-action 存完整 v3 动作文本
             let hType = block.action_type || '';
             let hContent = block.action || '';
-            if (hType === 'send') {
-                return '<span class="md-hide" data-send="' + escapeHtmlAttr(hContent) + '">' + label + '</span>';
-            }
-            if (hType === 'copy') {
-                return '<span class="md-hide" data-copy="' + escapeHtmlAttr(hContent) + '">' + label + '</span>';
-            }
-            if (hType === 'switch') {
-                let hsId = block.switch_id || 'hs0';
-                let hsVals = (block.switch_values && block.switch_values.length) ? block.switch_values : [block.label || ''];
-                return '<span class="md-hide md-hide-switch" data-switch-id="' + escapeHtmlAttr(hsId) + '" data-switch-vals="' + escapeHtmlAttr(JSON.stringify(hsVals)) + '">' + escapeHtml(hsVals[0]) + '</span>';
+            if (hType) {
+                let actText = hContent;
+                let V3_ACT2 = { 'send': '发送', 'copy': '复制', 'modal': '弹窗', 'url': '跳转', 'switch': '开关', 'get': '显示', 'hide': '隐藏', 'timer': '倒计时', 'stopwatch': '计时', 'var': '变量', 'loop': '循环', 'shuffle': '洗牌', 'music': '音乐', 'rand': '随机', 'wait': '等待', 'branch': '分支', 'chain': '动作链' };
+                if (V3_ACT2[hType]) actText = V3_ACT2[hType] + ':' + hContent;
+                return '<span class="md-hide" data-action="' + escapeHtmlAttr(encodeURIComponent(actText)) + '">' + label + '</span>';
             }
             return '<span class="md-hide">' + label + '</span>';
         }
@@ -4203,7 +5156,8 @@
             let txt = block.text || '';
             let tTitle = block.title || '';
             let tAlign = block.align || 'left';
-            let tSize = block.size || 'md';
+            // 无显式大小（block.size 缺省）按文本长度自适应
+            let tSize = block.size || autoTextboxSize(String(txt).length);
             let tStyle = block.style || 'note';
             let tColor = normColor(block.color || '');
             let tBg = block.bg === '-1' ? '' : normColor(block.bg || '');
@@ -4240,13 +5194,30 @@
             }
             return boardHtml;
         }
+        if (t === 'chain') {
+            // 动作链（blocks 渲染）：隐形编排器
+            let cSteps = block.steps || '';
+            let cLoop = block.loop || '0';
+            let cId = block.id || ('chain' + 0);
+            let cBind = block.bind === '1' ? '1' : '0';
+            return '<span class="md-chain" data-chain-id="' + escapeHtmlAttr(cId) + '" data-chain-steps="' + escapeHtmlAttr(encodeURIComponent(cSteps)) + '" data-chain-loop="' + escapeHtmlAttr(cLoop) + '" data-chain-bind="' + cBind + '" style="display:none"></span>';
+        }
         if (t === 'vote') {
             let vId = block.id || 'v0';
             let vQuestion = block.question || '';
-            let vOpts = (block.options && block.options.length) ? block.options : [block.label || ''];
+            let vOpts = (block.options && block.options.length) ? block.options : [block.label || '是'];
             let vMax = block.max || 1;
             let vMode = block.mode || 'bar';
-            let voteHtml = '<div class="md-vote" data-vote-id="' + escapeHtmlAttr(vId) + '" data-vote-max="' + vMax + '" data-vote-mode="' + escapeHtmlAttr(vMode) + '" data-vote-opts="' + escapeHtmlAttr(JSON.stringify(vOpts)) + '">' +
+            let vPerm = block.perm || '';
+            if (block.shuffle) {
+                // Fisher-Yates 洗牌（仅显示顺序随机，选项值与统计键映射不变）
+                for (let si = vOpts.length - 1; si > 0; si--) {
+                    let sj = Math.floor(Math.random() * (si + 1));
+                    let tmp = vOpts[si]; vOpts[si] = vOpts[sj]; vOpts[sj] = tmp;
+                }
+            }
+            let voteHtml = '<div class="md-vote" data-vote-id="' + escapeHtmlAttr(vId) + '" data-vote-max="' + vMax + '" data-vote-mode="' + escapeHtmlAttr(vMode) + '" data-vote-opts="' + escapeHtmlAttr(JSON.stringify(vOpts)) + '"' +
+                (vPerm ? ' data-vote-perm="' + escapeHtmlAttr(vPerm) + '"' : '') + '>' +
                 (vQuestion ? '<div class="md-vote-q">' + escapeHtml(vQuestion) + '</div>' : '') +
                 '<div class="md-vote-opts">';
             for (let vo = 0; vo < vOpts.length; vo++) {
@@ -4259,21 +5230,44 @@
             voteHtml += '</div><div class="md-vote-foot">' + (vMax > 1 ? '最多选 ' + vMax + ' 项' : '单选') + '</div></div>';
             return voteHtml;
         }
-        if (t === 'dice') {
-            let dExpr = block.expr || '1d6';
-            let dId = block.id || '';
-            return '<span class="md-dice">' +
-                '<a class="md-btn md-btn-dice' + ghostClass + disClass + '" href="#" data-dice="' + escapeHtmlAttr(dExpr) + '"' + (dId ? ' data-dice-id="' + escapeHtmlAttr(dId) + '"' : '') + abStyle + disAttr + soundAttr + animAttr + '>' + (block.label ? label : ('🎲 ' + escapeHtml(dExpr))) + '</a>' +
-                '<span class="md-dice-result"></span></span>';
+        if (t === 'button') {
+            // v3 按钮：动作按钮（action_type/action）或跳转按钮
+            let bActionType = block.action_type || '';
+            let bAction = block.action || '';
+            let V3_ACT = { 'send': '发送', 'copy': '复制', 'modal': '弹窗', 'url': '跳转', 'switch': '开关', 'get': '显示', 'hide': '隐藏', 'timer': '倒计时', 'stopwatch': '计时', 'var': '变量', 'loop': '循环', 'shuffle': '洗牌', 'music': '音乐', 'rand': '随机', 'wait': '等待', 'branch': '分支', 'chain': '动作链' };
+            if (bActionType === 'url') {
+                return '<a class="md-btn' + ghostClass + disClass + '" href="' + escapeHtmlAttr(bAction) + '" target="_blank" rel="noopener noreferrer"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+            }
+            if (bActionType === 'send') {
+                return '<a class="md-btn md-btn-send' + ghostClass + disClass + '" href="#" data-send="' + escapeHtmlAttr(bAction) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+            }
+            if (bActionType === 'copy') {
+                return '<a class="md-btn md-btn-copy' + ghostClass + disClass + '" href="#" data-copy="' + escapeHtmlAttr(bAction) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+            }
+            if (bActionType === 'modal') {
+                let mSep = bAction.indexOf('|');
+                let mTitle = mSep >= 0 ? bAction.slice(0, mSep) : '提示';
+                let mContent = mSep >= 0 ? bAction.slice(mSep + 1) : bAction;
+                return '<a class="md-btn md-btn-modal' + ghostClass + disClass + '" href="#" data-modal-title="' +
+                    escapeHtmlAttr(encodeURIComponent(mTitle)) + '" data-modal-content="' +
+                    escapeHtmlAttr(encodeURIComponent(mContent)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+            }
+            if (bActionType && V3_ACT[bActionType]) {
+                let actText = V3_ACT[bActionType] + ':' + bAction;
+                return '<a class="md-btn md-btn-action' + ghostClass + disClass + '" href="#" data-action="' + escapeHtmlAttr(encodeURIComponent(actText)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
+            }
+            return '<a class="md-btn' + ghostClass + disClass + '" href="#"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
         }
         if (t === 'at') {
             let aTime = block.time || '00:00';
             let aId = block.id || 'at0';
             let aEnd = block.end || '';
             let aRepeat = !!block.repeat;
+            let aBind = !!block.bind;
             return '<span class="md-at" data-at-time="' + escapeHtmlAttr(aTime) + '" data-at-id="' + escapeHtmlAttr(aId) + '"' +
                 (aEnd ? ' data-at-end="' + escapeHtmlAttr(encodeURIComponent(aEnd)) + '"' : '') +
                 (aRepeat ? ' data-at-repeat="1"' : '') +
+                (aBind ? ' data-at-bind="1"' : '') +
                 '>⏰ 定时 ' + escapeHtml(aTime) + '</span>';
         }
         if (t === 'gallery') {
@@ -4289,7 +5283,7 @@
         return '';
     }
 
-    // 渲染单个 block（文本 / 引用 / 组件）
+    // 渲染单个 block（文本 / 引用 / 组件 / 解析错误）
     function renderBlock(block, opts) {
         if (!block || typeof block !== 'object') return '';
         let t = block.t || 'text';
@@ -4298,6 +5292,20 @@
         }
         if (t === 'ref') {
             return renderRefNode(block);
+        }
+        if (t === 'error') {
+            // 后端解析器生成的错误节点（结构化 JSON + 原始文本），渲染为无样式 HTML
+            let errs = Array.isArray(block.errors) ? block.errors : [];
+            let lines = errs.map((e) => {
+                let reason = escapeHtml(String((e && e.reason) || '解析错误'));
+                let frag = escapeHtml(String((e && e.frag) || ''));
+                if (frag) return '<div><b>' + reason + '</b><br><code>' + frag + '</code></div>';
+                return '<div><b>' + reason + '</b></div>';
+            }).join('');
+            let raw = String((block && block.raw) || '');
+            // 复制原文按钮（原始文本用 base64 编码放进 data 属性，避免引号/换行破坏属性）
+            let copyBtn = raw ? '<button type="button" class="md-error-copy" data-raw="' + btoa(unescape(encodeURIComponent(raw))) + '">📋 复制原文</button>' : '';
+            return lines + copyBtn;
         }
         return renderComponentHtml(block);
     }
@@ -4323,24 +5331,39 @@
         // B站/抖音链接 → 占位（在纯文本上处理，避免 marked 自动链接生成 <a> 包裹冲突）
         if (!opts.noVideo) text = parseBilibiliLinks(text);
 
-        // 预处理动作按钮：modal:/send:/copy:/embed:/confirm:/details:/rand:/...
-        // 内容可含空格/中文/括号/嵌套，marked 的 URL 解析有限制，统一提前提取为占位符
+        // 预处理动作组件（v3）：[!类型:内容|参数]，内容可含嵌套组件
         let actionBtns = [];
-        let btnRe = /\[!([^\]]+)\]\((modal:|send:|copy:|embed:|confirm:|details:|rand:|input:|get:|ok:|cancel:|close:|switch:|var:|def:|cipher:|table:|music:|timer:|bar:|if:|hide:|text:|board:|vote:|dice:|at:|gallery:)/g;
+        let btnRe = /\[!/gu;
         let bm;
         while ((bm = btnRe.exec(text))) {
-            let bLabel = bm[1];
-            let bType = bm[2];
-            let bStart = btnRe.lastIndex;
-            let depth = 1;
-            let bi = bStart;
-            for (; bi < text.length; bi++) {
-                if (text[bi] === '(') depth++;
-                else if (text[bi] === ')') { depth--; if (depth === 0) break; }
+            let bOpenEnd = bm.index + 2;
+            // 解析类型名（到 : | ] 或空白）
+            let ti = bOpenEnd;
+            while (ti < text.length) {
+                let ch = text[ti];
+                if (ch === ':' || ch === '|' || ch === ']' || ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') break;
+                ti++;
             }
-            let bRaw = text.slice(bStart, bi);
+            let bType = text.slice(bOpenEnd, ti);
+            if (!bType) { btnRe.lastIndex = ti > bOpenEnd ? ti : (bm.index + 2); continue; }
+            // raw 起点：冒号后 / | 后 / 直接到 ]
+            let rawStart;
+            if (text[ti] === ':' || text[ti] === '|') rawStart = ti + 1;
+            else rawStart = ti;
+            // 找匹配的 ]（深度感知，支持嵌套组件）
+            let depth = 0;
+            let bi = rawStart;
+            for (; bi < text.length; bi++) {
+                let ch = text[bi];
+                if (ch === '[') depth++;
+                else if (ch === ']') { if (depth === 0) break; depth--; }
+            }
+            if (bi >= text.length) break; // 未闭合：剩余按普通文本
+            let bRaw = text.slice(rawStart, bi);
+            // v3.7 内容换行：组件内容文本内的字面 \n 转真实换行（\\n 转义保留）
+            bRaw = unescapeNewlines(bRaw);
             let bIdx = actionBtns.length;
-            actionBtns.push({ label: bLabel, type: bType, raw: bRaw });
+            actionBtns.push({ type: bType, raw: bRaw });
             let placeholder = '[[MDBTNACT' + bIdx + ']]';
             text = text.slice(0, bm.index) + placeholder + text.slice(bi + 1);
             btnRe.lastIndex = bm.index + placeholder.length;
@@ -4447,215 +5470,30 @@
             let animAttr = abParams.anim ? ' data-anim="' + escapeHtmlAttr(abParams.anim) + '"' : '';
             let clickAttr = abParams.click ? ' data-click="' + escapeHtmlAttr(JSON.stringify(parseClickLimit(abParams.click))) + '"' : '';
             let btnHtml = '';
-            if (ab.type === 'modal:') {
-                let mpFull = parseNewMdParams(ab.raw); // 取 t 参数（自定义标题）
-                let modalRaw2 = abPerm.content; // 映射后的完整 modal 内容（标题|内容）
-                let sepIdx = modalRaw2.indexOf('|');
-                let mTitle = mpFull.t || (sepIdx >= 0 ? modalRaw2.slice(0, sepIdx) : '提示');
-                let mContent = sepIdx >= 0 ? modalRaw2.slice(sepIdx + 1) : modalRaw2;
-                btnHtml = '<a class="md-btn md-btn-modal' + ghostClass + disClass + '" href="#" data-modal-title="' +
-                    escapeHtmlAttr(encodeURIComponent(mTitle)) + '" data-modal-content="' +
-                    escapeHtmlAttr(encodeURIComponent(mContent)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'copy:') {
-                btnHtml = '<a class="md-btn md-btn-copy' + ghostClass + disClass + '" href="#" data-copy="' + escapeHtmlAttr(abPerm.content) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'send:') {
-                btnHtml = '<a class="md-btn md-btn-send' + ghostClass + disClass + '" href="#" data-send="' + escapeHtmlAttr(abPerm.content) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'embed:') {
-                btnHtml = '<a class="md-btn md-btn-embed' + ghostClass + disClass + '" href="#" data-embed="' + escapeHtmlAttr(abPerm.content) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'confirm:') {
-                // confirm:确认提示语|执行动作（动作可为 send:/copy:/https://embed:/modal:）
-                let cSep = abPerm.content.indexOf('|');
-                let cMsg = cSep >= 0 ? abPerm.content.slice(0, cSep) : '确定执行吗？';
-                let cAct = cSep >= 0 ? abPerm.content.slice(cSep + 1) : '';
-                btnHtml = '<a class="md-btn md-btn-confirm' + ghostClass + disClass + '" href="#" data-confirm-msg="' +
-                    escapeHtmlAttr(encodeURIComponent(cMsg)) + '" data-confirm-action="' +
-                    escapeHtmlAttr(encodeURIComponent(cAct)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'details:') {
-                // details:折叠标题|折叠内容（点击展开/收起）
-                let dSep = abPerm.content.indexOf('|');
-                let dTitle = dSep >= 0 ? abPerm.content.slice(0, dSep) : '详情';
-                let dContent = dSep >= 0 ? abPerm.content.slice(dSep + 1) : abPerm.content;
-                btnHtml = '<a class="md-btn md-btn-details' + ghostClass + disClass + '" href="#" data-details-title="' +
-                    escapeHtmlAttr(encodeURIComponent(dTitle)) + '" data-details-content="' +
-                    escapeHtmlAttr(encodeURIComponent(dContent)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'rand:') {
-                // 随机：rand:值1|值2|...（默认随机发送；mode=modal 随机弹窗）
-                let rp = parseNewMdParams(ab.raw);
-                let randMode = rp.mode === 'modal' ? 'modal' : 'send';
-                let randTitle = rp.t || '';
-                btnHtml = '<a class="md-btn md-btn-rand' + ghostClass + disClass + '" href="#" data-rand="' +
-                    escapeHtmlAttr(encodeURIComponent(abPerm.content)) + '" data-rand-mode="' + randMode + '"' +
-                    (randTitle ? ' data-rand-title="' + escapeHtmlAttr(encodeURIComponent(randTitle)) + '"' : '') +
-                    abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'input:') {
-                // 输入框：input:占位符|id:foo|ok:答案|colorof:col|onchange:操作
-                let ip = parseNewMdParams(ab.raw);
-                let inputId = ip.id || ('inp' + bi2);
-                let okVal = ip.ok || '';
-                let colorofAttr = ip.colorof ? ' data-colorof="' + escapeHtmlAttr(ip.colorof) + '"' : '';
-                let ipOn = ip.on;
-                let onchangeAttr = ipOn ? ' data-onchange="' + escapeHtmlAttr(encodeURIComponent(ipOn)) + '"' : '';
-                btnHtml = '<span class="md-input-box" data-ui-id="' + escapeHtmlAttr(inputId) + '"' + colorofAttr + abStyle + '>' +
-                    (ab.label ? '<span class="md-input-label">' + escapeHtml(ab.label) + '</span>' : '') +
-                    '<input class="md-input" type="text" data-input-id="' + escapeHtmlAttr(inputId) + '" data-ok="' + escapeHtmlAttr(okVal) + '" placeholder="' + escapeHtmlAttr(ip.value) + '"' + onchangeAttr + '>' +
-                    '</span>';
-            } else if (ab.type === 'get:') {
-                // 获取内容：get:foo|colorof:col（显示当前消息内输入框 foo 的内容）
-                let gp = parseNewMdParams(ab.raw);
-                let gid = gp.value.trim();
-                let colorofAttr2 = gp.colorof ? ' data-colorof="' + escapeHtmlAttr(gp.colorof) + '"' : '';
-                btnHtml = '<span class="md-get" data-get-id="' + escapeHtmlAttr(gid) + '"' + colorofAttr2 + abStyle + '></span>';
-            } else if (ab.type === 'ok:') {
-                // 确认按钮：ok:输入框id|right=动作|wrong=动作|lock=组（倒计时锁定组）
-                let ob = parseNewMdParams(ab.raw);
-                let bindId = ob.value.trim();
-                let right = ob.right || '';
-                let wrong = ob.wrong || '';
-                let obLock = ob.lock ? ' data-timer-lock-group="' + escapeHtmlAttr(ob.lock) + '"' : '';
-                btnHtml = '<a class="md-btn md-btn-ok' + ghostClass + disClass + '" href="#" data-ok="' + escapeHtmlAttr(bindId) + '" data-right="' + escapeHtmlAttr(encodeURIComponent(right)) + '" data-wrong="' + escapeHtmlAttr(encodeURIComponent(wrong)) + '"' + obLock + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'cancel:') {
-                // 取消按钮：cancel:动作
-                let cb = abPerm.content.trim();
-                btnHtml = '<a class="md-btn md-btn-cancel' + ghostClass + disClass + '" href="#" data-cancel="' + escapeHtmlAttr(encodeURIComponent(cb)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'close:') {
-                // 关闭按钮：close:动作
-                let clb = abPerm.content.trim();
-                btnHtml = '<a class="md-btn md-btn-close' + ghostClass + disClass + '" href="#" data-close="' + escapeHtmlAttr(encodeURIComponent(clb)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'switch:') {
-                // 可改变内容：switch:值1|值2|...|id:foo|c:1|cc:颜色1/颜色2/...|onchange:操作|lock:组
-                let sw = parseSwitchParams(ab.raw);
-                let swId = sw.id || ('sw' + bi2);
-                let swVals = sw.values.length ? sw.values : [ab.label];
-                let swStyle = abStyle;
-                let swColorAttr = '';
-                if (sw.color) {
-                    let initColor = sw.colors.length ? sw.colors[0] : swVals[0];
-                    if (sw.colors.length > 0) {
-                        swColorAttr = ' data-switch-colors="' + escapeHtmlAttr(JSON.stringify(sw.colors)) + '"';
-                    }
-                    if (/^#?[0-9a-fA-F]{3,8}$/.test(String(initColor).trim())) {
-                        let c0 = String(initColor).trim();
-                        if (c0.charAt(0) !== '#') c0 = '#' + c0;
-                        swStyle = ' style="background-color:' + c0 + '"';
-                    }
+            let bp = parseNewMdParams(ab.raw);
+            let bpParts = splitTopLevelByPipe(ab.raw);
+            // v3 动作前缀（中文）
+            let V3_ACTIONS = ['发送', '复制', '弹窗', '跳转', '开关', '显示', '隐藏', '倒计时', '变量', '循环', '洗牌', '计时', '音乐', '随机', '等待', '分支', '动作链'];
+            // 通用动作按钮：data-action 存完整 v3 动作文本，点击时 executeMdAction 执行
+            let actionBtnHtml = function (actionText, extraCls) {
+                return '<a class="md-btn md-btn-action' + (extraCls || '') + ghostClass + disClass + '" href="#" data-action="' +
+                    escapeHtmlAttr(encodeURIComponent(actionText)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' +
+                    escapeHtml(abParams.label || bp.value || '按钮') + '</a>';
+            };
+            if (ab.type === '文本') {
+                // 文本：[!文本:内容|#f00|大|居中]  —— 无显式大小按文本长度自适应（短大长小，见全局 autoTextboxSize）
+                let txt = bp.value;
+                let tTitle = bp.标题 !== undefined ? bp.标题 : (bp.t || '');
+                let tAlign = 'left', tSize = autoTextboxSize(String(txt).length), tStyle = 'note';
+                for (let i = 1; i < bpParts.length; i++) {
+                    let pp = bpParts[i].trim();
+                    if (pp === '大') tSize = 'lg';
+                    else if (pp === '小') tSize = 'sm';
+                    else if (pp === '居中') tAlign = 'center';
+                    else if (pp === '右') tAlign = 'right';
                 }
-                let sw2 = parseNewMdParams(ab.raw);
-                let swOn = sw2.on;
-                let swOnchange = swOn ? ' data-onchange="' + escapeHtmlAttr(encodeURIComponent(swOn)) + '"' : '';
-                // lock 参数：parseSwitchParams 不解析 lock，统一从 parseNewMdParams 取（兼容两种解析结果）
-                let swLockVal = sw2.lock !== undefined ? sw2.lock : sw.lock;
-                let swLock = swLockVal ? ' data-timer-lock-group="' + escapeHtmlAttr(swLockVal) + '"' : '';
-                btnHtml = '<a class="md-btn md-btn-switch' + ghostClass + disClass + '" href="#" data-ui-id="' + escapeHtmlAttr(swId) + '" data-switch-id="' + escapeHtmlAttr(swId) + '" data-switch-vals="' + escapeHtmlAttr(JSON.stringify(swVals)) + '"' + (sw.color ? ' data-switch-color="1"' : '') + swColorAttr + swOnchange + swLock + swStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(swVals[0]) + '</a>';
-            } else if (ab.type === 'var:') {
-                // 全局变量：var:foo|init:初始值
-                let vp = parseNewMdParams(ab.raw);
-                let varId = vp.value.trim();
-                let varInit = vp.init !== undefined ? vp.init : '';
-                btnHtml = '<span class="md-var" data-var-id="' + escapeHtmlAttr(varId) + '">' + escapeHtml(varInit) + '</span>';
-            } else if (ab.type === 'def:') {
-                // 定义值（隐藏）：def:a|内容（注册到全局变量，不显示，其他处用 %a% 或 {a} 引用）
-                let dp = parseNewMdParams(ab.raw);
-                let defName = dp.value.trim();
-                let defVal = dp.init !== undefined ? dp.init : '';
-                btnHtml = '<span class="md-def" data-def-name="' + escapeHtmlAttr(defName) + '" data-def-value="' + escapeHtmlAttr(defVal) + '" style="display:none"></span>';
-            } else if (ab.type === 'cipher:') {
-                // 加密内容：cipher:明文|key:密钥（渲染时加密，点击解密弹窗）
-                let cpp = parseNewMdParams(ab.raw);
-                let cipherKey = cpp.key || 'md';
-                let enc = mdEncrypt(cpp.value, cipherKey);
-                btnHtml = '<a class="md-btn md-btn-cipher' + ghostClass + disClass + '" href="#" data-cipher="' + escapeHtmlAttr(enc) + '" data-cipher-key="' + escapeHtmlAttr(cipherKey) + '"' + abStyle + disAttr + clickAttr + '>' + ab.label + '</a>';
-            } else if (ab.type === 'table:') {
-                // 自定义表格：table:col:N|表头...|数据...
-                let tbl = parseTableParams(ab.raw);
-                let tcols = Math.max(1, tbl.cols);
-                let tHtml = '<table class="md-table"><thead><tr>';
-                for (let ti = 0; ti < Math.min(tcols, tbl.cells.length); ti++) {
-                    tHtml += '<th>' + escapeHtml(tbl.cells[ti]) + '</th>';
-                }
-                tHtml += '</tr></thead><tbody>';
-                let tBody = tbl.cells.slice(tcols);
-                for (let ti = 0; ti < tBody.length; ti += tcols) {
-                    tHtml += '<tr>';
-                    for (let tj = 0; tj < tcols; tj++) {
-                        tHtml += '<td>' + escapeHtml(tBody[ti + tj] || '') + '</td>';
-                    }
-                    tHtml += '</tr>';
-                }
-                tHtml += '</tbody></table>';
-                btnHtml = tHtml;
-            } else if (ab.type === 'music:') {
-                // 音乐播放器：music:音频URL|t:标题（URL 审核同音效，复用 isValidAudioUrl）
-                let mp = parseNewMdParams(ab.raw);
-                let mUrl = mp.value.trim();
-                let mTitle = mp.t || '';
-                if (!isValidAudioUrl(mUrl)) {
-                    btnHtml = '<span class="md-img-error">[音频链接不合法]</span>';
-                } else {
-                    btnHtml = '<span class="md-music">' +
-                        (mTitle ? '<span class="md-music-title">' + escapeHtml(mTitle) + '</span>' : '') +
-                        '<audio class="md-music-audio" controls preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
-                        '</span>';
-                }
-            } else if (ab.type === 'timer:') {
-                // 倒计时：timer:秒数|id:foo|end:操作|lock:组|bar:进度条id
-                let tp = parseNewMdParams(ab.raw);
-                let timerId = tp.id || ('tmr' + bi2);
-                let timerTotal = parseInt(tp.value, 10) || 30;
-                let timerEnd = tp.end || '';
-                let timerLock = tp.lock || '';
-                let timerBar = tp.bar || '';
-                btnHtml = '<span class="md-timer" data-timer-id="' + escapeHtmlAttr(timerId) + '" data-timer-total="' + timerTotal + '"' +
-                    (timerEnd ? ' data-timer-end="' + escapeHtmlAttr(encodeURIComponent(timerEnd)) + '"' : '') +
-                    (timerLock ? ' data-timer-lock="' + escapeHtmlAttr(timerLock) + '"' : '') +
-                    (timerBar ? ' data-timer-bar="' + escapeHtmlAttr(timerBar) + '"' : '') +
-                    '>' + timerTotal + '</span>';
-            } else if (ab.type === 'bar:') {
-                // 进度条：bar:当前值/最大值|id:foo
-                let bp = parseNewMdParams(ab.raw);
-                let barId = bp.id || ('bar' + bi2);
-                let bm = String(bp.value).match(/^(\d+)\s*\/\s*(\d+)$/);
-                let barVal = bm ? parseInt(bm[1], 10) : 0;
-                let barMax = bm ? parseInt(bm[2], 10) : 100;
-                btnHtml = '<span class="md-bar" data-bar-id="' + escapeHtmlAttr(barId) + '" data-bar-max="' + barMax + '" data-bar-init="' + barVal + '">' +
-                    '<span class="md-bar-fill" style="width:' + (barMax > 0 ? (barVal / barMax) * 100 : 0) + '%"></span>' +
-                    '<span class="md-bar-text">' + barVal + '/' + barMax + '</span>' +
-                    '</span>';
-            } else if (ab.type === 'if:') {
-                // 条件显示：if:条件|then=显示内容（条件满足才显示）
-                let sp = parseNewMdParams(ab.raw);
-                let spContent = sp.then !== undefined ? sp.then : '';
-                btnHtml = '<span class="md-if" data-if-cond="' + escapeHtmlAttr(sp.value.trim()) + '">' + escapeHtml(spContent) + '</span>';
-            } else if (ab.type === 'hide:') {
-                // 隐藏按钮：hide:动作（普通文本外观，无按钮样式，但点击执行动作）
-                let hRaw = abPerm.content;
-                let hType = '';
-                ['send:', 'copy:', 'modal:', 'embed:', 'confirm:', 'details:', 'rand:', 'ok:', 'cancel:', 'close:', 'switch:'].forEach(function (t) {
-                    if (hRaw.indexOf(t) === 0 && !hType) hType = t;
-                });
-                let hContent = hType ? hRaw.slice(hType.length) : hRaw;
-                if (hType === 'send:') {
-                    btnHtml = '<span class="md-hide" data-send="' + escapeHtmlAttr(hContent) + '">' + escapeHtml(ab.label) + '</span>';
-                } else if (hType === 'copy:') {
-                    btnHtml = '<span class="md-hide" data-copy="' + escapeHtmlAttr(hContent) + '">' + escapeHtml(ab.label) + '</span>';
-                } else if (hType === 'switch:') {
-                    let hs = parseSwitchParams(hContent);
-                    let hsId = hs.id || ('hs' + bi2);
-                    let hsVals = hs.values.length ? hs.values : [ab.label];
-                    btnHtml = '<span class="md-hide md-hide-switch" data-switch-id="' + escapeHtmlAttr(hsId) + '" data-switch-vals="' + escapeHtmlAttr(JSON.stringify(hsVals)) + '">' + escapeHtml(hsVals[0]) + '</span>';
-                } else {
-                    btnHtml = '<span class="md-hide">' + escapeHtml(ab.label) + '</span>';
-                }
-            } else if (ab.type === 'text:') {
-                // 文本框：text:内容|t=标题|color=..|color.bg=..|align=..|size=..
-                let tp = parseNewMdParams(ab.raw);
-                let txt = tp.value;
-                let tTitle = tp.t || '';
-                let tAlign = tp.align || 'left';
-                let tSize = tp.size || 'md';
-                let tStyle = tp.style || 'note';
-                let tColor = normColor(tp.color || '');
-                let tBg = tp['color.bg'] === '-1' ? '' : normColor(tp['color.bg'] || '');
-                // 合并样式（避免重复 style 属性被浏览器忽略）
+                let tColor = normColor(abParams.fg || bp.颜色 || bp.color || '');
+                let tBg = abParams.bg === '-1' ? '' : normColor(abParams.bg || '');
                 let tStyleParts = ['text-align:' + tAlign];
                 if (tColor) tStyleParts.push('color:' + tColor);
                 if (tBg) tStyleParts.push('background-color:' + tBg);
@@ -4664,54 +5502,68 @@
                     (tTitle ? '<div class="md-textbox-title">' + escapeHtml(tTitle) + '</div>' : '') +
                     '<div class="md-textbox-body">' + escapeHtml(txt) + '</div>' +
                     '</div>';
-            } else if (ab.type === 'board:') {
-                // 画板：board:大小|shapes=图形|text=文本|bg=背景|id=xxx|modal=1|hide=1
-                let bp2 = parseNewMdParams(ab.raw);
-                let bSize = Math.max(1, Math.min(20, parseInt(bp2.value, 10) || 20));
-                let bShapes = bp2.shapes || '';
-                let bText = bp2.text || '';
-                let bBg = bp2.bg || '';
-                let bId = bp2.id || ('board' + bi2);
-                let bModal = bp2.modal === '1';
-                let bHide = bp2.hide === '1';
-                let bGrid = bp2.grid === '0' ? '0' : '1';
-                // 文本自定义：tx/ty=位置 ts=字号 tc=颜色（省略则居中/默认字号/黑色，支持 %值% 引用）
-                let bTx = bp2.tx !== undefined ? String(bp2.tx).trim() : '';
-                let bTy = bp2.ty !== undefined ? String(bp2.ty).trim() : '';
-                let bTs = bp2.ts !== undefined ? String(bp2.ts).trim() : '';
-                let bTc = bp2.tc !== undefined ? String(bp2.tc).trim() : '';
-                let boardHtml = '<span class="md-board" data-board-id="' + escapeHtmlAttr(bId) + '" data-board-size="' + bSize + '" data-board-shapes="' + escapeHtmlAttr(bShapes) + '" data-board-text="' + escapeHtmlAttr(bText) + '" data-board-bg="' + escapeHtmlAttr(bBg) + '" data-board-grid="' + bGrid + '"' +
-                    (bTx !== '' ? ' data-board-tx="' + escapeHtmlAttr(bTx) + '"' : '') +
-                    (bTy !== '' ? ' data-board-ty="' + escapeHtmlAttr(bTy) + '"' : '') +
-                    (bTs !== '' ? ' data-board-ts="' + escapeHtmlAttr(bTs) + '"' : '') +
-                    (bTc !== '' ? ' data-board-tc="' + escapeHtmlAttr(bTc) + '"' : '') +
+            } else if (ab.type === '画板') {
+                // 画板：[!画板[:尺寸]|图形序列|bg=色|grid=0|text=..|id=..|modal=1|hide=1|tx/ty/ts/tc]
+                let bSize = 20, bShapes = '', bParams = {}, bShapeParts = [];
+                let firstSeg = (bpParts[0] || '').trim();
+                let bStart = 0;
+                if (/^\d{1,2}$/.test(firstSeg)) { bSize = parseInt(firstSeg, 10); bStart = 1; }
+                for (let i = bStart; i < bpParts.length; i++) {
+                    let seg = bpParts[i];
+                    let eq = seg.indexOf('=');
+                    if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(seg.slice(0, eq).trim())) {
+                        bParams[seg.slice(0, eq).trim()] = seg.slice(eq + 1);
+                    } else {
+                        bShapeParts.push(seg); // 贪婪吞并（|f |wN 修饰）
+                    }
+                }
+                bShapes = bShapeParts.join('|');
+                let bId = bParams.id || ('board' + bi2);
+                let bModal = bParams.modal === '1';
+                let bHide = bParams.hide === '1';
+                let bGrid = bParams.grid === '0' ? '0' : '1';
+                let boardHtml = '<span class="md-board" data-board-id="' + escapeHtmlAttr(bId) + '" data-board-size="' + Math.max(1, Math.min(20, bSize)) + '" data-board-shapes="' + escapeHtmlAttr(bShapes) + '" data-board-text="' + escapeHtmlAttr(bParams.text || '') + '" data-board-bg="' + escapeHtmlAttr(bParams.bg || '') + '" data-board-grid="' + bGrid + '"' +
+                    (bParams.tx !== undefined ? ' data-board-tx="' + escapeHtmlAttr(String(bParams.tx).trim()) + '"' : '') +
+                    (bParams.ty !== undefined ? ' data-board-ty="' + escapeHtmlAttr(String(bParams.ty).trim()) + '"' : '') +
+                    (bParams.ts !== undefined ? ' data-board-ts="' + escapeHtmlAttr(String(bParams.ts).trim()) + '"' : '') +
+                    (bParams.tc !== undefined ? ' data-board-tc="' + escapeHtmlAttr(String(bParams.tc).trim()) + '"' : '') +
                     (bHide ? ' style="display:none"' : '') + '></span>';
                 if (bModal) {
-                    btnHtml = '<a class="md-btn md-btn-board' + ghostClass + disClass + '" href="#" data-board-modal="' + escapeHtmlAttr(bId) + '"' + abStyle + disAttr + '>' + ab.label + '</a>' + boardHtml;
+                    btnHtml = '<a class="md-btn md-btn-board' + ghostClass + disClass + '" href="#" data-board-modal="' + escapeHtmlAttr(bId) + '"' + abStyle + disAttr + '>' + escapeHtml(bParams.文字 || bParams.label || '查看画板') + '</a>' + boardHtml;
                 } else {
                     btnHtml = boardHtml;
                 }
-            } else if (ab.type === 'vote:') {
-                // 投票：vote:问题|选项1|选项2|...|id=v1|max=1|mode=bar（本地消息级计数，localStorage 防重复）
-                let vRaw = splitTopLevelByPipe(ab.raw);
+            } else if (ab.type === '投票') {
+                // 投票：[!投票:问题|选项1|选项2|...|多选=N|perm=@名|洗牌|id=..|mode=..]
                 let vId = 'v' + bi2;
-                let vQuestion = (vRaw[0] || '').trim();
+                let vQuestion = (bpParts[0] || '').trim();
                 let vOpts = [];
-                let vMax = 1, vMode = 'bar';
-                for (let vi = 1; vi < vRaw.length; vi++) {
-                    let seg = vRaw[vi];
+                let vMax = 1, vMode = 'bar', vPerm = '', vShuffle = false;
+                for (let vi = 1; vi < bpParts.length; vi++) {
+                    let seg = bpParts[vi];
                     let veq = seg.indexOf('=');
-                    if (veq > 0 && /^[a-z][a-z0-9.]*$/.test(seg.slice(0, veq).trim())) {
+                    if (veq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(seg.slice(0, veq).trim())) {
                         let vk = seg.slice(0, veq).trim(), vv = seg.slice(veq + 1);
                         if (vk === 'id') vId = vv;
-                        else if (vk === 'max') vMax = parseInt(vv, 10) || 1;
+                        else if (vk === '多选' || vk === 'max') vMax = parseInt(vv, 10) || 1;
                         else if (vk === 'mode') vMode = vv;
+                        else if (vk === 'perm') vPerm = vv;
                     } else {
-                        vOpts.push(seg);
+                        let seg2 = seg.trim();
+                        if (seg2 === '洗牌') vShuffle = true;
+                        else vOpts.push(seg2);
                     }
                 }
-                if (!vOpts.length) vOpts = [ab.label];
-                let voteHtml = '<div class="md-vote" data-vote-id="' + escapeHtmlAttr(vId) + '" data-vote-max="' + vMax + '" data-vote-mode="' + escapeHtmlAttr(vMode) + '" data-vote-opts="' + escapeHtmlAttr(JSON.stringify(vOpts)) + '">' +
+                if (!vOpts.length) vOpts = ['是', '否'];
+                if (vShuffle) {
+                    // Fisher-Yates 洗牌（仅显示顺序随机，选项值与统计键映射不变）
+                    for (let si = vOpts.length - 1; si > 0; si--) {
+                        let sj = Math.floor(Math.random() * (si + 1));
+                        let tmp = vOpts[si]; vOpts[si] = vOpts[sj]; vOpts[sj] = tmp;
+                    }
+                }
+                let voteHtml = '<div class="md-vote" data-vote-id="' + escapeHtmlAttr(vId) + '" data-vote-max="' + vMax + '" data-vote-mode="' + escapeHtmlAttr(vMode) + '" data-vote-opts="' + escapeHtmlAttr(JSON.stringify(vOpts)) + '"' +
+                    (vPerm ? ' data-vote-perm="' + escapeHtmlAttr(vPerm) + '"' : '') + '>' +
                     (vQuestion ? '<div class="md-vote-q">' + escapeHtml(vQuestion) + '</div>' : '') +
                     '<div class="md-vote-opts">';
                 for (let vo = 0; vo < vOpts.length; vo++) {
@@ -4723,52 +5575,300 @@
                 }
                 voteHtml += '</div><div class="md-vote-foot">' + (vMax > 1 ? '最多选 ' + vMax + ' 项' : '单选') + '</div></div>';
                 btnHtml = voteHtml;
-            } else if (ab.type === 'dice:') {
-                // 骰子：dice:2d6+3|id=d1（支持 XdY±Z / dY / 纯数字；结果存入 %id% 变量）
-                let dp = parseNewMdParams(ab.raw);
-                let dExpr = (dp.value || '').trim();
-                let dId = dp.id || '';
-                if (!/^(\d*)d(\d+)([+-]\d+)?$/i.test(dExpr)) dExpr = '1d6';
-                btnHtml = '<span class="md-dice">' +
-                    '<a class="md-btn md-btn-dice' + ghostClass + disClass + '" href="#" data-dice="' + escapeHtmlAttr(dExpr) + '"' + (dId ? ' data-dice-id="' + escapeHtmlAttr(dId) + '"' : '') + abStyle + disAttr + soundAttr + animAttr + '>' + (ab.label || ('🎲 ' + dExpr)) + '</a>' +
-                    '<span class="md-dice-result"></span></span>';
-            } else if (ab.type === 'at:') {
-                // 定时到点：at:HH:MM[:SS]|end=动作|id=t1|repeat=1（到点执行动作，repeat=1 每天重复）
-                let ap = parseNewMdParams(ab.raw);
-                let aTime = (ap.value || '').trim();
-                let aId = ap.id || ('at' + bi2);
-                let aEnd = ap.end || '';
-                let aRepeat = ap.repeat === '1';
-                if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(aTime)) aTime = '00:00';
-                btnHtml = '<span class="md-at" data-at-time="' + escapeHtmlAttr(aTime) + '" data-at-id="' + escapeHtmlAttr(aId) + '"' +
-                    (aEnd ? ' data-at-end="' + escapeHtmlAttr(encodeURIComponent(aEnd)) + '"' : '') +
-                    (aRepeat ? ' data-at-repeat="1"' : '') +
-                    '>⏰ 定时 ' + escapeHtml(aTime) + '</span>';
-            } else if (ab.type === 'gallery:') {
-                // 图集轮播：gallery:标题|url1|url2|...|autoplay=3（图片过白名单，弹窗轮播）
-                let gRaw = splitTopLevelByPipe(ab.raw);
-                let gTitle = (gRaw[0] || '').trim();
+            } else if (ab.type === '弹窗') {
+                // 弹窗：[!弹窗:标题|内容|键=值]
+                let mTitle = bp.标题 !== undefined ? bp.标题 : (bp.t || (bp.value || '提示'));
+                let mChildren = [];
+                for (let i = 1; i < bpParts.length; i++) {
+                    let pp = bpParts[i];
+                    let eq = pp.indexOf('=');
+                    if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(pp.slice(0, eq).trim())) continue;
+                    mChildren.push(pp);
+                }
+                btnHtml = '<a class="md-btn md-btn-modal' + ghostClass + disClass + '" href="#" data-modal-title="' +
+                    escapeHtmlAttr(encodeURIComponent(mTitle)) + '" data-modal-content="' +
+                    escapeHtmlAttr(encodeURIComponent(mChildren.join('|'))) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(abParams.label || bp.value || '弹窗') + '</a>';
+            } else if (ab.type === '发送' || ab.type === '复制') {
+                // 发送/复制：[!发送:文字|内容]
+                let scLabel = (bpParts[0] || '').trim();
+                let scRest = [];
+                for (let i = 1; i < bpParts.length; i++) {
+                    let pp = bpParts[i];
+                    let eq = pp.indexOf('=');
+                    if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(pp.slice(0, eq).trim())) continue;
+                    scRest.push(pp);
+                }
+                let scAttr = ab.type === '发送' ? ' data-send="' : ' data-copy="';
+                btnHtml = '<a class="md-btn md-btn-' + (ab.type === '发送' ? 'send' : 'copy') + ghostClass + disClass + '" href="#"' + scAttr + escapeHtmlAttr(scRest.join('|')) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(abParams.label || scLabel || ab.type) + '</a>';
+            } else if (ab.type === '确认') {
+                // 确认：[!确认:提示语|动作]
+                let cLabel = bp.value || '确认';
+                let cAct = (bpParts[1] || '').trim();
+                btnHtml = '<a class="md-btn md-btn-confirm' + ghostClass + disClass + '" href="#" data-confirm-msg="' +
+                    escapeHtmlAttr(encodeURIComponent(cLabel)) + '" data-confirm-action="' +
+                    escapeHtmlAttr(encodeURIComponent(cAct)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(abParams.label || cLabel) + '</a>';
+            } else if (ab.type === '按钮') {
+                // 按钮：[!按钮:文字|动作或URL]
+                let bLabel = abParams.label || bp.value || '按钮';
+                let bAct = (bpParts[1] || '').trim();
+                let bActType = '', bActContent = bAct;
+                for (let ai = 0; ai < V3_ACTIONS.length; ai++) {
+                    let ap = V3_ACTIONS[ai];
+                    if (bAct.indexOf(ap + ':') === 0) { bActType = ap; bActContent = bAct.slice(ap.length + 1); break; }
+                }
+                if (!bActType && /^https?:\/\//i.test(bAct)) { bActType = '跳转'; bActContent = bAct; }
+                // 吞并后续无键段（与后端 parseAction 一致：弹窗:标题|内容 等内容段，遇 键=值 停止）
+                if (bActType && bActType !== '跳转') {
+                    for (let bi2 = 2; bi2 < bpParts.length; bi2++) {
+                        let pp = bpParts[bi2];
+                        let eq = pp.indexOf('=');
+                        if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(pp.slice(0, eq).trim())) break;
+                        bAct += '|' + pp;
+                    }
+                }
+                if (bActType === '跳转') {
+                    btnHtml = '<a class="md-btn' + ghostClass + disClass + '" href="' + escapeHtmlAttr(bActContent) + '" target="_blank" rel="noopener noreferrer"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(bLabel) + '</a>';
+                } else if (bActType) {
+                    btnHtml = actionBtnHtml(bAct);
+                } else {
+                    btnHtml = '<a class="md-btn' + ghostClass + disClass + '" href="#"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(bLabel) + '</a>';
+                }
+            } else if (ab.type === '输入') {
+                // 输入：[!输入:占位符|id=名|ok=..|on=..]
+                let inputId = bp.id || ('inp' + bi2);
+                let okVal = bp.ok || '';
+                let colorofAttr = bp.colorof ? ' data-colorof="' + escapeHtmlAttr(bp.colorof) + '"' : '';
+                let ipOn = bp.on;
+                let onchangeAttr = ipOn ? ' data-onchange="' + escapeHtmlAttr(encodeURIComponent(ipOn)) + '"' : '';
+                btnHtml = '<span class="md-input-box" data-ui-id="' + escapeHtmlAttr(inputId) + '"' + colorofAttr + abStyle + '>' +
+                    '<input class="md-input" type="text" data-input-id="' + escapeHtmlAttr(inputId) + '" data-ok="' + escapeHtmlAttr(okVal) + '" placeholder="' + escapeHtmlAttr(bp.value || '') + '"' + onchangeAttr + '>' +
+                    '</span>';
+            } else if (ab.type === '显示') {
+                // 显示：[!显示:名]
+                let gid = (bp.value || '').trim();
+                let colorofAttr2 = bp.colorof ? ' data-colorof="' + escapeHtmlAttr(bp.colorof) + '"' : '';
+                btnHtml = '<span class="md-get" data-get-id="' + escapeHtmlAttr(gid) + '"' + colorofAttr2 + abStyle + '></span>';
+            } else if (ab.type === '开关') {
+                // 开关：[!开关:值1/值2/值3|id=名|颜色=1]
+                let swVals = [];
+                let swId = bp.id || ('sw' + bi2);
+                let swColor = bp.颜色 === '1' || bp.color === '1' || bp.c === '1';
+                let swColors = [];
+                if (bp.cc) swColors = String(bp.cc).split('/');
+                if (bp.value) {
+                    swVals = String(bp.value).split(/[\/,]/);
+                    for (let i = 1; i < bpParts.length; i++) {
+                        let pp = bpParts[i];
+                        let eq = pp.indexOf('=');
+                        if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(pp.slice(0, eq).trim())) continue;
+                        swVals.push(pp);
+                    }
+                }
+                if (!swVals.length) swVals = ['开', '关'];
+                let swStyle = abStyle;
+                let swColorAttr = '';
+                if (swColor) {
+                    let initColor = swColors.length ? swColors[0] : swVals[0];
+                    if (swColors.length > 0) swColorAttr = ' data-switch-colors="' + escapeHtmlAttr(JSON.stringify(swColors)) + '"';
+                    if (/^#?[0-9a-fA-F]{3,8}$/.test(String(initColor).trim())) {
+                        let c0 = String(initColor).trim();
+                        if (c0.charAt(0) !== '#') c0 = '#' + c0;
+                        swStyle = ' style="background-color:' + c0 + '"';
+                    }
+                }
+                let swOnchange = bp.on ? ' data-onchange="' + escapeHtmlAttr(encodeURIComponent(bp.on)) + '"' : '';
+                let swLock = bp.lock ? ' data-timer-lock-group="' + escapeHtmlAttr(bp.lock) + '"' : '';
+                btnHtml = '<a class="md-btn md-btn-switch' + ghostClass + disClass + '" href="#" data-ui-id="' + escapeHtmlAttr(swId) + '" data-switch-id="' + escapeHtmlAttr(swId) + '" data-switch-vals="' + escapeHtmlAttr(JSON.stringify(swVals)) + '"' + (swColor ? ' data-switch-color="1"' : '') + swColorAttr + swOnchange + swLock + swStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + escapeHtml(swVals[0]) + '</a>';
+            } else if (ab.type === '变量') {
+                // 变量：[!变量:名=值]
+                let varStr = (bp.value || '').trim();
+                let veq = varStr.indexOf('=');
+                let varId = veq > 0 ? varStr.slice(0, veq).trim() : varStr;
+                let varInit = veq > 0 ? varStr.slice(veq + 1).trim() : (bp.init !== undefined ? bp.init : '');
+                btnHtml = '<span class="md-var" data-var-id="' + escapeHtmlAttr(varId) + '">' + escapeHtml(varInit) + '</span>';
+            } else if (ab.type === '条件') {
+                // 条件：[!条件:表达式|内容]
+                let cond = (bp.value || '').trim();
+                let thenText = bp.then !== undefined ? bp.then : ((bpParts[1] || '')).trim();
+                btnHtml = '<span class="md-if" data-if-cond="' + escapeHtmlAttr(cond) + '">' + escapeHtml(thenText) + '</span>';
+            } else if (ab.type === '隐藏') {
+                // 隐藏：[!隐藏:文字|动作]（吞并后续无键段，与后端 parseAction 一致）
+                let hLabel = bp.value || '隐藏';
+                let hAct = (bpParts[1] || '').trim();
+                for (let hi2 = 2; hi2 < bpParts.length; hi2++) {
+                    let pp = bpParts[hi2];
+                    let eq = pp.indexOf('=');
+                    if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(pp.slice(0, eq).trim())) break;
+                    hAct += '|' + pp;
+                }
+                btnHtml = '<span class="md-hide" data-action="' + escapeHtmlAttr(encodeURIComponent(hAct)) + '">' + escapeHtml(abParams.label || hLabel) + '</span>';
+            } else if (ab.type === '表格') {
+                // 表格：[!表格:列数|表头1|表头2|数据...]
+                let tcols = 2, tCells = [];
+                for (let i = 0; i < bpParts.length; i++) {
+                    let pp = bpParts[i].trim();
+                    if (i === 0 && /^\d+$/.test(pp)) tcols = parseInt(pp, 10);
+                    else if (pp.indexOf('col=') === 0) tcols = parseInt(pp.slice(4), 10) || 2;
+                    else tCells.push(pp);
+                }
+                let tc = Math.max(1, tcols);
+                let tHtml = '<table class="md-table"><thead><tr>';
+                for (let ti = 0; ti < Math.min(tc, tCells.length); ti++) tHtml += '<th>' + escapeHtml(tCells[ti]) + '</th>';
+                tHtml += '</tr></thead><tbody>';
+                let tBody = tCells.slice(tc);
+                for (let ti = 0; ti < tBody.length; ti += tc) {
+                    tHtml += '<tr>';
+                    for (let tj = 0; tj < tc; tj++) tHtml += '<td>' + escapeHtml(tBody[ti + tj] || '') + '</td>';
+                    tHtml += '</tr>';
+                }
+                tHtml += '</tbody></table>';
+                btnHtml = tHtml;
+            } else if (ab.type === '音乐') {
+                // 音乐：[!音乐:URL|标题=歌名|id=名|状态=变量名]
+                // 自定义UI：播放按钮+时间+进度条+状态；id 供按钮绑定控制；状态 输出播放/暂停到变量
+                let mUrl = (bp.value || '').trim();
+                let mTitle = bp.标题 !== undefined ? bp.标题 : (bp.t || '');
+                let mId = bp.id || ('music' + bi2);
+                let mState = bp.状态 || '';
+                if (!isValidAudioUrl(mUrl)) {
+                    btnHtml = '<span class="md-img-error">[音频链接不合法]</span>';
+                } else {
+                    // 布局：标题在左上角，下方控制行（CSS绘制播放图标，无状态文字）
+                    btnHtml = '<span class="md-music" data-music-id="' + escapeHtmlAttr(mId) + '"' +
+                        (mState ? ' data-music-state="' + escapeHtmlAttr(mState) + '"' : '') + '>' +
+                        '<audio class="md-music-audio" preload="none" src="' + escapeHtmlAttr(mUrl) + '"></audio>' +
+                        (mTitle ? '<span class="md-music-title">' + escapeHtml(mTitle) + '</span>' : '') +
+                        '<span class="md-music-controls">' +
+                        '<button class="md-music-btn" data-music-toggle="1" type="button"></button>' +
+                        '<span class="md-music-time">00:00 / 00:00</span>' +
+                        '<span class="md-music-bar" data-music-bar="1"><i></i></span>' +
+                        '</span>' +
+                        '</span>';
+                }
+            } else if (ab.type === '图集') {
+                // 图集：[!图集:标题|URL1|URL2|...|自动=秒|id=名]
+                let gTitle = (bpParts[0] || '').trim();
                 let gImgs = [];
                 let gAutoplay = 0;
-                for (let gi = 1; gi < gRaw.length; gi++) {
-                    let seg = gRaw[gi];
+                let gId = '';
+                for (let gi = 1; gi < bpParts.length; gi++) {
+                    let seg = bpParts[gi];
                     let geq = seg.indexOf('=');
-                    if (geq > 0 && /^[a-z][a-z0-9.]*$/.test(seg.slice(0, geq).trim())) {
+                    if (geq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(seg.slice(0, geq).trim())) {
                         let gk = seg.slice(0, geq).trim(), gv = seg.slice(geq + 1);
-                        if (gk === 'autoplay') gAutoplay = parseInt(gv, 10) || 0;
+                        if (gk === '自动' || gk === 'autoplay') gAutoplay = parseInt(gv, 10) || 0;
+                        else if (gk === 'id') gId = gv;
                     } else if (isValidImageUrl(seg.trim())) {
                         gImgs.push(seg.trim());
                     }
                 }
                 let gBtn = '<a class="md-btn md-btn-gallery' + ghostClass + disClass + '" href="#" data-gallery="' + escapeHtmlAttr(JSON.stringify(gImgs)) + '"' +
                     (gTitle ? ' data-gallery-title="' + escapeHtmlAttr(encodeURIComponent(gTitle)) + '"' : '') +
+                    (gId ? ' data-gallery-id="' + escapeHtmlAttr(gId) + '"' : '') +
                     (gAutoplay ? ' data-gallery-autoplay="' + gAutoplay + '"' : '') +
-                    abStyle + disAttr + '>' + (ab.label || '📸 查看图集') + '</a>';
+                    abStyle + disAttr + '>' + escapeHtml(abParams.label || gTitle || '查看图集') + '</a>';
                 btnHtml = gImgs.length ? gBtn : '<span class="md-img-error">[图集链接不合法]</span>';
+            } else if (ab.type === '进度') {
+                // 进度：[!进度:7/10|id=名]
+                let barId = bp.id || ('bar' + bi2);
+                let bm2 = String(bp.value || '').match(/^(\d+)\s*\/\s*(\d+)$/);
+                let barVal = bm2 ? parseInt(bm2[1], 10) : 0;
+                let barMax = bm2 ? parseInt(bm2[2], 10) : 100;
+                btnHtml = '<span class="md-bar" data-bar-id="' + escapeHtmlAttr(barId) + '" data-bar-max="' + barMax + '" data-bar-init="' + barVal + '">' +
+                    '<span class="md-bar-fill" style="width:' + (barMax > 0 ? (barVal / barMax) * 100 : 0) + '%"></span>' +
+                    '<span class="md-bar-text">' + barVal + '/' + barMax + '</span>' +
+                    '</span>';
+            } else if (ab.type === '倒计时') {
+                // 倒计时：[!倒计时:1时30分|id=名|绑定=1|end=动作|lock=组|bar=进度条id]
+                // 时间格式：90(秒) / 5分 / 2时 / 1时30分15秒 / 1:30 组合使用；显示 00:00:00
+                let timerId = bp.id || ('tmr' + bi2);
+                let timerTotal = parseMdDuration(bp.value) || 30;
+                let timerEnd = bp.end || '';
+                let timerLock = bp.lock || '';
+                let timerBar = bp.bar || '';
+                let timerBind = bp.绑定 === '1' || bp.bind === '1';
+                btnHtml = '<span class="md-timer" data-timer-id="' + escapeHtmlAttr(timerId) + '" data-timer-total="' + timerTotal + '"' +
+                    (timerEnd ? ' data-timer-end="' + escapeHtmlAttr(encodeURIComponent(timerEnd)) + '"' : '') +
+                    (timerLock ? ' data-timer-lock="' + escapeHtmlAttr(timerLock) + '"' : '') +
+                    (timerBar ? ' data-timer-bar="' + escapeHtmlAttr(timerBar) + '"' : '') +
+                    (timerBind ? ' data-timer-bind="1"' : '') +
+                    '>' + formatMdHMS(timerTotal) + '</span>';
+            } else if (ab.type === '计时') {
+                // 计时器：[!计时:最大时长|id=名|绑定=1|end=动作|重复=1]（正向计时，从0开始）
+                let stId = bp.id || ('swt' + bi2);
+                let stMax = parseMdDuration(bp.value) || 0;
+                let stEnd = bp.end || '';
+                let stBind = bp.绑定 === '1' || bp.bind === '1';
+                let stRepeat = bp.重复 === '1' || bp.repeat === '1';
+                btnHtml = '<span class="md-stopwatch" data-timer-id="' + escapeHtmlAttr(stId) + '" data-stopwatch-max="' + stMax + '"' +
+                    (stEnd ? ' data-timer-end="' + escapeHtmlAttr(encodeURIComponent(stEnd)) + '"' : '') +
+                    (stBind ? ' data-timer-bind="1"' : '') +
+                    (stRepeat ? ' data-stopwatch-repeat="1"' : '') +
+                    '>00:00:00</span>';
+            } else if (ab.type === '定时') {
+                // 定时：[!定时:09:00|动作|重复=1|绑定=1]
+                let atTime = (bp.value || '').trim();
+                let atId = bp.id || ('at' + bi2);
+                let atEnd = bp.end !== undefined ? bp.end : ((bpParts[1] || '')).trim();
+                let atRepeat = bp.重复 === '1' || bp.repeat === '1';
+                let atBind = bp.绑定 === '1' || bp.bind === '1';
+                if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(atTime)) atTime = '00:00';
+                btnHtml = '<span class="md-at" data-at-time="' + escapeHtmlAttr(atTime) + '" data-at-id="' + escapeHtmlAttr(atId) + '"' +
+                    (atEnd ? ' data-at-end="' + escapeHtmlAttr(encodeURIComponent(atEnd)) + '"' : '') +
+                    (atRepeat ? ' data-at-repeat="1"' : '') +
+                    (atBind ? ' data-at-bind="1"' : '') +
+                    '>⏰ 定时 ' + escapeHtml(atTime) + '</span>';
+            } else if (ab.type === '动作链') {
+                // 动作链：[!动作链:步骤/步骤|循环=N|id=名|绑定=1]（隐形，不显示）
+                let chainSteps = (bpParts[0] || '').trim();
+                let chainLoop = '0', chainId = 'chain' + bi2, chainBind = '0';
+                for (let ci = 1; ci < bpParts.length; ci++) {
+                    let seg = bpParts[ci];
+                    let ceq = seg.indexOf('=');
+                    if (ceq > 0) {
+                        let ck = seg.slice(0, ceq).trim();
+                        if (ck === '循环') {
+                            let cv = seg.slice(ceq + 1).trim();
+                            if (cv === '') chainLoop = 'inf';
+                            else if (/^\d+$/.test(cv)) chainLoop = cv;
+                        } else if (ck === 'id') chainId = seg.slice(ceq + 1).trim();
+                        else if (ck === '绑定') chainBind = seg.slice(ceq + 1).trim() === '1' ? '1' : '0';
+                    } else if (seg.trim() === '循环') {
+                        chainLoop = 'inf';
+                    }
+                }
+                btnHtml = '<span class="md-chain" data-chain-id="' + escapeHtmlAttr(chainId) + '" data-chain-steps="' + escapeHtmlAttr(encodeURIComponent(chainSteps)) + '" data-chain-loop="' + escapeHtmlAttr(chainLoop) + '" data-chain-bind="' + chainBind + '" style="display:none"></span>';
+            } else {
+                // 未知类型（含 v2 废弃语法）：按普通文本显示
+                btnHtml = escapeHtml('[!' + ab.type + (ab.raw ? ':' + ab.raw : '') + ']');
+            }
+            // v3.5 统一 ID：组件 id=名 注入 data-ui-id（已带 data-ui-id 的跳过）
+            if (bp.id && btnHtml.indexOf('data-ui-id') < 0) {
+                btnHtml = btnHtml.replace(/^<([a-zA-Z][a-zA-Z0-9]*)(\s|>)/, '<$1 data-ui-id="' + escapeHtmlAttr(String(bp.id)) + '"$2');
+            }
+            // v3.5 x/y 定位（弹窗内相对流位置偏移 px，与动作链 transform 移动互不干扰）
+            if (bp.x !== undefined || bp.y !== undefined) {
+                let xyStyle = '';
+                if (bp.x !== undefined) xyStyle += 'left:' + (parseFloat(bp.x) || 0) + 'px;';
+                if (bp.y !== undefined) xyStyle += 'top:' + (parseFloat(bp.y) || 0) + 'px;';
+                if (xyStyle) {
+                    if (btnHtml.indexOf('style="') >= 0) btnHtml = btnHtml.replace(/style="/, 'style="position:relative;' + xyStyle);
+                    else btnHtml = btnHtml.replace(/^<([a-zA-Z][a-zA-Z0-9]*)(\s|>)/, '<$1 style="position:relative;' + xyStyle + '"$2');
+                }
             }
             rawHtml = rawHtml.replace('[[MDBTNACT' + bi2 + ']]', btnHtml);
         }
         return rawHtml;
+    }
+
+    /**
+     * 把组件内容文本中的字面 \n 转换为真实换行（与后端 unescapeNewlines 一致）：
+     * - `\n` → 换行符；`\\n` → 字面 `\n`
+     */
+    function unescapeNewlines(s) {
+        s = String(s || '');
+        if (s.indexOf('\\n') < 0) return s;
+        return s.split('\\\\n').join('\x00N').split('\\n').join('\n').split('\x00N').join('\\n');
     }
 
     /**
@@ -4892,7 +5992,8 @@
                         '<div class="bili-title"><a href="' + url + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(title) + '</a></div>';
                     if (cover) {
                         let vid = el.querySelector('.bili-video');
-                        vid.setAttribute('poster', cover);
+                        // B站封面走图片代理，避免防盗链
+                        vid.setAttribute('poster', 'https://api-proxy_image.xfcode.top/proxy_image.php?url=' + encodeURIComponent(cover));
                     }
                     try { new Plyr(el.querySelector('.bili-video'), { controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'] }); } catch (e) { }
                 } else {
@@ -5719,11 +6820,7 @@
         $songSyncToggle.addEventListener('change', toggleSongSyncMode);
     }
     if ($btnMdHelp) {
-        $btnMdHelp.addEventListener('click', function (e) {
-            e.preventDefault();
-            let url = $btnMdHelp.getAttribute('data-embed');
-            if (url) openEmbedModal(url, $btnMdHelp);
-        });
+        // MD 教程：直接跳转网站（新窗口），无需 JS 处理（index.html 已配 target=_blank）
     }
     if ($songSearchBtn) {
         $songSearchBtn.addEventListener('click', searchSong);

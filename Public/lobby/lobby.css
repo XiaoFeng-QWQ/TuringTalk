@@ -417,6 +417,20 @@
     -webkit-overflow-scrolling: touch;
 }
 
+/* 解析错误气泡：错误信息默认无样式，仅复制按钮给基础可点击样式 */
+.lobby-msg-text .md-error-copy {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 10px;
+    font-size: 12px;
+    line-height: 1.8;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
 /* 已撤回的消息 */
 .lobby-msg.revoked {
     background: var(--note-pink);
@@ -561,6 +575,46 @@
     margin-bottom: 6px;
     cursor: pointer;
     transition: all 0.15s;
+    /* 回复块不超出气泡：flex + 溢出省略 */
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* 回复者昵称：超长省略 */
+.lobby-msg-reply .reply-name {
+    flex: 0 0 auto;
+    max-width: 45%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 回复内容：可伸缩省略，不超出气泡 */
+.lobby-msg-reply .reply-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: baseline;
+}
+
+/* markdown 特殊格式：不解析提示 */
+.lobby-msg-reply .reply-unsupported {
+    font-style: italic;
+    opacity: 0.85;
+}
+
+/* 回复表情图：固定大小不撑破 */
+.lobby-msg-reply .reply-sticker-img {
+    flex: 0 0 auto;
+    max-height: 28px;
+    vertical-align: middle;
 }
 
 .lobby-msg-reply:hover {
@@ -2157,6 +2211,16 @@
     color: #fff;
 }
 
+.user-admin-btn.kick {
+    border-color: #e67e22;
+    color: #e67e22;
+}
+
+.user-admin-btn.kick:hover {
+    background: #e67e22;
+    color: #fff;
+}
+
 /* ==================== 管理员弹窗（封禁/禁言） ==================== */
 .admin-dialog-overlay {
     position: fixed;
@@ -2633,9 +2697,8 @@ main {
 /* 交互式 MD 扩展：全局变量 / 加密 / 表格 / 音乐播放器 / 倒计时 / 进度条 / 条件显示 / 隐藏按钮 */
 .lobby-msg-text .md-var,
 .md-modal-body .md-var {
-    font-weight: 700;
-    color: var(--ink-blue);
-    padding: 0 2px;
+    /* 变量为隐藏定义：不显示值，用 [!显示:名] 展示 */
+    display: none;
 }
 
 .lobby-msg-text a.md-btn-cipher,
@@ -2659,6 +2722,8 @@ main {
     border: 1.5px solid var(--border-light);
     padding: 4px 10px;
     text-align: left;
+    white-space: pre-wrap; /* v3.7 单元格内容 \n 换行 */
+    word-break: break-word;
 }
 
 .lobby-msg-text .md-table th,
@@ -2670,20 +2735,113 @@ main {
 .lobby-msg-text .md-music,
 .md-modal-body .md-music {
     display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    max-width: 100%;
+    padding: 6px 10px;
     border: 2px solid var(--ink-black);
     border-radius: 8px;
     background: var(--note-yellow);
     margin: 2px 4px 2px 0;
     vertical-align: middle;
+    box-sizing: border-box;
 }
 
+/* 原生 audio 隐藏，使用自定义控制条 */
 .lobby-msg-text .md-music audio,
 .md-modal-body .md-music audio {
-    height: 32px;
+    display: none;
+}
+
+/* 标题：左上角（不占整行时可自动收缩） */
+.md-music-title {
+    align-self: flex-start;
+    font-size: 0.9em;
+    font-weight: 700;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ink-black);
+}
+
+/* 控制行：按钮 + 时间 + 进度条（自适应，不挤压） */
+.md-music-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+}
+
+/* 播放/暂停按钮：图标由 CSS 绘制（三角 / 双竖线），不使用 emoji */
+.md-music-btn {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 2px solid var(--ink-black);
+    border-radius: 50%;
+    background: #fff;
+    color: var(--ink-black);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+.md-music-btn::before {
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 9px solid currentColor;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    margin-left: 2px;
+}
+.md-music-btn.playing::before {
+    width: 4px;
+    height: 12px;
+    border: none;
+    background: currentColor;
+    box-shadow: 6px 0 0 currentColor;
+    margin-left: 0;
+}
+.md-music-btn:hover {
+    background: var(--ink-blue);
+    color: #fff;
+}
+
+/* 当前时间 / 总时长 */
+.md-music-time {
+    flex: 0 0 auto;
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+    min-width: 96px;
+    white-space: nowrap;
+    color: var(--ink-black);
+}
+
+/* 进度条（可点击跳转，flex 伸缩自适应） */
+.md-music-bar {
+    flex: 1 1 80px;
+    min-width: 60px;
     max-width: 220px;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 4px;
+    position: relative;
+    cursor: pointer;
+}
+.md-music-bar i {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 0%;
+    background: var(--ink-blue);
+    border-radius: 4px;
 }
 
 .lobby-msg-text .md-music .plyr,
@@ -2721,9 +2879,27 @@ main {
     margin: 2px 4px 2px 0;
     vertical-align: middle;
 }
+.md-stopwatch,
+.md-modal-body .md-stopwatch {
+    display: inline-block;
+    padding: 4px 12px;
+    font-size: 1.1em;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    margin: 2px 4px 2px 0;
+    vertical-align: middle;
+}
 
 .lobby-msg-text .md-timer.md-timer-done,
 .md-modal-body .md-timer.md-timer-done {
+    background: #d4edda;
+    color: var(--ink-blue);
+}
+.md-stopwatch.md-timer-done,
+.md-modal-body .md-stopwatch.md-timer-done {
     background: #d4edda;
     color: var(--ink-blue);
 }
@@ -2768,6 +2944,7 @@ main {
 .lobby-msg-text .md-if,
 .md-modal-body .md-if {
     display: inline;
+    white-space: pre-wrap; /* v3.7 条件内容 \n 换行 */
 }
 
 .lobby-msg-text .md-hide,
@@ -2834,6 +3011,8 @@ main {
 .md-modal-body .md-vote-opt-name {
     flex: 1;
     z-index: 1;
+    white-space: pre-wrap; /* v3.7 投票选项 \n 换行 */
+    word-break: break-word;
 }
 
 .lobby-msg-text .md-vote-bar,
@@ -2868,34 +3047,6 @@ main {
     color: #64748b;
     margin-top: 4px;
     text-align: right;
-}
-
-/* ==================== 骰子 dice ==================== */
-.lobby-msg-text .md-dice,
-.md-modal-body .md-dice {
-    display: inline-block;
-    vertical-align: middle;
-    margin: 2px 4px 2px 0;
-}
-
-.lobby-msg-text .md-dice-result,
-.md-modal-body .md-dice-result {
-    display: inline-block;
-    margin-left: 6px;
-    padding: 3px 10px;
-    font-size: 0.9em;
-    font-weight: 700;
-    background: var(--note-yellow);
-    border: 1.5px solid var(--ink-black);
-    border-radius: 8px;
-    opacity: 0;
-    transition: opacity 0.2s;
-    vertical-align: middle;
-}
-
-.lobby-msg-text .md-dice-result.md-dice-done,
-.md-modal-body .md-dice-result.md-dice-done {
-    opacity: 1;
 }
 
 /* ==================== 定时到点 at ==================== */
@@ -3022,7 +3173,23 @@ main {
     border-radius: 10px;
     background: var(--note-yellow);
     line-height: 1.5;
-    max-width: 100%;
+    /* v3.5 长度自适应：宽度贴合内容，并按字数档位限宽（ch=字符宽度），超限换行 */
+    width: fit-content;
+    max-width: min(40ch, 100%);
+}
+
+/* 按字数档位限宽：短文本窄框，长文本限宽换行（配合字号自适应） */
+.lobby-msg-text .md-textbox-lg,
+.md-modal-body .md-textbox-lg {
+    max-width: min(24ch, 100%);
+}
+.lobby-msg-text .md-textbox-sm,
+.md-modal-body .md-textbox-sm {
+    max-width: min(56ch, 100%);
+}
+.lobby-msg-text .md-textbox-xs,
+.md-modal-body .md-textbox-xs {
+    max-width: min(72ch, 100%);
 }
 
 .lobby-msg-text .md-textbox-title,
@@ -3049,6 +3216,12 @@ main {
 .lobby-msg-text .md-textbox-lg .md-textbox-body,
 .md-modal-body .md-textbox-lg .md-textbox-body {
     font-size: 1.15em;
+}
+
+.lobby-msg-text .md-textbox-xs .md-textbox-body,
+.md-modal-body .md-textbox-xs .md-textbox-body {
+    font-size: 0.7em;
+    opacity: 0.9;
 }
 
 .lobby-msg-text .md-textbox-note,
