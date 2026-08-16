@@ -15,6 +15,7 @@ use App\Enums\Module;
  *   php cli.php server:stop           # 停止 full 模块
  *   php cli.php server:stop lobby     # 停止 lobby 模块
  *   php cli.php server:stop game
+ *   php cli.php server:stop all       # 停止所有拆分模块
  */
 class ServerStopCommand extends Command
 {
@@ -25,19 +26,30 @@ class ServerStopCommand extends Command
 
     public function description(): string
     {
-        return '停止指定模块进程（默认 full，可指定模块：proxy/web/game/whoisai/lobby/gomoku/admin）';
+        return '停止指定模块进程（默认 full，可指定模块：proxy/web/game/whoisai/lobby/gomoku/admin，或 all 全部停止）';
     }
 
     public function handle(array $args): int
     {
         $moduleName = $args[0] ?? 'full';
+
+        // 特殊处理 all：停止所有拆分模块
+        if ($moduleName === 'all') {
+            return $this->stopAll();
+        }
+
         $module = Module::tryFromName($moduleName);
         if ($module === null) {
             echo "未知模块: {$moduleName}" . PHP_EOL;
-            echo '可用模块: ' . implode(', ', array_map(fn($m) => $m->value, Module::cases())) . PHP_EOL;
+            echo '可用模块: ' . implode(', ', array_map(fn($m) => $m->value, Module::cases())) . ' | all' . PHP_EOL;
             return 1;
         }
 
+        return $this->stopModule($module);
+    }
+
+    private function stopModule(Module $module): int
+    {
         // 检测是否由 systemd 托管
         $serviceName = 'turing-game-' . $module->value;
         if ($this->isSystemdActive($serviceName)) {
@@ -65,6 +77,25 @@ class ServerStopCommand extends Command
 
         echo "[{$module->value}] 已请求停止。" . PHP_EOL;
         return 0;
+    }
+
+    /**
+     * 停止所有拆分模块（full 除外）
+     */
+    private function stopAll(): int
+    {
+        $exitCode = 0;
+        foreach (Module::cases() as $module) {
+            if ($module === Module::FULL) {
+                continue;
+            }
+            $code = $this->stopModule($module);
+            if ($code !== 0) {
+                $exitCode = $code;
+            }
+        }
+        echo PHP_EOL . '所有模块已处理完毕。' . PHP_EOL;
+        return $exitCode;
     }
 
     private function isSystemdActive(string $serviceName): bool

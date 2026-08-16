@@ -15,6 +15,7 @@ use App\Enums\Module;
  *   php cli.php server:restart           # 重启 full 模块
  *   php cli.php server:restart lobby     # 重启 lobby 模块
  *   php cli.php server:restart game
+ *   php cli.php server:restart all       # 重启所有拆分模块
  */
 class ServerRestartCommand extends Command
 {
@@ -25,19 +26,30 @@ class ServerRestartCommand extends Command
 
     public function description(): string
     {
-        return '重启指定模块（默认 full，可指定模块：proxy/web/game/whoisai/lobby/gomoku/admin）';
+        return '重启指定模块（默认 full，可指定模块：proxy/web/game/whoisai/lobby/gomoku/admin，或 all 全部重启）';
     }
 
     public function handle(array $args): int
     {
         $moduleName = $args[0] ?? 'full';
+
+        // 特殊处理 all：重启所有拆分模块
+        if ($moduleName === 'all') {
+            return $this->restartAll();
+        }
+
         $module = Module::tryFromName($moduleName);
         if ($module === null) {
             echo "未知模块: {$moduleName}" . PHP_EOL;
-            echo '可用模块: ' . implode(', ', array_map(fn($m) => $m->value, Module::cases())) . PHP_EOL;
+            echo '可用模块: ' . implode(', ', array_map(fn($m) => $m->value, Module::cases())) . ' | all' . PHP_EOL;
             return 1;
         }
 
+        return $this->restartModule($module);
+    }
+
+    private function restartModule(Module $module): int
+    {
         // 检测是否由 systemd 托管
         $serviceName = 'turing-game-' . $module->value;
         if ($this->isSystemdActive($serviceName)) {
@@ -88,8 +100,42 @@ class ServerRestartCommand extends Command
         );
         exec($cmd);
 
-        echo "[{$module->value}] 重启完成" . PHP_EOL;
+        // 等待端口就绪（最多 10 秒）
+        $waited = 0;
+        while ($waited < 50) {
+            if (ModulePaths::isListening($module)) {
+                echo "[{$module->value}] 重启完成 (端口 {$port})" . PHP_EOL;
+                break;
+            }
+            usleep(200000);
+            $waited++;
+        }
+        if ($waited >= 50) {
+            echo "[{$module->value}] 警告：启动超时，请检查日志" . PHP_EOL;
+            return 1;
+        }
+
         return 0;
+    }
+
+    /**
+     * 重启所有拆分模块（full 除外）
+     */
+    private function restartAll(): int
+    {
+        $exitCode = 0;
+        foreach (Module::cases() as $module) {
+            if ($module === Module::FULL) {
+                continue;
+            }
+            echo PHP_EOL;
+            $code = $this->restartModule($module);
+            if ($code !== 0) {
+                $exitCode = $code;
+            }
+        }
+        echo PHP_EOL . '所有模块重启完毕。运行 php cli.php module:list 查看状态。' . PHP_EOL;
+        return $exitCode;
     }
 
     private function isSystemdActive(string $serviceName): bool
