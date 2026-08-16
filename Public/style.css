@@ -2475,5 +2475,52 @@ main {
     max-width: 100%;
 }
 
+/* ==================== 佩戴标签（设置页） ==================== */
+.worn-tag-chip {
+    display: inline-block;
+    padding: 3px 10px;
+    font-size: 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 12px 3px 12px 3px;
+    background: var(--surface-white);
+    color: var(--ink-black);
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.1s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.worn-tag-chip:hover {
+    transform: translateY(-1px);
+}
+
+.worn-tag-chip.selected {
+    background: var(--ink-blue);
+    color: #fff;
+}
+
+/* 官方特殊称号 */
+.worn-special-label {
+    align-self: center;
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-right: 2px;
+}
+
+.worn-tag-chip.special {
+    border-color: #d4a017;
+    background: #fff8e1;
+    color: #8a6d00;
+}
+
+.worn-tag-chip.special:hover {
+    transform: none;
+}
+
+/* 选中的特殊称号：金色填充，与普通选中（蓝底）区分 */
+.worn-tag-chip.special.selected {
+    background: #d4a017;
+    color: #fff;
+}
+
 
 

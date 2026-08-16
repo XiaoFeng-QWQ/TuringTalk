@@ -341,19 +341,14 @@
     </main>
 
     
-    <div id="report-detail-overlay" style="display:none;">
-        <div
-            style="position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:1001;display:flex;align-items:center;justify-content:center;">
-            <div class="doodle-border" style="max-width:600px;width:90%;max-height:90vh;overflow-y:auto;margin:0;">
-                <h2 id="report-detail-title" style="font-size:18px;color:var(--danger);margin-bottom:12px;">举报详情</h2>
-                <div id="report-detail-content" style="font-size:13px;color:var(--text-secondary);"></div>
-                <div id="report-detail-chat"
-                    style="margin-top:12px;max-height:300px;overflow-y:auto;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:12px;">
-                </div>
-                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
-                    <button class="doodle-btn" id="btn-report-detail-close">关闭</button>
-                    <button class="doodle-btn success" id="btn-report-detail-reviewed">标记已审</button>
-                </div>
+    <div id="report-detail-overlay" class="admin-dialog-overlay" style="display:none;">
+        <div class="admin-dialog admin-dialog-wide">
+            <h2 id="report-detail-title">举报详情</h2>
+            <div id="report-detail-content"></div>
+            <div id="report-detail-chat"></div>
+            <div class="admin-dialog-actions">
+                <button class="doodle-btn" id="btn-report-detail-close">关闭</button>
+                <button class="doodle-btn success" id="btn-report-detail-reviewed">标记已审</button>
             </div>
         </div>
     </div>

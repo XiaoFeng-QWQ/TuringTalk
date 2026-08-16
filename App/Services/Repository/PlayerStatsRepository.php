@@ -19,6 +19,9 @@ class PlayerStatsRepository
 {
     private static bool $initialized = false;
 
+    /** 玩家最多可佩戴（并在聊天室展示）的标签数量 */
+    public const MAX_WORN_TAGS = 3;
+
     /**
      * 初始化玩家数据仓库
      */
@@ -55,6 +58,26 @@ class PlayerStatsRepository
             PRIMARY KEY (player_id, tag),
             INDEX idx_player_tags_id (player_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+        // 兼容旧表：以下 ALTER 各自独立幂等，避免前一个抛错导致后一个永不执行
+        // 补充佩戴标签列
+        try {
+            $pdo->exec('ALTER TABLE player_data ADD COLUMN worn_tags TEXT');
+        } catch (\Throwable $e) {
+            // 列已存在或权限等原因，忽略
+        }
+        // 补充佩戴的特殊标签列
+        try {
+            $pdo->exec('ALTER TABLE player_data ADD COLUMN worn_special_tags TEXT');
+        } catch (\Throwable $e) {
+            // 列已存在或权限等原因，忽略
+        }
+        // 补充特殊标签标记列
+        try {
+            $pdo->exec('ALTER TABLE player_tags ADD COLUMN is_special TINYINT(1) NOT NULL DEFAULT 0');
+        } catch (\Throwable $e) {
+            // 列已存在或权限等原因，忽略
+        }
     }
 
     // ================================================================
@@ -615,7 +638,8 @@ class PlayerStatsRepository
 
     /**
      * 记录对手标签（由 AsyncDbWriter 异步调用）
-     * 使用 INSERT ... ON DUPLICATE KEY UPDATE 原子累加
+     * 使用 INSERT ... ON DUPLICATE KEY UPDATE 原子累加；
+     * 重复分支只累加 count，不覆盖 is_special（官方特殊称号不被对手重复贴降级）
      */
     public static function recordTag(string $playerId, string $tag): void
     {
@@ -630,17 +654,291 @@ class PlayerStatsRepository
     }
 
     /**
-     * 获取玩家标签统计（按出现次数降序）
-     * @return array<int, array{tag: string, count: int}>
+     * 获取玩家标签统计（特殊标签优先展示，其次按出现次数降序）
+     * @return array<int, array{tag: string, count: int, is_special: int}>
      */
     public static function getPlayerTags(string $playerId): array
     {
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'SELECT tag, count FROM player_tags WHERE player_id = ? ORDER BY count DESC LIMIT 20'
+            'SELECT tag, count, is_special FROM player_tags WHERE player_id = ?
+             ORDER BY is_special DESC, count DESC LIMIT 20'
         );
         $stmt->execute([$playerId]);
         return $stmt->fetchAll();
+    }
+
+    /**
+     * 授予/取消玩家某个标签的特殊称号（管理员后台调用）
+     * 授予：upsert is_special=1（不动 count，也不覆盖既有普通标签的计数）
+     * 取消：仅置 is_special=0
+     */
+    public static function setSpecialTag(string $playerId, string $tag, bool $special): bool
+    {
+        if (empty($playerId)) return false;
+        $tag = mb_substr(trim($tag), 0, 50);
+        if ($tag === '') return false;
+
+        $pdo = Database::connect();
+        if ($special) {
+            $stmt = $pdo->prepare(
+                'INSERT INTO player_tags (player_id, tag, count, is_special) VALUES (?, ?, 0, 1)
+                 ON DUPLICATE KEY UPDATE is_special = 1'
+            );
+            $stmt->execute([$playerId, $tag]);
+        } else {
+            $stmt = $pdo->prepare(
+                'UPDATE player_tags SET is_special = 0 WHERE player_id = ? AND tag = ?'
+            );
+            $stmt->execute([$playerId, $tag]);
+        }
+        return true;
+    }
+
+    /**
+     * 获取玩家的特殊标签列表
+     * @return string[]
+     */
+    public static function getSpecialTags(string $playerId): array
+    {
+        if (empty($playerId)) return [];
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'SELECT tag FROM player_tags WHERE player_id = ? AND is_special = 1 ORDER BY count DESC'
+        );
+        $stmt->execute([$playerId]);
+        return array_column($stmt->fetchAll(), 'tag');
+    }
+
+    // ================================================================
+    //  佩戴标签（聊天室展示）
+    //  worn_tags 存 JSON 数组；带 60s Redis 缓存，供消息发送等高频路径读取
+    // ================================================================
+
+    /**
+     * 获取玩家当前佩戴的标签（player_data.worn_tags JSON 数组）
+     * @return string[]
+     */
+    public static function getWornTags(string $playerId): array
+    {
+        if (empty($playerId)) return [];
+
+        $redis = \App\Services\Infrastructure\RedisService::connect();
+        try {
+            $cached = $redis->get(\App\Services\Infrastructure\RedisService::KP_WORN_TAGS . $playerId);
+            // 空数组缓存不信任：可能是被污染的旧缓存，一律回源 DB 校验，避免标签"消失"
+            if ($cached !== false && $cached !== '[]' && $cached !== 'null' && $cached !== '') {
+                $tags = json_decode($cached, true);
+                if (is_array($tags)) return $tags;
+            }
+        } catch (\Throwable $e) {}
+
+        $tags = self::loadWornTagsFromDb($playerId);
+
+        try {
+            $redis->setex(
+                \App\Services\Infrastructure\RedisService::KP_WORN_TAGS . $playerId,
+                60,
+                json_encode($tags, JSON_UNESCAPED_UNICODE)
+            );
+        } catch (\Throwable $e) {}
+
+        return $tags;
+    }
+
+    /**
+     * 设置玩家佩戴的标签（普通 ≤上限 且必须存在于标签库；特殊标签单独佩戴、不占普通名额，
+     * 必须确实是该玩家的特殊标签）
+     * @return array{success: bool, message: string, worn?: array, worn_special?: array}
+     */
+    public static function setWornTags(string $playerId, array $tags, array $specialTags = []): array
+    {
+        if (empty($playerId)) {
+            return ['success' => false, 'message' => '玩家不存在'];
+        }
+
+        // 普通佩戴标签
+        $ownedSet = [];
+        foreach (self::getPlayerTags($playerId) as $t) {
+            $ownedSet[$t['tag']] = true;
+        }
+
+        $clean = [];
+        foreach ($tags as $tag) {
+            if (!is_string($tag)) continue;
+            $tag = mb_substr(trim($tag), 0, 50);
+            if ($tag === '') continue;
+            if (!isset($ownedSet[$tag])) continue; // 只允许佩戴被贴过的标签
+            if (in_array($tag, $clean, true)) continue;
+            $clean[] = $tag;
+            if (count($clean) >= self::MAX_WORN_TAGS) break;
+        }
+
+        // 佩戴的特殊标签
+        $specialOwned = array_fill_keys(self::getSpecialTags($playerId), true);
+        $cleanSpecial = [];
+        foreach ($specialTags as $tag) {
+            if (!is_string($tag)) continue;
+            $tag = mb_substr(trim($tag), 0, 50);
+            if ($tag === '') continue;
+            if (!isset($specialOwned[$tag])) continue; // 只允许佩戴确认为特殊的标签
+            if (in_array($tag, $cleanSpecial, true)) continue;
+            $cleanSpecial[] = $tag;
+            if (count($cleanSpecial) >= self::MAX_WORN_TAGS) break;
+        }
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('UPDATE player_data SET worn_tags = ?, worn_special_tags = ? WHERE id = ?');
+        $stmt->execute([
+            json_encode($clean, JSON_UNESCAPED_UNICODE),
+            json_encode($cleanSpecial, JSON_UNESCAPED_UNICODE),
+            $playerId,
+        ]);
+
+        self::invalidateWornTagsCache($playerId);
+        self::invalidateWornSpecialCache($playerId);
+
+        return [
+            'success' => true,
+            'message' => '标签佩戴已更新',
+            'worn' => $clean,
+            'worn_special' => $cleanSpecial,
+        ];
+    }
+
+    /**
+     * 获取玩家当前佩戴的特殊标签（player_data.worn_special_tags JSON 数组，60s 缓存）
+     * @return string[]
+     */
+    public static function getWornSpecialTags(string $playerId): array
+    {
+        if (empty($playerId)) return [];
+
+        $redis = \App\Services\Infrastructure\RedisService::connect();
+        try {
+            $cached = $redis->get(\App\Services\Infrastructure\RedisService::KP_WORN_SPECIAL . $playerId);
+            // 空数组缓存不信任：可能是被污染的旧缓存，一律回源 DB 校验，避免标签"消失"
+            if ($cached !== false && $cached !== '[]' && $cached !== 'null' && $cached !== '') {
+                $tags = json_decode($cached, true);
+                if (is_array($tags)) return $tags;
+            }
+        } catch (\Throwable $e) {}
+
+        $tags = self::loadWornSpecialFromDb($playerId);
+
+        try {
+            $redis->setex(
+                \App\Services\Infrastructure\RedisService::KP_WORN_SPECIAL . $playerId,
+                60,
+                json_encode($tags, JSON_UNESCAPED_UNICODE)
+            );
+        } catch (\Throwable $e) {}
+
+        return $tags;
+    }
+
+    /**
+     * 批量获取玩家佩戴的特殊标签（供聊天室在线列表一次查询，不读缓存）
+     * @param string[] $playerIds
+     * @return array<string, string[]> player_id => [tag, ...]
+     */
+    public static function getWornSpecialTagsBatch(array $playerIds): array
+    {
+        $playerIds = array_values(array_unique(array_filter(array_map('strval', $playerIds))));
+        if (empty($playerIds)) return [];
+
+        $result = [];
+        $pdo = Database::connect();
+        foreach (array_chunk($playerIds, 100) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $pdo->prepare("SELECT id, worn_special_tags FROM player_data WHERE id IN ({$placeholders})");
+            $stmt->execute($chunk);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $tags = json_decode((string)($row['worn_special_tags'] ?? ''), true);
+                $result[$row['id']] = is_array($tags)
+                    ? array_values(array_filter($tags, 'is_string'))
+                    : [];
+            }
+        }
+        return $result;
+    }
+
+    private static function loadWornSpecialFromDb(string $playerId): array
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT worn_special_tags FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
+        $raw = $stmt->fetchColumn();
+        if (empty($raw)) return [];
+        $tags = json_decode($raw, true);
+        return is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [];
+    }
+
+    private static function invalidateWornSpecialCache(string $playerId): void
+    {
+        try {
+            \App\Services\Infrastructure\RedisService::connect()->del(
+                \App\Services\Infrastructure\RedisService::KP_WORN_SPECIAL . $playerId
+            );
+        } catch (\Throwable $e) {}
+    }
+
+    /**
+     * 批量获取玩家佩戴标签（供聊天室在线列表一次查询，不读缓存）
+     * @param string[] $playerIds
+     * @return array<string, string[]> player_id => [tag, ...]
+     */
+    public static function getWornTagsBatch(array $playerIds): array
+    {
+        $playerIds = array_values(array_unique(array_filter(array_map('strval', $playerIds))));
+        if (empty($playerIds)) return [];
+
+        $result = [];
+        $pdo = Database::connect();
+        foreach (array_chunk($playerIds, 100) as $chunk) {
+            $placeholders = implode(',', array_fill(0, count($chunk), '?'));
+            $stmt = $pdo->prepare("SELECT id, worn_tags FROM player_data WHERE id IN ({$placeholders})");
+            $stmt->execute($chunk);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $tags = json_decode((string)($row['worn_tags'] ?? ''), true);
+                $result[$row['id']] = is_array($tags)
+                    ? array_values(array_filter($tags, 'is_string'))
+                    : [];
+            }
+        }
+        return $result;
+    }
+
+    private static function loadWornTagsFromDb(string $playerId): array
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT worn_tags FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
+        $raw = $stmt->fetchColumn();
+        if (empty($raw)) return [];
+        $tags = json_decode($raw, true);
+        return is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [];
+    }
+
+    /**
+     * 作废玩家佩戴标签的全部缓存（普通 + 特殊）。
+     * 供玩家重新 join / 重连成功后调用，确保下一次读取直接回源 DB，
+     * 避免命中被污染的旧缓存导致标签短暂消失。
+     */
+    public static function invalidateWornCaches(string $playerId): void
+    {
+        if ($playerId === '') return;
+        self::invalidateWornTagsCache($playerId);
+        self::invalidateWornSpecialCache($playerId);
+    }
+
+    private static function invalidateWornTagsCache(string $playerId): void
+    {
+        try {
+            \App\Services\Infrastructure\RedisService::connect()->del(
+                \App\Services\Infrastructure\RedisService::KP_WORN_TAGS . $playerId
+            );
+        } catch (\Throwable $e) {}
     }
 
     // ================================================================

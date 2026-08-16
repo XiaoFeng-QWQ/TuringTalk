@@ -145,6 +145,7 @@ class GameClient {
         transport.on('banned', (data) => this._onBanned(data));
         transport.on('save_history_status', (data) => this._onSaveHistoryStatus(data));
         transport.on('leave_message_status', (data) => this._onLeaveMessageStatus(data));
+        transport.on('share_record_status', (data) => this._onShareRecordStatus(data));
     }
 
     // ---- 公开方法 ----
@@ -783,6 +784,10 @@ class GameClient {
             }
         }
     }
+
+    _onShareRecordStatus(data) {
+        showTopToast(data.message || (data.success ? '战绩卡片已分享到聊天室' : '分享失败，请重试'), !data.success);
+    }
 }
 
 const landingPage = document.getElementById('landing-page');
@@ -1001,6 +1006,8 @@ function generateId() {
 document.getElementById('system-id').textContent = browserFingerprint;
 
 function startMatching() {
+    // 资料页/收藏页返回首页后首次点“开始匹配”时，这里懒创建游戏客户端
+    ensureGameClient();
     if (!game) {
         alert('系统正在初始化，请稍后再试...');
         return;
@@ -1736,6 +1743,12 @@ async function exportChatImage(btn, verdict, reveal, isCorrect, guessLabel, trut
             scale: 2,
             backgroundColor: '#f8f9fa',
             useCORS: true,
+            // 黑夜模式下 [data-theme="dark"] * 会把导出容器的文字强制成浅色，导致图片文字不可读。
+            // 在克隆文档中移除 dark 主题标记，让导出图始终按浅色卡片渲染（不影响真实页面）
+            onclone: (doc) => {
+                const root = doc.documentElement;
+                if (root && root.hasAttribute('data-theme')) root.removeAttribute('data-theme');
+            },
         });
         const link = document.createElement('a');
         link.download = 'TuringTalk_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.png';
@@ -2467,12 +2480,12 @@ WebSocketTransport.prototype.connect = function (nickname, duration, password) {
                 break;
             case 'system':
                 DebugLogger.log('game', '系统消息', { text: data.text });
-                if (data.text && data.text.includes('已在其他地方登录')) {
+                if (data.text && (data.text.includes('活跃连接') || data.text.includes('已在其他地方登录'))) {
                     this._preventReconnect = true;
                     this._intentionalClose = true;
                 }
                 this._emit('system', { text: data.text });
-                if (data.text && data.text.includes('已在其他地方登录')) {
+                if (data.text && (data.text.includes('活跃连接') || data.text.includes('已在其他地方登录'))) {
                     if (this._ws) this._ws.close();
                 }
                 break;
@@ -2552,6 +2565,9 @@ WebSocketTransport.prototype.connect = function (nickname, duration, password) {
                 break;
             case 'leave_message_status':
                 this._emit('leave_message_status', data);
+                break;
+            case 'share_record_status':
+                this._emit('share_record_status', data);
                 break;
             case 'stickers_list':
                 stickerMap = handleStickersList(data);
@@ -2728,6 +2744,26 @@ document.getElementById('reconnect-overlay').addEventListener('click', function 
 // 初始化传输层和游戏客户端
 // ================================================================
 let transport, game;
+let gameClientInited = false;
+
+// 懒初始化游戏 WS 客户端：普通首页加载时立即预连接；
+// 直接访问 /player/xxx（个人资料页）或 /collection/xxx（公开收藏页）时先不建连，
+// 等用户返回首页点击开始匹配时再创建，避免资料页/收藏页白白占用一个 WS 连接
+function ensureGameClient() {
+    if (gameClientInited) return;
+    gameClientInited = true;
+    try {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws');
+        game = new GameClient(transport);
+        transport.preconnect();  // 建立 WS 连接并启动心跳，onopen 不发 join
+        DebugLogger.log('lifecycle', 'WebSocket preconnect已调用');
+        console.log('[Turing] Game client ready');
+    } catch (e) {
+        gameClientInited = false;  // 初始化失败允许下次重试
+        throw e;
+    }
+}
 
 (async function () {
     // 记录环境信息
@@ -2742,16 +2778,12 @@ let transport, game;
         lang: navigator.language,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
-    // 公开收藏页只做展示，无需建立游戏 WS 连接
+    // 公开收藏页 / 个人资料页只做展示，无需立即建立游戏 WS 连接
     const isPublicCollection = !!parseCollectionPath();
+    const isProfileView = !!parseProfilePath();
     try {
-        if (!isPublicCollection) {
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-            transport = new WebSocketTransport(wsProtocol + window.location.host + '/ws');
-            game = new GameClient(transport);
-            transport.preconnect();  // 页面加载即建立 WS 连接并启动心跳
-            DebugLogger.log('lifecycle', 'WebSocket preconnect已调用');
-            console.log('[Turing] Game client ready');
+        if (!isPublicCollection && !isProfileView) {
+            ensureGameClient();
         }
         btnStart.disabled = false;
         btnStart.textContent = '马上开始匹配';
@@ -2826,7 +2858,175 @@ function updateLbUI() {
             msgManageSection.style.display = 'none';
         }
     }
+
+    // 佩戴标签区域
+    let wornTagsSection = document.getElementById('worn-tags-section');
+    if (wornTagsSection) {
+        if (pid) {
+            wornTagsSection.style.display = '';
+            loadWornTags();
+        } else {
+            wornTagsSection.style.display = 'none';
+        }
+    }
 }
+
+// ================================================================
+//  佩戴标签（设置页）
+// ================================================================
+
+let wornTagsMax = 3;
+let wornTagsSelected = [];
+let wornSpecialSelected = [];
+
+function loadWornTags() {
+    const tok = getUserToken();
+    const listEl = document.getElementById('worn-tags-list');
+    const statusEl = document.getElementById('worn-tags-status');
+    if (!tok || !listEl) return;
+
+    fetch('/api/player/tags', {
+        headers: { 'Authorization': 'Bearer ' + tok }
+    })
+    .then(r => r.json())
+    .then(data => {
+        wornTagsMax = data.max || 3;
+        wornTagsSelected = Array.isArray(data.worn) ? data.worn.slice() : [];
+        wornSpecialSelected = Array.isArray(data.worn_special) ? data.worn_special.slice() : [];
+
+        // 官方特殊称号：可自选佩戴，独立于普通名额
+        const special = Array.isArray(data.special) ? data.special : [];
+        const specialEl = document.getElementById('worn-tags-special');
+        if (specialEl) {
+            specialEl.style.display = special.length ? 'flex' : 'none';
+            specialEl.innerHTML = '';
+            if (special.length) {
+                const label = document.createElement('span');
+                label.className = 'worn-special-label';
+                label.textContent = '官方称号';
+                specialEl.appendChild(label);
+                special.forEach(t => {
+                    const chip = document.createElement('span');
+                    chip.className = 'worn-tag-chip special' + (wornSpecialSelected.indexOf(t) !== -1 ? ' selected' : '');
+                    chip.textContent = t;
+                    chip.title = '官方特殊称号，可自选佩戴（最多 ' + wornTagsMax + ' 个，不占普通名额）';
+                    chip.addEventListener('click', function () {
+                        const idx = wornSpecialSelected.indexOf(t);
+                        if (idx !== -1) {
+                            wornSpecialSelected.splice(idx, 1);
+                        } else {
+                            if (wornSpecialSelected.length >= wornTagsMax) {
+                                const st = document.getElementById('worn-tags-status');
+                                st.style.display = 'block';
+                                st.style.color = 'var(--danger)';
+                                st.textContent = '官方称号最多佩戴 ' + wornTagsMax + ' 个';
+                                setTimeout(() => { st.style.display = 'none'; }, 2000);
+                                return;
+                            }
+                            wornSpecialSelected.push(t);
+                        }
+                        chip.classList.toggle('selected', wornSpecialSelected.indexOf(t) !== -1);
+                    });
+                    specialEl.appendChild(chip);
+                });
+            }
+        }
+
+        // 普通标签（排除特殊标签，特殊已单独展示）
+        const tags = (data.tags || []).filter(t => !t.is_special);
+        if (!tags.length && (!special.length)) {
+            listEl.innerHTML = '<span style="font-size:12px;color:var(--text-subtle);">还没有人给你贴过标签，去对局里赢取对手的评价吧～</span>';
+            return;
+        }
+        if (!tags.length) {
+            listEl.innerHTML = '<span style="font-size:12px;color:var(--text-subtle);">还没有可佩戴的普通标签</span>';
+            return;
+        }
+        listEl.innerHTML = '';
+        tags.forEach(t => {
+            const chip = document.createElement('span');
+            chip.className = 'worn-tag-chip' + (wornTagsSelected.indexOf(t.tag) !== -1 ? ' selected' : '');
+            chip.textContent = t.tag + ' ×' + t.count;
+            chip.dataset.tag = t.tag;
+            chip.addEventListener('click', function () {
+                const idx = wornTagsSelected.indexOf(t.tag);
+                if (idx !== -1) {
+                    wornTagsSelected.splice(idx, 1);
+                } else {
+                    if (wornTagsSelected.length >= wornTagsMax) {
+                        const st = document.getElementById('worn-tags-status');
+                        st.style.display = 'block';
+                        st.style.color = 'var(--danger)';
+                        st.textContent = '最多佩戴 ' + wornTagsMax + ' 个标签';
+                        setTimeout(() => { st.style.display = 'none'; }, 2000);
+                        return;
+                    }
+                    wornTagsSelected.push(t.tag);
+                }
+                chip.classList.toggle('selected', wornTagsSelected.indexOf(t.tag) !== -1);
+            });
+            listEl.appendChild(chip);
+        });
+        if (statusEl) statusEl.style.display = 'none';
+    })
+    .catch(() => {
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = '加载标签失败';
+        }
+    });
+}
+
+document.getElementById('btn-save-worn-tags').addEventListener('click', function () {
+    const tok = getUserToken();
+    const statusEl = document.getElementById('worn-tags-status');
+    if (!tok) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = '请先获取恢复码';
+        return;
+    }
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+    fetch('/api/player/worn-tags', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + tok
+        },
+        body: JSON.stringify({ tags: wornTagsSelected, special_tags: wornSpecialSelected })
+    })
+    .then(r => r.json())
+    .then(res => {
+        statusEl.style.display = 'block';
+        if (res.success) {
+            statusEl.style.color = 'var(--success)';
+            statusEl.textContent = res.message || '已保存';
+            wornTagsSelected = res.worn || wornTagsSelected;
+            wornSpecialSelected = res.worn_special || wornSpecialSelected;
+            document.querySelectorAll('#worn-tags-list .worn-tag-chip').forEach(chip => {
+                chip.classList.toggle('selected', wornTagsSelected.indexOf(chip.dataset.tag) !== -1);
+            });
+            document.querySelectorAll('#worn-tags-special .worn-tag-chip.special').forEach(chip => {
+                chip.classList.toggle('selected', wornSpecialSelected.indexOf(chip.textContent) !== -1);
+            });
+        } else {
+            statusEl.style.color = 'var(--danger)';
+            statusEl.textContent = res.message || '保存失败';
+        }
+        btn.disabled = false;
+        btn.textContent = '保存佩戴';
+    })
+    .catch(() => {
+        statusEl.style.display = 'block';
+        statusEl.style.color = 'var(--danger)';
+        statusEl.textContent = '网络错误';
+        btn.disabled = false;
+        btn.textContent = '保存佩戴';
+    });
+});
 
 function updateLbMyStats(stats) {
     if (!stats) return;
@@ -2927,6 +3127,12 @@ async function exportStatsImage() {
             scale: 2,
             backgroundColor: '#f8f9fa',
             useCORS: true,
+            // 黑夜模式下 [data-theme="dark"] * 会把导出容器的文字强制成浅色，导致图片文字不可读。
+            // 在克隆文档中移除 dark 主题标记，让导出图始终按浅色卡片渲染（不影响真实页面）
+            onclone: (doc) => {
+                const root = doc.documentElement;
+                if (root && root.hasAttribute('data-theme')) root.removeAttribute('data-theme');
+            },
         });
         const link = document.createElement('a');
         link.download = '我的战绩_' + pid + '.png';
@@ -2949,39 +3155,18 @@ function autoInitPlayerId() {
 
 document.getElementById('btn-export-stats').addEventListener('click', exportStatsImage);
 
-// 战绩分享到聊天室：通过临时聊天室连接发送请求，服务端读取真实战绩生成卡片（防伪造）
+// 战绩分享到聊天室：复用首页已有 WS 连接发送请求，服务端读取真实战绩生成卡片（防伪造）
 document.getElementById('btn-share-record').addEventListener('click', function () {
+    if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) {
+        showTopToast('连接未就绪，请稍后再试', true);
+        return;
+    }
     showTopToast('正在生成战绩卡片...', false);
-    let proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-    let shareWs = new WebSocket(proto + window.location.host + '/ws/lobby');
-    let done = false;
-    let finish = function (msg) {
-        if (done) return;
-        done = true;
-        if (msg) showTopToast(msg, msg.indexOf('失败') !== -1 || msg.indexOf('超时') !== -1 ? true : false);
-        try { shareWs.close(); } catch (e) { }
-    };
-    shareWs.onerror = function () { finish('分享失败，请重试'); };
-    setTimeout(function () { finish('分享超时，请重试'); }, 8000);
-
-    shareWs.onopen = function () {
-        // 设置指纹，确保与首页连接视为同一设备（在线锁允许同设备多连接）
-        shareWs.send(JSON.stringify({ type: 'lobby_set_fp', fingerprint: getFingerprint() }));
-        shareWs.send(JSON.stringify({ type: 'lobby_join', nickname: getNickname(), player_token: getUserToken() || '' }));
-    };
-    shareWs.onmessage = function (e) {
-        let d;
-        try { d = JSON.parse(e.data); } catch (err) { return; }
-        if (d.type === 'lobby_joined') {
-            shareWs.send(JSON.stringify({ type: 'lobby_card_share' }));
-        } else if (d.type === 'lobby_system' && d.text && d.text.indexOf('战绩卡片') !== -1) {
-            finish(d.text);
-        } else if (d.type === 'lobby_error') {
-            finish(d.text || '分享失败');
-        }
-    };
-    shareWs.onerror = function () { finish('分享失败，请重试'); };
-    setTimeout(function () { finish('分享超时，请重试'); }, 8000);
+    try {
+        transport.send('share_record', { player_token: getUserToken() || '' });
+    } catch (e) {
+        showTopToast('分享失败，请重试', true);
+    }
 });
 
 // 改密码

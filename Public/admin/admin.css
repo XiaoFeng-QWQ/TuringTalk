@@ -273,9 +273,29 @@ h3 { font-size: 16px; font-weight: 600; }
 }
 
 
-#report-detail-overlay .doodle-border {
-    max-width: 600px; width: 90%; max-height: 90vh;
-    overflow-y: auto; margin: 0;
+/* 举报详情（使用 admin-dialog 弹窗体系，宽版容器） */
+.admin-dialog-wide {
+    max-width: 600px;
+    width: 90%;
+}
+#report-detail-title {
+    font-size: 18px;
+    color: var(--danger);
+    margin-bottom: 12px;
+}
+#report-detail-content {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+#report-detail-chat {
+    margin-top: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    font-size: 12px;
 }
 
 
@@ -338,6 +358,47 @@ h3 { font-size: 16px; font-weight: 600; }
 
 
 .ban-reason-overlay .doodle-border { max-width: 380px; width: 90%; margin: 0; }
+
+
+/* 特殊标签管理弹窗（风格同举报详情） */
+.admin-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    backdrop-filter: blur(4px);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.admin-dialog {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-md);
+    padding: 20px;
+    width: 380px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.admin-dialog h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+.admin-dialog-target {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+.admin-dialog-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
 
 
 .admin-table-wrap, .log-table-wrap { max-height: 360px; overflow-y: auto; }

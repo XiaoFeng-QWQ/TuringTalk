@@ -313,6 +313,13 @@ class AdminWebSocketHandler
             case 'admin_user_list_banned':
                 $this->userHandler->handleListBanned($server, $fd);
                 break;
+            case 'admin_user_get_tags':
+                $this->userHandler->handleGetTags($server, $fd, $data);
+                break;
+            case 'admin_user_set_special':
+                $this->withOp($server, $fd, "正在设置特殊标签", fn() =>
+                $this->userHandler->handleSetSpecialTag($server, $fd, $data));
+                break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);
         }

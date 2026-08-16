@@ -8,6 +8,7 @@ use App\Services\Chat\LobbyChatService;
 use App\Services\Chat\SongService;
 use App\Services\Repository\ReportRepository;
 use App\Services\Repository\BanRepository;
+use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Game\GameService;
@@ -347,6 +348,11 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $this->clientInfo[(string)$fd]['player_id'] = $playerId;
         }
 
+        // 作废佩戴标签缓存：重连/重新 join 后首次发消息直接回源 DB，避免命中旧缓存导致标签短暂消失
+        if ($playerId !== null && $playerId !== '') {
+            PlayerStatsRepository::invalidateWornCaches($playerId);
+        }
+
         $this->sendToPlayer($server, $fd, [
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
@@ -466,6 +472,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $mentions = array_values(array_unique($mentions));
         }
 
+        // 发送者佩戴标签 + 佩戴的特殊标签（缓存读取，随消息存储展示）
+        $titles        = $playerId !== '' ? PlayerStatsRepository::getWornTags($playerId) : [];
+        $specialTitles = $playerId !== '' ? PlayerStatsRepository::getWornSpecialTags($playerId) : [];
+
         $msg = $this->lobbyService->send(
             $nickname,
             $playerId,
@@ -474,7 +484,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
             $replyToId,
             $replyToName,
-            $replyToText
+            $replyToText,
+            $titles,
+            $specialTitles
         );
 
         // 广播给所有在线用户
@@ -485,6 +497,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'sender_id'   => $msg['sender_id'] ?? '',
             'content'     => $msg['content'],
             'msg_type'    => $msg['type'] ?? '', // markdown
+            'sender_titles' => $msg['sender_titles'] ?? [],
+            'sender_special_titles' => $msg['sender_special_titles'] ?? [],
             'reply_to'    => $msg['reply_to'],
             'mentions'    => $mentions,
             'time'        => $msg['time'],
@@ -546,6 +560,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         }
 
         // 持久化表情消息到 Redis（用于历史记录）
+        $titles        = $playerId !== '' ? PlayerStatsRepository::getWornTags($playerId) : [];
+        $specialTitles = $playerId !== '' ? PlayerStatsRepository::getWornSpecialTags($playerId) : [];
         $msg = $this->lobbyService->sendSticker(
             $info['nickname'],
             $playerId,
@@ -553,7 +569,9 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $sticker['name'] ?? '',
             $sticker['url'] ?? '',
             $this->clientInfo[(string)$fd]['ip'] ?? '',
-            $this->clientInfo[(string)$fd]['fingerprint'] ?? ''
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+            $titles,
+            $specialTitles
         );
 
         // 实时广播完整消息给所有在线用户（含消息ID/时间，供撤回与回复使用）
@@ -1028,6 +1046,16 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $playerId = $info['player_id'] ?? '';
         if ($playerId === '') return;
 
+        // 卡片分享同样受发言频率限制（与聊天共用 key），防止刷屏
+        $cooldown = $this->lobbyService->checkRateLimit($playerId);
+        if ($cooldown > 0) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '操作太频繁，请等待 ' . $cooldown . ' 秒',
+            ]);
+            return;
+        }
+
         // 服务端读取真实战绩（不信任前端数据，防伪造）
         $record = \App\Services\Repository\PlayerStatsRepository::getRecordStats($playerId);
         $totalGames = max(0, (int)($record['games'] ?? 0));
@@ -1053,13 +1081,33 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
 
         // 存储 + 广播（含 type 枚举，前端按卡片渲染）
-        $msg = $this->lobbyService->sendCard(
+        $this->publishRecordCard(
+            $server,
             $info['nickname'],
             $playerId,
             $cardJson,
             $this->clientInfo[(string)$fd]['ip'] ?? '',
-            $this->clientInfo[(string)$fd]['fingerprint'] ?? ''
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+            PlayerStatsRepository::getWornTags($playerId),
+            PlayerStatsRepository::getWornSpecialTags($playerId)
         );
+
+        // 分享成功提示仅发给本人
+        $this->sendToPlayer($server, $fd, [
+            'type' => 'lobby_system',
+            'text' => '战绩卡片已分享到聊天室',
+        ]);
+    }
+
+    /**
+     * 战绩卡片存储并广播到聊天室（供本 handler 的 lobby 分享路径与其他模式如游戏 WS 复用）。
+     * @param string $senderName 分享者昵称
+     * @param string $senderId   分享者 player_id
+     * @param string $cardJson   卡片 JSON 内容
+     */
+    public function publishRecordCard(Server $server, string $senderName, string $senderId, string $cardJson, string $ip = '', string $fp = '', array $titles = [], array $specialTitles = []): void
+    {
+        $msg = $this->lobbyService->sendCard($senderName, $senderId, $cardJson, $ip, $fp, \App\Enums\LobbyMessageType::CARD_SHARE_RECORD, $titles, $specialTitles);
 
         $this->broadcastLobby($server, 0, [
             'type'        => 'lobby_chat',
@@ -1068,14 +1116,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             'sender_id'   => $msg['sender_id'] ?? '',
             'content'     => $msg['content'],
             'msg_type'    => $msg['type'], // card.share.record
+            'sender_titles' => $msg['sender_titles'] ?? [],
+            'sender_special_titles' => $msg['sender_special_titles'] ?? [],
             'time'        => $msg['time'],
             'created_at'  => $msg['created_at'],
-        ]);
-
-        // 分享成功提示仅发给本人
-        $this->sendToPlayer($server, $fd, [
-            'type' => 'lobby_system',
-            'text' => '战绩卡片已分享到聊天室',
         ]);
     }
 
@@ -1088,6 +1132,16 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         if (!$info || empty($info['nickname'])) return;
         $playerId = $info['player_id'] ?? '';
         if ($playerId === '') return;
+
+        // 邀请卡片同样受发言频率限制（与聊天共用 key），防止刷屏
+        $cooldown = $this->lobbyService->checkRateLimit($playerId);
+        if ($cooldown > 0) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '操作太频繁，请等待 ' . $cooldown . ' 秒',
+            ]);
+            return;
+        }
 
         $roomId = Sanitizer::identifier($data['room_id'] ?? '');
         if ($roomId === '' || strlen($roomId) !== 5) {
@@ -1138,7 +1192,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             $cardJson,
             $sender['ip'] ?? '',
             $sender['fingerprint'] ?? '',
-            \App\Enums\LobbyMessageType::CARD_INVITE_GOMOKU
+            \App\Enums\LobbyMessageType::CARD_INVITE_GOMOKU,
+            PlayerStatsRepository::getWornTags($playerId)
         );
 
         $this->broadcastLobby($server, 0, [
@@ -1652,8 +1707,14 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             if ($this->tracker && $this->tracker->isAdminFd($fd)) continue;
 
             // 发送缓冲剩余空间不足 → 跳过该连接（防止缓冲堆积导致内存溢出/服务卡死）
-            $sendBuf = $server->getClientInfo($fd, false, 'send_buffer_size');
-            if (is_int($sendBuf) && $sendBuf < $payloadLen) continue;
+            // getClientInfo() 返回连接信息数组，发送缓冲已排队字节数为 send_queued_bytes，
+            // 可用空间 = buffer_output_size - send_queued_bytes
+            $clientInfo = $server->getClientInfo($fd);
+            if (is_array($clientInfo)) {
+                $bufferSize = (int)($server->setting['buffer_output_size'] ?? 2 * 1024 * 1024);
+                $queuedBytes = (int)($clientInfo['send_queued_bytes'] ?? 0);
+                if ($bufferSize - $queuedBytes < $payloadLen) continue;
+            }
 
             $server->push($fd, $payload);
         }
@@ -1684,6 +1745,17 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 'isolated'  => $playerId !== '' && $this->lobbyService->isIsolated($playerId) ? 1 : 0,
             ];
         }
+
+        // 批量附带佩戴标签 + 佩戴的特殊标签（各一次 IN 查询，供在线列表展示称号）
+        $playerIds   = array_filter(array_column($seen, 'player_id'));
+        $titlesMap   = PlayerStatsRepository::getWornTagsBatch($playerIds);
+        $specialMap  = PlayerStatsRepository::getWornSpecialTagsBatch($playerIds);
+        foreach ($seen as &$item) {
+            $item['titles']         = $titlesMap[$item['player_id']] ?? [];
+            $item['special_titles'] = $specialMap[$item['player_id']] ?? [];
+        }
+        unset($item);
+
         return array_values($seen);
     }
 

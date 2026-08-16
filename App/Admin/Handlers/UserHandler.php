@@ -163,6 +163,71 @@ class UserHandler
     }
 
     /**
+     * 获取玩家标签列表（含特殊标记），供授予/取消特殊称号
+     */
+    public function handleGetTags(Server $server, int $fd, array $data): void
+    {
+        $playerId = (string)($data['player_id'] ?? '');
+        if ($playerId === '') {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '参数不完整']);
+            return;
+        }
+
+        $this->send($server, $fd, [
+            'type'      => 'admin_user_tags_result',
+            'player_id' => $playerId,
+            'tags'      => PlayerStatsRepository::getPlayerTags($playerId),
+        ]);
+    }
+
+    /**
+     * 授予/取消玩家的特殊称号
+     */
+    public function handleSetSpecialTag(Server $server, int $fd, array $data): void
+    {
+        $playerId = (string)($data['player_id'] ?? '');
+        $tag = trim((string)($data['tag'] ?? ''));
+        $special = !empty($data['special']);
+
+        if ($playerId === '' || $tag === '') {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '参数不完整']);
+            return;
+        }
+        if (mb_strlen($tag) > 50) {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '标签不能超过 50 字']);
+            return;
+        }
+
+        PlayerStatsRepository::setSpecialTag($playerId, $tag, $special);
+
+        $this->send($server, $fd, [
+            'type'      => 'admin_user_special_result',
+            'player_id' => $playerId,
+            'tag'       => $tag,
+            'special'   => $special,
+        ]);
+
+        $username = $this->tracker->getUsername($fd);
+        $adminId  = $this->tracker->getAdminId($fd);
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            $special ? 'user_grant_special_tag' : 'user_revoke_special_tag',
+            'player',
+            $playerId,
+            json_encode(['tag' => $tag, 'special' => $special], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
+
+        Logger::info('Admin set special tag', [
+            'admin_fd' => $fd,
+            'player_id' => $playerId,
+            'tag' => $tag,
+            'special' => $special,
+        ]);
+    }
+
+    /**
      * 尝试踢掉匹配的在线连接
      */
     private function kickOnlineConnection(Server $server, string $playerId, string $ip, string $fp, string $reason): void

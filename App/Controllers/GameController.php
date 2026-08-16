@@ -510,6 +510,49 @@ class GameController
         $response->send();
     }
 
+    // ==================== 佩戴标签 ====================
+
+    /**
+     * GET /api/player/tags
+     * 获取自己的标签库 + 当前佩戴（设置页展示用）
+     */
+    public function getMyTags(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $response->setContent(json_encode([
+            'tags' => PlayerStatsRepository::getPlayerTags($playerId),
+            'worn' => PlayerStatsRepository::getWornTags($playerId),
+            'special' => PlayerStatsRepository::getSpecialTags($playerId),
+            'worn_special' => PlayerStatsRepository::getWornSpecialTags($playerId),
+            'max'  => PlayerStatsRepository::MAX_WORN_TAGS,
+        ], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/player/worn-tags
+     * 设置佩戴标签（Body: { tags: [...], special_tags: [...] }，服务端校验 ≤上限 且必须存在于标签库）
+     */
+    public function setWornTags(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $tags = $body['tags'] ?? [];
+        $specialTags = $body['special_tags'] ?? [];
+        if (!is_array($tags)) $tags = [];
+        if (!is_array($specialTags)) $specialTags = [];
+
+        $result = PlayerStatsRepository::setWornTags($playerId, $tags, $specialTags);
+        $response->setContent(json_encode($result, JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
     // ==================== 经典对局收藏 ====================
 
     /**

@@ -129,6 +129,7 @@ class GameService
         if (isset($data['closing'])) $data['closing'] = (int)$data['closing'];
         if (isset($data['created_at'])) $data['created_at'] = (int)$data['created_at'];
         if (isset($data['chat_started_at'])) $data['chat_started_at'] = (int)$data['chat_started_at'];
+        if (isset($data['finished_at'])) $data['finished_at'] = (int)$data['finished_at'];
         return $data;
     }
 
@@ -217,7 +218,13 @@ class GameService
     public function transitionState(string $sessionId, string $newState): void
     {
         $redis = RedisService::connect();
-        $redis->hSet(RedisService::KP_SESSION . $sessionId, 'state', $newState);
+        $fields = ['state' => $newState];
+        // 记录结束时间，供 sweepStaleHistory 按“结束时刻”而非 created_at 计算存活期，
+        // 保证长对局（5/10分钟）结束后玩家仍有足够时间保存记录/留言
+        if ($newState === 'finished') {
+            $fields['finished_at'] = (string)time();
+        }
+        $redis->hMSet(RedisService::KP_SESSION . $sessionId, $fields);
         $redis->expire(RedisService::KP_SESSION . $sessionId, self::SESSION_TTL);
 
         $session = $this->getSession($sessionId);
@@ -375,14 +382,6 @@ class GameService
         $redis = RedisService::connect();
         $code = $redis->get(RedisService::KP_RCODE . $fd);
         return $code ?: null;
-    }
-
-    public static function sessionHasPlayerId(array $session): bool
-    {
-        $p1 = (int)($session['player1_fd'] ?? 0);
-        $p2 = (int)($session['player2_fd'] ?? 0);
-        return ($p1 > 0 && self::getPlayerId($p1) !== null)
-            || ($p2 > 0 && self::getPlayerId($p2) !== null);
     }
 
     public static function removePlayerId(int $fd): void
@@ -552,15 +551,20 @@ LUA;
 
     /**
      * 扫除过期数据：清理已结束超时的会话、玩家绑定、消息记录
-     * - finished 状态 + 超过 maxAgeSeconds：完整清理
-     * - 非 finished 状态 + 超过 2×maxAgeSeconds：异常卡住会话，强制清理
+     * - finished 状态 + 结束时长超过 maxAgeSeconds（默认 30 分钟防呆）：完整清理。
+     *   常规清理由“双方都离开”触发（markAndCheckCleanup），本扫描只兜底
+     *   玩家一直挂在结果页不离开的极端情况；按 finished_at 计算，
+     *   保证结束后的保存记录/留言窗口不受对局时长影响
+     * - 非 finished 状态 + 超过应结束时间（chat_started_at + duration + 判定超时 + 缓冲）：
+     *   异常卡住会话，强制清理
      */
-    public function sweepStaleHistory(int $maxAgeSeconds = 300): void
+    public function sweepStaleHistory(int $maxAgeSeconds = 1800): void
     {
         $now = time();
         $redis = RedisService::connect();
         $keys = RedisService::scanKeys(RedisService::KP_SESSION . '*');
         $cleaned = 0;
+        $judgementTimeout = (int)Config::get('Game.JudgementTimeout', 60);
 
         foreach ($keys as $key) {
             $sessionId = substr($key, strlen(RedisService::KP_SESSION));
@@ -571,20 +575,29 @@ LUA;
             $createdAt = (int)($session['created_at'] ?? 0);
             if ($createdAt <= 0) continue;
 
-            $age = $now - $createdAt;
             $shouldClean = false;
 
-            if ($state === 'finished' && $age > $maxAgeSeconds) {
-                // 已完成且超时：正常清理
-                $shouldClean = true;
-            } elseif (!in_array($state, ['finished'], true) && $age > $maxAgeSeconds * 2) {
-                // 异常卡在非 finished 状态超过 2 倍阈值：强制清理
-                Logger::warning('sweepStaleHistory: force-cleaning stuck session', [
-                    'session_id' => $sessionId,
-                    'state' => $state,
-                    'age' => $age,
-                ]);
-                $shouldClean = true;
+            if ($state === 'finished') {
+                // 已结束：以 finished_at（旧数据兜底 created_at）计算存活时间
+                $finishAt = (int)($session['finished_at'] ?? 0);
+                if ($finishAt <= 0) $finishAt = $createdAt;
+                if ($now - $finishAt > $maxAgeSeconds) {
+                    $shouldClean = true;
+                }
+            } else {
+                // 非 finished 状态：按“应结束时间”判断是否卡死，
+                // 避免把仍在聊天/判定中的长对局（如 600s 对局正在判定阶段）误清
+                $chatStartAt = (int)($session['chat_started_at'] ?? $createdAt);
+                $duration    = (int)($session['duration'] ?? 0);
+                $stuckAfter  = $chatStartAt + $duration + $judgementTimeout + 60; // 60s 缓冲
+                if ($now > $stuckAfter) {
+                    Logger::warning('sweepStaleHistory: force-cleaning stuck session', [
+                        'session_id' => $sessionId,
+                        'state' => $state,
+                        'age' => $now - $createdAt,
+                    ]);
+                    $shouldClean = true;
+                }
             }
 
             if ($shouldClean) {

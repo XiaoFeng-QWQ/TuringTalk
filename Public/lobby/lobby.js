@@ -817,6 +817,36 @@
         meta.appendChild(timeSpan);
         content.appendChild(meta);
 
+        // 佩戴标签（称号）徽章：展示在昵称下方独立一行
+        let titleRow = null;
+        if (Array.isArray(data.sender_special_titles) && data.sender_special_titles.length) {
+            if (!titleRow) { titleRow = document.createElement('div'); titleRow.className = 'lobby-msg-title-row'; }
+            let spWrap = document.createElement('span');
+            spWrap.className = 'lobby-msg-titles special';
+            data.sender_special_titles.forEach(function (t) {
+                let b = document.createElement('span');
+                b.className = 'lobby-title-badge special';
+                b.textContent = t;
+                spWrap.appendChild(b);
+            });
+            titleRow.appendChild(spWrap);
+        }
+
+        if (Array.isArray(data.sender_titles) && data.sender_titles.length) {
+            if (!titleRow) { titleRow = document.createElement('div'); titleRow.className = 'lobby-msg-title-row'; }
+            let titlesWrap = document.createElement('span');
+            titlesWrap.className = 'lobby-msg-titles';
+            data.sender_titles.forEach(function (t) {
+                let b = document.createElement('span');
+                b.className = 'lobby-title-badge';
+                b.textContent = t;
+                titlesWrap.appendChild(b);
+            });
+            titleRow.appendChild(titlesWrap);
+        }
+
+        if (titleRow) content.appendChild(titleRow);
+
         // 气泡
         let bubble = document.createElement('div');
         bubble.className = 'lobby-msg' + (isMine ? ' mine' : '');
@@ -981,6 +1011,36 @@
         meta.appendChild(nameSpan);
         meta.appendChild(timeSpan);
         content.appendChild(meta);
+
+        // 佩戴标签（称号）徽章：展示在昵称下方独立一行
+        let titleRow = null;
+        if (Array.isArray(data.sender_special_titles) && data.sender_special_titles.length) {
+            if (!titleRow) { titleRow = document.createElement('div'); titleRow.className = 'lobby-msg-title-row'; }
+            let spWrap = document.createElement('span');
+            spWrap.className = 'lobby-msg-titles special';
+            data.sender_special_titles.forEach(function (t) {
+                let b = document.createElement('span');
+                b.className = 'lobby-title-badge special';
+                b.textContent = t;
+                spWrap.appendChild(b);
+            });
+            titleRow.appendChild(spWrap);
+        }
+
+        if (Array.isArray(data.sender_titles) && data.sender_titles.length) {
+            if (!titleRow) { titleRow = document.createElement('div'); titleRow.className = 'lobby-msg-title-row'; }
+            let titlesWrap = document.createElement('span');
+            titlesWrap.className = 'lobby-msg-titles';
+            data.sender_titles.forEach(function (t) {
+                let b = document.createElement('span');
+                b.className = 'lobby-title-badge';
+                b.textContent = t;
+                titlesWrap.appendChild(b);
+            });
+            titleRow.appendChild(titlesWrap);
+        }
+
+        if (titleRow) content.appendChild(titleRow);
 
         let bubble = document.createElement('div');
         bubble.className = 'lobby-msg' + (isMine ? ' mine' : '');

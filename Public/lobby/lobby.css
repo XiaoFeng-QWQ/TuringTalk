@@ -304,6 +304,7 @@
     align-items: center;
     gap: 6px;
     min-height: 22px;
+    line-height: 0;
 }
 
 .lobby-msg-row.mine .lobby-msg-meta {
@@ -3631,4 +3632,42 @@ main {
     color: #fff;
     transform: translateY(1px);
     box-shadow: 1px 1px 0 var(--shadow-sm);
+}
+
+/* ==================== 佩戴标签（称号）徽章 ==================== */
+.lobby-title-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-left: 4px;
+    font-size: 10px;
+    line-height: 1.4;
+    color: #fff;
+    background: var(--ink-blue);
+    border-radius: 8px 2px 8px 2px;
+    vertical-align: middle;
+    cursor: default;
+    white-space: nowrap;
+}
+
+.lobby-msg-titles {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* 消息内标签行：昵称下方独立一行（覆盖 .lobby-messages 的 32px 行高网格继承） */
+.lobby-msg-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    line-height: 0;
+}
+.lobby-msg-title-row .lobby-title-badge {
+    margin-left: 0;
+}
+
+/* 官方特殊称号：小差异化（金色描边） */
+.lobby-title-badge.special {
+    background: rgba(212, 160, 23, 0.15);
+    color: #d4a017;
+    border: 1px solid #d4a017;
 }

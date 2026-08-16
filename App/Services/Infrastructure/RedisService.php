@@ -80,6 +80,8 @@ class RedisService
     public const KP_STICKER_USER    = self::PREFIX . 'sticker:user:';             // json   用户自定义表情缓存（后缀 userId）
     public const KP_PLAYER_ONLINE   = self::PREFIX . 'ponline:';                  // ponline:{playerId} → hash {fd,ts} 全局在线锁（TTL 120s）
     public const KP_TOKEN_KEY      = self::PREFIX . 'token_key:';               // token_key:{playerId} → string(password_hash) 缓存 TTL 3600s
+    public const KP_WORN_TAGS      = self::PREFIX . 'worn:';                    // worn:{playerId} → json 佩戴标签缓存（TTL 60s）
+    public const KP_WORN_SPECIAL   = self::PREFIX . 'worn_special:';             // worn_special:{playerId} → json 佩戴特殊标签缓存（TTL 60s）
     public const STICKER_CACHE_TTL  = 3600;
 
     /**

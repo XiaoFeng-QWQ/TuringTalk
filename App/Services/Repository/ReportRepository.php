@@ -225,6 +225,7 @@ class ReportRepository
             }
 
             // 补上 reporter 和 target 的 IP + 指纹（从 player_data 关联）
+            // player_id 缺失时（历史脏数据）用昵称反查补全，保证审核时可封禁
             $report['reporter_ip'] = '';
             $report['reporter_fingerprint'] = '';
             $report['target_ip'] = '';
@@ -236,12 +237,26 @@ class ReportRepository
                     $report['reporter_ip'] = $repData['ip'] ?? '';
                     $report['reporter_fingerprint'] = $repData['fp'] ?? '';
                 }
+            } elseif (!empty($report['reporter_name'])) {
+                $repRow = self::findPlayerByName($pdo, $report['reporter_name']);
+                if ($repRow) {
+                    $report['reporter_player_id'] = $repRow['id'];
+                    $report['reporter_ip'] = $repRow['ip'] ?? '';
+                    $report['reporter_fingerprint'] = $repRow['fp'] ?? '';
+                }
             }
             if (!empty($report['target_player_id'])) {
                 $tgtData = self::getPlayerInfo($pdo, $report['target_player_id']);
                 if ($tgtData) {
                     $report['target_ip'] = $tgtData['ip'] ?? '';
                     $report['target_fingerprint'] = $tgtData['fp'] ?? '';
+                }
+            } elseif (!empty($report['target_name'])) {
+                $tgtRow = self::findPlayerByName($pdo, $report['target_name']);
+                if ($tgtRow) {
+                    $report['target_player_id'] = $tgtRow['id'];
+                    $report['target_ip'] = $tgtRow['ip'] ?? '';
+                    $report['target_fingerprint'] = $tgtRow['fp'] ?? '';
                 }
             }
 
@@ -292,5 +307,22 @@ class ReportRepository
         $stmt->execute([$playerId]);
         $cache[$playerId] = $stmt->fetch() ?: null;
         return $cache[$playerId];
+    }
+
+    /**
+     * 按昵称反查玩家 id / ip / fp（供旧举报记录缺失 player_id 时兜底补全）
+     */
+    private static function findPlayerByName(\PDO $pdo, string $nickname): ?array
+    {
+        if (trim($nickname) === '') return null;
+        static $cache = [];
+        $key = mb_strtolower(trim($nickname));
+        if (array_key_exists($key, $cache)) {
+            return $cache[$key];
+        }
+        $stmt = $pdo->prepare('SELECT id, ip, fp FROM player_data WHERE LOWER(nickname) = LOWER(?) LIMIT 1');
+        $stmt->execute([trim($nickname)]);
+        $cache[$key] = $stmt->fetch() ?: null;
+        return $cache[$key];
     }
 }

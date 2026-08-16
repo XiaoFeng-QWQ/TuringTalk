@@ -692,6 +692,18 @@ function handleAdminMessage(data) {
             renderUserSearchResult(data.users || []);
             break;
 
+        case 'admin_user_tags_result':
+            renderSpecialTagList(data.player_id, data.tags || []);
+            break;
+
+        case 'admin_user_special_result':
+            showAdminToast((data.special ? '已授予特殊称号' : '已取消特殊称号') + ': ' + data.tag, 'success');
+            // 刷新当前弹窗内的标签列表
+            if (specialTagDialog && document.getElementById('special-tag-list')) {
+                adminSend('admin_user_get_tags', { player_id: data.player_id });
+            }
+            break;
+
         case 'admin_lobby_messages':
             renderLobbyMessages(data.messages || [], data.total, data.page, data.page_size);
             break;
@@ -2800,6 +2812,7 @@ function renderUserSearchResult(users) {
             ' <span style="color:let(--text-muted);font-size:10px;">最后活跃: ' + escapeHtml(timeStr) + '</span>' +
             '</span>' +
             '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-ban-pid="' + escapeHtmlAttr(pid) + '" data-ban-ip="' + escapeHtmlAttr(u.ip) + '" data-ban-fp="' + escapeHtmlAttr(u.fp) + '" data-ban-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">封禁</button>' +
+            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;border-color:let(--note-blue);color:let(--ink-blue);" data-special-pid="' + escapeHtmlAttr(pid) + '" data-special-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">特殊标签</button>' +
         '</div>';
     });
     userSearchResult.innerHTML = html;
@@ -2827,6 +2840,74 @@ function renderUserSearchResult(users) {
                     adminSend('admin_user_ban', { players: [player], reason });
                 }
             );
+        });
+    });
+
+    // 特殊标签按钮
+    userSearchResult.querySelectorAll('[data-special-pid]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            showSpecialTagDialog({
+                player_id: btn.dataset.specialPid,
+                nickname: btn.dataset.specialName,
+            });
+        });
+    });
+}
+
+// ==================== 特殊标签管理弹窗 ====================
+
+let specialTagDialog = null;
+
+function showSpecialTagDialog(player) {
+    if (specialTagDialog) specialTagDialog.remove();
+    let overlay = document.createElement('div');
+    overlay.className = 'admin-dialog-overlay';
+    overlay.innerHTML =
+        '<div class="admin-dialog">' +
+        '<h3>特殊标签管理</h3>' +
+        '<p class="admin-dialog-target">' + escapeHtml(player.nickname || '') + '</p>' +
+        '<div id="special-tag-list" style="max-height:200px;overflow-y:auto;margin-bottom:8px;font-size:12px;">加载中...</div>' +
+        '<div style="display:flex;gap:6px;">' +
+        '<input type="text" id="special-tag-input" placeholder="输入标签名授予" maxlength="50" style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">' +
+        '<button class="doodle-btn" id="special-tag-grant" style="font-size:12px;padding:4px 10px;">授予</button>' +
+        '</div>' +
+        '<div class="admin-dialog-actions">' +
+        '<button class="doodle-btn" id="special-tag-close">关闭</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+    specialTagDialog = overlay;
+    overlay.querySelector('#special-tag-close').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('#special-tag-grant').addEventListener('click', () => {
+        const tag = overlay.querySelector('#special-tag-input').value.trim();
+        if (!tag) { showAdminToast('请输入标签名', 'warn'); return; }
+        adminSend('admin_user_set_special', { player_id: player.player_id, tag, special: true });
+    });
+    adminSend('admin_user_get_tags', { player_id: player.player_id });
+}
+
+function renderSpecialTagList(playerId, tags) {
+    const list = document.getElementById('special-tag-list');
+    if (!list) return;
+    if (!tags.length) {
+        list.innerHTML = '<div style="color:var(--text-muted);padding:4px;">该玩家还没有标签</div>';
+        return;
+    }
+    list.innerHTML = tags.map(t => {
+        const isSpecial = !!t.is_special;
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 4px;border-bottom:1px solid var(--border-light);">' +
+            '<span>' + escapeHtml(t.tag) + ' <span style="color:var(--text-muted);">×' + t.count + '</span>' +
+            (isSpecial ? ' <span style="color:#d4a017;">★特殊</span>' : '') + '</span>' +
+            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-special-toggle="' + escapeHtmlAttr(t.tag) + '" data-special-state="' + (isSpecial ? 1 : 0) + '">' + (isSpecial ? '取消特殊' : '设为特殊') + '</button>' +
+            '</div>';
+    }).join('');
+    list.querySelectorAll('[data-special-toggle]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            adminSend('admin_user_set_special', {
+                player_id: playerId,
+                tag: btn.dataset.specialToggle,
+                special: btn.dataset.specialState === '0'
+            });
         });
     });
 }

@@ -19,6 +19,7 @@ use App\Services\Repository\BanRepository;
 use App\Services\Repository\ReportRepository;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
+use App\Services\Chat\LobbyChatService;
 
 /**
  * 游戏 WebSocket 处理器
@@ -53,12 +54,18 @@ class GameWebSocketHandler extends BaseGameHandler
 
     /** @var array<string, int> sessionId => timerId，延迟清理定时器 */
     private array $cleanupTimers = [];
-    /** @var array<string, bool> 防重入标记 */
-    private array $cleaning = [];
     private array $mutualChatTimers = [];
 
     /** @var array<string, bool> 防重复留言: "senderId:targetId" => true */
     private array $leaveMessagedPairs = [];
+
+    /** @var LobbyChatWebSocketHandler|null 复用 lobby 广播能力（如战绩分享卡片） */
+    private ?LobbyChatWebSocketHandler $lobbyHandler = null;
+
+    public function setLobbyHandler(LobbyChatWebSocketHandler $lobbyHandler): void
+    {
+        $this->lobbyHandler = $lobbyHandler;
+    }
 
     /** Bot LLM 调用并发信号量（10 槽位 + 5s 超时防死锁，超时 fallback 模板） */
     private static ?Channel $botLlmSem = null;
@@ -165,6 +172,9 @@ class GameWebSocketHandler extends BaseGameHandler
                 case 'update_nickname':
                     $this->handleUpdateNickname($server, $fd, $data);
                     break;
+                case 'share_record':
+                    $this->handleShareRecord($server, $fd, $data);
+                    break;
                 default:
                     $this->sendError($server, $fd, '未知的消息类型: ' . $data['type']);
             }
@@ -206,6 +216,14 @@ class GameWebSocketHandler extends BaseGameHandler
 
             $sessionId = $session['id'];
             $opponentFd = $this->gameService->getOpponentFd($fd);
+
+            // 对局已结束（玩家在结果页关闭页面/断连）：结果与战绩已在结束时写入，
+            // 只标记离开，不重复写战绩
+            if (($session['state'] ?? '') === 'finished') {
+                $this->markAndCheckCleanup($sessionId, $fd);
+                $this->cleanupConnection($server, $fd);
+                return;
+            }
 
             // 标记对局正在关闭，跨 Worker 定时器回调检测此标志可安全跳过
             $this->gameService->updateSession($sessionId, ['closing' => 1]);
@@ -262,7 +280,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
             $this->cleanupTimers[$sessionId] = \Swoole\Timer::after(5000, function () use ($sessionId) {
                 unset($this->cleanupTimers[$sessionId]);
-                $this->cleanupSessionWithReportCheck($sessionId);
+                $this->persistReportChatIfNeeded($sessionId);
             });
 
             // 通知旁观者
@@ -308,7 +326,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
     /**
      * 标记玩家离开 + 检查是否双方都已离开
-     * 双方都离开 → 立即清理；否则 → 180s 兜底
+     * 双方都离开 → 立即清理；一方离开 → 不设定时器，等待另一方离开或防呆扫描兜底
      */
     private function markAndCheckCleanup(string $sessionId, int $fd): void
     {
@@ -321,19 +339,15 @@ class GameWebSocketHandler extends BaseGameHandler
                 \Swoole\Timer::clear($this->cleanupTimers[$sessionId]);
                 unset($this->cleanupTimers[$sessionId]);
             }
-            $this->cleanupSessionWithReportCheck($sessionId);
+            // 清理前先持久化举报聊天记录（会话尚未删除）
+            $this->persistReportChatIfNeeded($sessionId);
+            $this->gameService->cleanupSession($sessionId);
+            unset($this->spectators[$sessionId]);
             return;
         }
 
-        // 一方离开，另一方还在，启动 180s 兜底定时器（防止另一方永不离开）
-        if (!isset($this->cleanupTimers[$sessionId])) {
-            $this->cleanupTimers[$sessionId] = \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
-                unset($this->cleanupTimers[$sessionId]);
-                Logger::info('Cleanup fallback timer fired', ['session_id' => $sessionId]);
-                $this->cleanupSessionWithReportCheck($sessionId);
-            });
-            Logger::debug('Cleanup fallback timer started (180s)', ['session_id' => $sessionId]);
-        }
+        // 一方离开，另一方还在：不设清理定时器，给另一方留足时间保存记录/留言，
+        // 直到其离开（触发双方清理）或 30 分钟防呆扫描兜底
     }
 
     private function handleReport(Server $server, int $fd, array $data): void
@@ -392,14 +406,41 @@ class GameWebSocketHandler extends BaseGameHandler
         // player_id：从 player_data 获取
         $reporterPlayerId = $this->getOrCreatePlayerId($fd, $reporterName) ?: '';
 
+        // 被举报者信息：优先从连接上下文取；对方已断线/信息被清理时用昵称反查 player_data 补全，
+        // 避免举报记录 target_player_id / ip / fp 全空导致管理员审核时无法封禁
+        $targetPlayerId = '';
+        $targetIp = '';
+        $targetFp = '';
+        if ($opponentFd > 0) {
+            $opponentInfo = $this->clientInfo[(string)$opponentFd] ?? [];
+            $targetPlayerId = GameService::getPlayerId($opponentFd) ?: '';
+            $targetIp = $opponentInfo['ip'] ?? '';
+            $targetFp = $opponentInfo['fingerprint'] ?? '';
+        }
+        if ($targetPlayerId === '') {
+            $targetRow = PlayerStatsRepository::findByNickname($targetName);
+            if ($targetRow) {
+                $targetPlayerId = $targetRow['id'];
+                if ($targetIp === '') $targetIp = $targetRow['ip'] ?? '';
+                if ($targetFp === '') $targetFp = $targetRow['fp'] ?? '';
+            }
+        }
+
         $result = ReportRepository::report(
             'game',
             $session['id'],
             $reporterPlayerId,
-            '',
+            $targetPlayerId,
             $reporterName,
             $targetName,
-            $reason
+            $reason,
+            '',
+            $fd,
+            $this->clientInfo[(string)$fd]['ip'] ?? '',
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+            $opponentFd > 0 ? $opponentFd : 0,
+            $targetIp,
+            $targetFp
         );
 
         // 举报提交时立即保存聊天记录，避免管理员审阅时聊天记录还未写入
@@ -618,69 +659,36 @@ class GameWebSocketHandler extends BaseGameHandler
     }
 
     /**
-     * 清理对局，如果该对局有举报则先异步保存聊天记录到 MySQL，
-     * 写入完成后再清除内存中的聊天记录。
+     * 对局结束时持久化举报聊天记录（若有）。
+     * 会话清理不再由时间驱动：改由“双方都离开”（markAndCheckCleanup）触发，
+     * 极端情况（玩家一直挂在结果页不离开）由 30 分钟防呆扫描兜底。
      */
-    private function cleanupSessionWithReportCheck(string $sessionId): void
+    private function persistReportChatIfNeeded(string $sessionId): void
     {
-        // 防重入：避免 5s 定时器和 markAndCheckCleanup 同时触发
-        if (isset($this->cleaning[$sessionId])) return;
-        $this->cleaning[$sessionId] = true;
-        $hasReports = false;
         try {
             $hasReports = ReportRepository::hasReports($sessionId);
         } catch (\Throwable $e) {
-            Logger::error('cleanupSessionWithReportCheck: hasReports failed', [
+            Logger::error('persistReportChatIfNeeded: hasReports failed', [
                 'session_id' => $sessionId,
                 'error' => $e->getMessage(),
             ]);
-        }
-
-        if ($hasReports) {
-            $session  = $this->gameService->getSession($sessionId);
-            $messages = $session ? $this->gameService->getSessionMessages($sessionId) : [];
-            $player1Desc = '';
-            $player2Desc = '';
-            $duration    = 0;
-            if ($session) {
-                $duration    = max(0, time() - ($session['chat_started_at'] ?? $session['created_at'] ?? time()));
-                $player1Desc = ($session['player1_nickname'] ?? '玩家1') . ($session['player1_fd'] > 0 ? ' (玩家)' : '');
-                $player2Desc = ($session['player2_nickname'] ?? '玩家2') . ($session['player2_fd'] > 0 ? ' (玩家)' : '');
-            }
-
-            // 异步写入 MySQL，由独立协程消费
-            AsyncDbWriter::pushReportChat($sessionId, $messages, [$player1Desc, $player2Desc], $duration);
-
-            // 延迟 180s 后清理 Redis，给另一名玩家留时间保存聊天记录
-            \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
-                $this->gameService->cleanupSession($sessionId);
-                unset($this->spectators[$sessionId]);
-                Logger::debug('Session cleaned up (report, delayed)', ['session_id' => $sessionId]);
-            });
-            Logger::debug('Session cleanup delayed for report', ['session_id' => $sessionId]);
-
             return;
         }
 
-        // 无举报，检查是否有玩家拥有恢复码，若有则延长清理时间
-        if (!$hasReports) {
-            $session = $this->gameService->getSession($sessionId);
-            $hasPlayerId = GameService::sessionHasPlayerId($session);
+        if (!$hasReports) return;
 
-            if ($hasPlayerId) {
-                // 玩家有恢复码，延长 180s 后再清理，给前端留时间调用保存 API
-                \Swoole\Timer::after(180 * 1000, function () use ($sessionId) {
-                    $this->gameService->cleanupSession($sessionId);
-                    unset($this->spectators[$sessionId]);
-                });
-                Logger::debug('Session cleanup delayed for recovery code', ['session_id' => $sessionId]);
-                return;
-            }
-        }
+        $session  = $this->gameService->getSession($sessionId);
+        // 会话已被清理（如双方离开时已持久化过），跳过，避免用空消息覆盖已入库数据
+        if (!$session) return;
 
-        // 无举报，直接清理内存
-        $this->gameService->cleanupSession($sessionId);
-        unset($this->spectators[$sessionId]);
+        $messages = $this->gameService->getSessionMessages($sessionId);
+        $duration = max(0, time() - ($session['chat_started_at'] ?? $session['created_at'] ?? time()));
+        $player1Desc = ($session['player1_nickname'] ?? '玩家1') . ($session['player1_fd'] > 0 ? ' (玩家)' : '');
+        $player2Desc = ($session['player2_nickname'] ?? '玩家2') . ($session['player2_fd'] > 0 ? ' (玩家)' : '');
+
+        // 异步写入 MySQL，由独立协程消费
+        AsyncDbWriter::pushReportChat($sessionId, $messages, [$player1Desc, $player2Desc], $duration);
+        Logger::debug('Report chat persisted', ['session_id' => $sessionId]);
     }
 
     // ==================== 消息处理器 ====================
@@ -1156,7 +1164,7 @@ class GameWebSocketHandler extends BaseGameHandler
                         $this->gameService->transitionState($sessionId, 'finished');
                         $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                             unset($this->cleanupTimers[$sessionId]);
-                            $this->cleanupSessionWithReportCheck($sessionId);
+                            $this->persistReportChatIfNeeded($sessionId);
                         });
                         return;
                     }
@@ -1219,7 +1227,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
                     $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                         unset($this->cleanupTimers[$sessionId]);
-                        $this->cleanupSessionWithReportCheck($sessionId);
+                        $this->persistReportChatIfNeeded($sessionId);
                     });
                 } else {
                     // 一方已判定，切换为判定阶段并启动服务端倒计时
@@ -1300,7 +1308,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
                             $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                                 unset($this->cleanupTimers[$sessionId]);
-                                $this->cleanupSessionWithReportCheck($sessionId);
+                                $this->persistReportChatIfNeeded($sessionId);
                             });
                         }
                         return;
@@ -1347,7 +1355,7 @@ class GameWebSocketHandler extends BaseGameHandler
             $this->gameService->transitionState($sessionId, 'finished');
             $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                 unset($this->cleanupTimers[$sessionId]);
-                $this->cleanupSessionWithReportCheck($sessionId);
+                $this->persistReportChatIfNeeded($sessionId);
             });
             return;
         }
@@ -1406,7 +1414,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
         $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
             unset($this->cleanupTimers[$sessionId]);
-            $this->cleanupSessionWithReportCheck($sessionId);
+            $this->persistReportChatIfNeeded($sessionId);
         });
     }
 
@@ -1423,7 +1431,6 @@ class GameWebSocketHandler extends BaseGameHandler
 
         $sessionId = $session['id'];
         $opponentFd = $this->gameService->getOpponentFd($fd);
-        $leaverIndex = ($session['player1_fd'] === $fd) ? 1 : 2;
 
         // 跨 Worker 定时器清理
         $sessionWorkerId = (int)($session['worker_id'] ?? 0);
@@ -1435,6 +1442,16 @@ class GameWebSocketHandler extends BaseGameHandler
         } else {
             $this->clearSessionTimers($sessionId);
         }
+
+        // 对局已结束（玩家在结果页返回/关闭页面）：结果与战绩已在结束时写入，
+        // 只做清理标记，避免重复写入战绩
+        if (($session['state'] ?? '') === 'finished') {
+            $this->persistReportChatIfNeeded($sessionId);
+            $this->markAndCheckCleanup($sessionId, $fd);
+            return;
+        }
+
+        $leaverIndex = ($session['player1_fd'] === $fd) ? 1 : 2;
 
         if ($opponentFd > 0) {
             $this->sendToPlayer($server, $opponentFd, [
@@ -1468,7 +1485,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
         $this->cleanupTimers[$sessionId] = \Swoole\Timer::after(5000, function () use ($sessionId) {
             unset($this->cleanupTimers[$sessionId]);
-            $this->cleanupSessionWithReportCheck($sessionId);
+            $this->persistReportChatIfNeeded($sessionId);
         });
 
         if ($this->hasSpectators($sessionId)) {
@@ -1743,7 +1760,7 @@ class GameWebSocketHandler extends BaseGameHandler
                             'opponent_name' => $this->getOpponentName($session, $session['player2_fd']),
                         ]);
                     }
-                    $this->cleanupSessionWithReportCheck($sessionId);
+                    $this->persistReportChatIfNeeded($sessionId);
                 }
             } catch (\Throwable $e) {
                 Logger::error('mutualChatTimer: uncaught exception', [
@@ -1928,7 +1945,7 @@ class GameWebSocketHandler extends BaseGameHandler
                     }
                     $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                         unset($this->cleanupTimers[$sessionId]);
-                        $this->cleanupSessionWithReportCheck($sessionId);
+                        $this->persistReportChatIfNeeded($sessionId);
                     });
                     unset($this->judgeTimers[$sessionId]);
                     return;
@@ -1936,7 +1953,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
                 $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                     unset($this->cleanupTimers[$sessionId]);
-                    $this->cleanupSessionWithReportCheck($sessionId);
+                    $this->persistReportChatIfNeeded($sessionId);
                 });
 
                 unset($this->judgeTimers[$sessionId]);
@@ -2007,7 +2024,7 @@ class GameWebSocketHandler extends BaseGameHandler
 
                 $this->cleanupTimers[$sessionId] = Timer::after(5000, function () use ($sessionId) {
                     unset($this->cleanupTimers[$sessionId]);
-                    $this->cleanupSessionWithReportCheck($sessionId);
+                    $this->persistReportChatIfNeeded($sessionId);
                 });
             }
         } catch (\RuntimeException $e) {
@@ -2275,6 +2292,21 @@ class GameWebSocketHandler extends BaseGameHandler
         }
         $this->gameService->updateSession($sessionId, $updateFields);
 
+        // 断连时 onClose 会将该玩家标记进 left_fds，重连恢复后清除标记，
+        // 否则对手离开时会被误判为"双方都已离开"而清掉正在恢复的会话
+        $leftFds = $redis->hGet(\App\Services\Infrastructure\RedisService::KP_SESSION . $sessionId, 'left_fds') ?: '';
+        if ($leftFds !== '') {
+            $remaining = array_values(array_filter(
+                explode(',', $leftFds),
+                fn(string $f) => $f !== (string)$oldFd
+            ));
+            if (empty($remaining)) {
+                $redis->hDel(\App\Services\Infrastructure\RedisService::KP_SESSION . $sessionId, 'left_fds');
+            } else {
+                $redis->hSet(\App\Services\Infrastructure\RedisService::KP_SESSION . $sessionId, 'left_fds', implode(',', $remaining));
+            }
+        }
+
         // 发送 matched 恢复前端 UI
         $this->sendToPlayer($server, $newFd, [
             'type' => 'matched',
@@ -2344,5 +2376,98 @@ class GameWebSocketHandler extends BaseGameHandler
 
         PlayerStatsRepository::updateNickname($playerId, $nickname, $this->clientInfo[(string)$fd]['ip'] ?? '', $fp);
         $this->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'success' => true]);
+    }
+
+    /**
+     * 战绩分享卡片：复用当前游戏 WS 连接，服务端从数据库读取真实战绩生成卡片（防伪造）。
+     * 前端只发请求 + player_token，不携带任何战绩数据；卡片经 lobby 通道落库并广播。
+     */
+    private function handleShareRecord(Server $server, int $fd, array $data): void
+    {
+        // 优先用连接绑定的 player_id（本会话加入过对局）；否则用前端携带的 token 验签
+        $playerId = GameService::getPlayerId($fd) ?: '';
+        if ($playerId === '' && !empty($data['player_token'])) {
+            $payload = GameController::verifyPlayerToken(Sanitizer::identifier($data['player_token']));
+            $playerId = $payload['player_id'] ?? '';
+        }
+        if ($playerId === '') {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'share_record_status',
+                'success' => false,
+                'message' => '请先获取恢复码',
+            ]);
+            return;
+        }
+
+        $player = PlayerStatsRepository::findById($playerId);
+        if (!$player) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'share_record_status',
+                'success' => false,
+                'message' => '玩家数据不存在',
+            ]);
+            return;
+        }
+
+        // 与聊天室共用发言频率限制（checkRateLimit 幂等：超时则记录本次时间戳），防止刷屏
+        $cooldown = (new LobbyChatService())->checkRateLimit($playerId);
+        if ($cooldown > 0) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'share_record_status',
+                'success' => false,
+                'message' => '操作太频繁，请等待 ' . $cooldown . ' 秒',
+            ]);
+            return;
+        }
+
+        if ($this->lobbyHandler === null) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'share_record_status',
+                'success' => false,
+                'message' => '分享通道未就绪，请稍后再试',
+            ]);
+            return;
+        }
+
+        // 服务端读取真实战绩（不信任前端数据，防伪造）
+        $record = PlayerStatsRepository::getRecordStats($playerId);
+        $totalGames = max(0, (int)($record['games'] ?? 0));
+        $wins       = max(0, (int)($record['wins'] ?? 0));
+        $losses     = max(0, (int)($record['losses'] ?? 0));
+        $winRate    = max(0, (int)($record['rate'] ?? 0));
+
+        $nickname = $player['nickname'];
+        $card = [
+            'type'    => 'record',
+            'version' => 1,
+            'title'   => $nickname . '的战绩',
+            'player'  => $nickname,
+            'fields'  => [
+                'wins'   => $wins,
+                'losses' => $losses,
+                'games'  => $totalGames,
+                'rate'   => $winRate,
+            ],
+            'footer'  => '更好的图灵测试',
+        ];
+        $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
+
+        // 经 lobby 通道落库并广播给聊天室
+        $this->lobbyHandler->publishRecordCard(
+            $server,
+            $nickname,
+            $playerId,
+            $cardJson,
+            $this->clientInfo[(string)$fd]['ip'] ?? '',
+            $this->clientInfo[(string)$fd]['fingerprint'] ?? '',
+            PlayerStatsRepository::getWornTags($playerId),
+            PlayerStatsRepository::getWornSpecialTags($playerId)
+        );
+
+        $this->sendToPlayer($server, $fd, [
+            'type'    => 'share_record_status',
+            'success' => true,
+            'message' => '战绩卡片已分享到聊天室',
+        ]);
     }
 }

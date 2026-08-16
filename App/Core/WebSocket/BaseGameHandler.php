@@ -131,6 +131,14 @@ abstract class BaseGameHandler
                     'ip' => $clientIp,
                     'existing_fd' => $existingFd,
                 ]);
+                // 先通知旧连接：同 IP 已有新连接，本连接将被关闭。
+                // 前端收到后设置 intentionalClose/preventReconnect，避免误判为意外断开而反复自动重连
+                if ($server->isEstablished($existingFd)) {
+                    $server->push($existingFd, json_encode([
+                        'type' => 'system',
+                        'text' => '已有活跃连接，本页面连接已断开',
+                    ], JSON_UNESCAPED_UNICODE));
+                }
                 // 释放旧连接的在线锁，避免新连接 claimOnlineLock 失败
                 $oldPlayerId = \App\Services\Game\GameService::getPlayerId($existingFd);
                 if ($oldPlayerId) {

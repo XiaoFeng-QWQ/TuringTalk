@@ -78,6 +78,9 @@ class Application
         });
         // 注入 Server 实例给 MatchService，用于匹配时校验对手 fd 存活
         $gameHandler->getMatchService()->setServer($this->server);
+
+        // 注入 lobby handler 引用：供游戏侧复用 lobby 广播能力（战绩分享卡片等）
+        $gameHandler->setLobbyHandler($this->webSocketHandler->getLobbyHandler());
     }
 
     public function run(): void
