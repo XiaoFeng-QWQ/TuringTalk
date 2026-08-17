@@ -124,7 +124,6 @@ class GameService
         // Redis hGetAll 返回 string，统一转 int 避免严格比较陷阱
         if (isset($data['player1_fd'])) $data['player1_fd'] = (int)$data['player1_fd'];
         if (isset($data['player2_fd'])) $data['player2_fd'] = (int)$data['player2_fd'];
-        if (isset($data['worker_id'])) $data['worker_id'] = (int)$data['worker_id'];
         if (isset($data['duration'])) $data['duration'] = (int)$data['duration'];
         if (isset($data['closing'])) $data['closing'] = (int)$data['closing'];
         if (isset($data['created_at'])) $data['created_at'] = (int)$data['created_at'];

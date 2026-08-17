@@ -429,7 +429,7 @@ abstract class BaseGameHandler
      * @param string $token    玩家 Token（老玩家），空字符串表示无
      * @return array{success: bool, error: ?string, nickname: string, player_id: ?string, token: ?string}
      */
-    protected function validatePlayerIdentity(int $fd, string $nickname, string $password = '', string $token = ''): array
+    public function validatePlayerIdentity(int $fd, string $nickname, string $password = '', string $token = ''): array
     {
         $row = $this->clientInfo[(string)$fd] ?? [];
         $fp = Sanitizer::identifier($row['fingerprint'] ?? '');
@@ -523,7 +523,7 @@ abstract class BaseGameHandler
      *
      * @return array|null sticker 数据 ['id','name','url'] 或 null（无效/不存在）
      */
-    protected function resolveSticker(array $data, string $playerId): ?array
+    public function resolveSticker(array $data, string $playerId): ?array
     {
         $stickerId = Sanitizer::identifier($data['id'] ?? '');
         if (empty($stickerId)) return null;
@@ -619,7 +619,7 @@ abstract class BaseGameHandler
      * 在线锁：防止同一 player_id 多地同时连接。
      * 使用 Redis SETNX 原子操作，无竞态条件。
      */
-    protected function claimOnlineLock(Server $server, int $fd, string $playerId): void
+    public function claimOnlineLock(Server $server, int $fd, string $playerId): void
     {
         $row = $this->clientInfo[(string)$fd] ?? [];
         $ip = $row['ip'] ?? '';
