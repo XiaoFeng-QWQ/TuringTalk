@@ -18,21 +18,21 @@
 
 | 层      | 技术                                  |
 | ------ | ----------------------------------- |
-| 运行时    | PHP 8.2 + Swoole 5.0（单 Worker 协程并发） |
+| 运行时    | PHP >= 8.2（推荐 8.3）+ Swoole 6.x（单 Worker 协程并发） |
 | 通信     | WebSocket（多模式前缀路由）                  |
 | AI 引擎  | OpenAI 兼容 HTTP API                  |
 | 前端     | 原生 HTML/CSS/JS（SPA）                 |
 | 缓存     | Redis（会话状态、匹配队列、聊天消息、在线人数）          |
 | 持久化    | MySQL（玩家数据、举报记录、聊天历史）               |
 | 时序存储   | SQLite（在线人数历史、管理后台数据、贴纸数据）          |
-| 管理后台认证 | JWT（web-token/jwt-library）          |
+| 管理后台认证 | JWT（自研 HMAC-SHA256 实现）             |
 
 ## 快速开始
 
 ### 环境要求
 
-- PHP >= 8.2
-- Swoole >= 5.0
+- PHP >= 8.2（推荐 8.3）
+- Swoole >= 6.0（协程模式）
 - Redis
 - MySQL
 - Composer
@@ -61,6 +61,7 @@ php server.php
 
 ```bash
 php cli.php cleanup:inactive-players    # 清理超过 14 天未活跃的玩家数据
+php cli.php report:weekly               # 生成玩家周榜（SQLite）
 ```
 
 ## 配置
