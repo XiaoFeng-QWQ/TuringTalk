@@ -156,6 +156,7 @@ class GameController
         }
 
         $response->setHeader('Content-Type', $contentType);
+        $response->setHeader('Content-Length', (string)strlen($content));
         $response->setHeader('Cache-Control', 'public, max-age=' . self::CACHE_MAX_AGE . ', immutable');
         $response->setHeader('ETag', $etag);
         $response->setHeader('Last-Modified', gmdate('D, d M Y H:i:s', $mtime) . ' GMT');

@@ -45,10 +45,14 @@
             <button class="doodle-btn" id="btn-theme" title="主题切换" style="padding:8px 8px;">
                 <svg class="icon" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="5" />
-                    <path d="M12 1v2" /><path d="M12 21v2" />
-                    <path d="M4.22 4.22l1.42 1.42" /><path d="M18.36 18.36l1.42 1.42" />
-                    <path d="M1 12h2" /><path d="M21 12h2" />
-                    <path d="M4.22 19.78l1.42-1.42" /><path d="M18.36 5.64l1.42-1.42" />
+                    <path d="M12 1v2" />
+                    <path d="M12 21v2" />
+                    <path d="M4.22 4.22l1.42 1.42" />
+                    <path d="M18.36 18.36l1.42 1.42" />
+                    <path d="M1 12h2" />
+                    <path d="M21 12h2" />
+                    <path d="M4.22 19.78l1.42-1.42" />
+                    <path d="M18.36 5.64l1.42-1.42" />
                 </svg>
             </button>
         </div>
@@ -57,27 +61,27 @@
     <main>
         <section id="gomoku-match-panel">
             <div class="sticky-hero">
-            <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 03</div>
-            <h1 class="hero-title">棋逢对手</h1>
-            <p class="hero-subtitle">一阴一阳之谓道，黑白交错演乾坤。</p>
-        </div>
-
-        <div id="identity-card" class="lobby-identity-card" style="display:none;">
-            <div class="id-card-inner">
-                <div class="id-icon">?</div>
-                <h2>未检测到身份</h2>
-                <p>请先前往首页创建或恢复您的账号</p>
-                <button id="identity-btn-go-home" class="doodle-btn btn-full"
-                    style="margin-top:16px;font-size:16px;">
-                    前往首页
-                </button>
-                <button id="identity-btn-back" class="doodle-btn btn-full"
-                    style="margin-top:8px;font-size:15px;border-style:dashed;">
-                    返回菜单
-                </button>
+                <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 03</div>
+                <h1 class="hero-title">棋逢对手</h1>
+                <p class="hero-subtitle">一阴一阳之谓道，黑白交错演乾坤。</p>
             </div>
-        </div>
-    </section>
+
+            <div id="identity-card" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
+                    <div class="id-icon">?</div>
+                    <h2>未检测到身份</h2>
+                    <p>请先前往首页创建或恢复您的账号</p>
+                    <button id="identity-btn-go-home" class="doodle-btn btn-full"
+                        style="margin-top:16px;font-size:16px;">
+                        前往首页
+                    </button>
+                    <button id="identity-btn-back" class="doodle-btn btn-full"
+                        style="margin-top:8px;font-size:15px;border-style:dashed;">
+                        返回菜单
+                    </button>
+                </div>
+            </div>
+        </section>
 
         <section id="page-menu">
             <div class="doodle-border menu-card">
@@ -112,7 +116,8 @@
                 <div class="setting-group">
                     <div class="setting-label">游戏模式</div>
                     <div class="radio-row">
-                        <label class="radio-item"><input type="radio" name="mode" value="normal" checked><span>普通对弈</span></label>
+                        <label class="radio-item"><input type="radio" name="mode" value="normal"
+                                checked><span>普通对弈</span></label>
                         <label class="radio-item"><input type="radio" name="mode" value="time"><span>限时决断</span></label>
                     </div>
                 </div>
@@ -120,39 +125,52 @@
                 <div class="setting-group" id="time-setting" style="display:none;">
                     <div class="setting-label">时间限制</div>
                     <div class="radio-row">
-                        <label class="radio-item"><input type="radio" name="timeLimit" value="180" checked><span>3分钟</span></label>
-                        <label class="radio-item"><input type="radio" name="timeLimit" value="300"><span>5分钟</span></label>
-                        <label class="radio-item"><input type="radio" name="timeLimit" value="600"><span>10分钟</span></label>
+                        <label class="radio-item"><input type="radio" name="timeLimit" value="180"
+                                checked><span>3分钟</span></label>
+                        <label class="radio-item"><input type="radio" name="timeLimit"
+                                value="300"><span>5分钟</span></label>
+                        <label class="radio-item"><input type="radio" name="timeLimit"
+                                value="600"><span>10分钟</span></label>
                     </div>
                 </div>
 
                 <div class="setting-group" id="ai-difficulty-group">
                     <div class="setting-label">电脑棋力</div>
                     <div class="radio-row">
-                        <label class="radio-item"><input type="radio" name="difficulty" value="beginner"><span>初出茅庐</span></label>
-                        <label class="radio-item"><input type="radio" name="difficulty" value="normal" checked><span>棋院国手</span></label>
-                        <label class="radio-item"><input type="radio" name="difficulty" value="master"><span>一代宗师</span></label>
+                        <label class="radio-item"><input type="radio" name="difficulty"
+                                value="beginner"><span>初出茅庐</span></label>
+                        <label class="radio-item"><input type="radio" name="difficulty" value="normal"
+                                checked><span>棋院国手</span></label>
+                        <label class="radio-item"><input type="radio" name="difficulty"
+                                value="master"><span>一代宗师</span></label>
                     </div>
                 </div>
 
                 <div class="setting-group">
                     <div class="setting-label">棋盘纵横</div>
                     <div class="radio-row">
-                        <label class="radio-item"><input type="radio" name="boardSize" value="11"><span>11×11</span></label>
-                        <label class="radio-item"><input type="radio" name="boardSize" value="13"><span>13×13</span></label>
-                        <label class="radio-item"><input type="radio" name="boardSize" value="15" checked><span>15×15</span></label>
-                        <label class="radio-item"><input type="radio" name="boardSize" value="custom"><span>自定义</span></label>
+                        <label class="radio-item"><input type="radio" name="boardSize"
+                                value="11"><span>11×11</span></label>
+                        <label class="radio-item"><input type="radio" name="boardSize"
+                                value="13"><span>13×13</span></label>
+                        <label class="radio-item"><input type="radio" name="boardSize" value="15"
+                                checked><span>15×15</span></label>
+                        <label class="radio-item"><input type="radio" name="boardSize"
+                                value="custom"><span>自定义</span></label>
                     </div>
                     <div id="custom-size-area" class="custom-size-area" style="display:none;">
-                        <input type="number" id="custom-board-size" class="doodle-input" value="17" min="5" max="30" placeholder="5-30">
+                        <input type="number" id="custom-board-size" class="doodle-input" value="17" min="5" max="30"
+                            placeholder="5-30">
                     </div>
                 </div>
 
                 <div class="setting-group" id="color-group">
                     <div class="setting-label">执子选择 (黑子先手)</div>
                     <div class="radio-row">
-                        <label class="radio-item"><input type="radio" name="firstMove" value="host" checked><span id="color-host-label">玩家执黑</span></label>
-                        <label class="radio-item"><input type="radio" name="firstMove" value="guest"><span id="color-guest-label">电脑执黑</span></label>
+                        <label class="radio-item"><input type="radio" name="firstMove" value="host" checked><span
+                                id="color-host-label">玩家执黑</span></label>
+                        <label class="radio-item"><input type="radio" name="firstMove" value="guest"><span
+                                id="color-guest-label">电脑执黑</span></label>
                     </div>
                 </div>
 
@@ -169,16 +187,19 @@
                 <p>对局凭证：</p>
                 <div class="room-code" id="wait-code">-----</div>
                 <p class="hint">将此凭证告知对手，双方即可对弈。</p>
-                <button class="doodle-btn" id="btn-wait-share" style="margin-top:20px;color:var(--success);border-color:var(--success);">发送到聊天室</button>
-                <button class="doodle-btn" id="btn-wait-cancel" style="margin-top:10px;color:var(--danger);border-color:var(--danger);">撤去棋盘</button>
+                <button class="doodle-btn" id="btn-wait-share"
+                    style="margin-top:20px;color:var(--success);border-color:var(--success);">发送到聊天室</button>
+                <button class="doodle-btn" id="btn-wait-cancel"
+                    style="margin-top:10px;color:var(--danger);border-color:var(--danger);">撤去棋盘</button>
             </div>
-    </section>
+        </section>
 
-    <section id="page-join">
+        <section id="page-join">
             <div class="doodle-border join-card">
                 <h2>入局切磋</h2>
                 <p>请输入对方提供的 5 位凭证：</p>
-                <input type="text" id="join-code" class="room-code-input" maxlength="5" autocomplete="off" placeholder="ABCDE">
+                <input type="text" id="join-code" class="room-code-input" maxlength="5" autocomplete="off"
+                    placeholder="ABCDE">
                 <div class="setting-actions" style="margin-top:20px;">
                     <button class="doodle-btn" id="btn-join-back">返回</button>
                     <button class="doodle-btn" id="btn-join-room">落 座</button>
@@ -203,7 +224,8 @@
                     </div>
                     <canvas id="boardCanvas"></canvas>
                     <div class="game-actions" id="game-actions">
-                        <button class="doodle-btn" id="btn-surrender" style="color:var(--danger);border-color:var(--danger);">推枰认输</button>
+                        <button class="doodle-btn" id="btn-surrender"
+                            style="color:var(--danger);border-color:var(--danger);">推枰认输</button>
                         <button class="doodle-btn" id="btn-rematch" style="display:none;">再弈一局</button>
                         <button class="doodle-btn" id="btn-game-leave" style="color:var(--text-subtle);">退出</button>
                     </div>
@@ -213,7 +235,10 @@
 
             <!-- 对局内聊天：右下角气泡按钮 + 弹出浮层 -->
             <button class="chat-toggle" id="chat-toggle" type="button" aria-label="聊天" style="display:none;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" style="width:24px;height:24px;">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
                 <span class="chat-toggle-badge" id="chat-toggle-badge" style="display:none;"></span>
             </button>
 
@@ -234,8 +259,20 @@
                 </div>
             </div>
         </section>
-
     </main>
+
+    <div style="text-align:center;padding:12px 20px 20px;font-size:12px;color:var(--text-subtle);">
+        <a href="https://fakeicp.top/query.html?number=1202612" target="_blank"
+            style="display: inline-flex; align-items: center; height: 42px; padding: 0 20px 0 24px; background-color: #2a2a2a; background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjQyIiB2aWV3Qm94PSIwIDAgMTIwIDQyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIHN0cm9rZT0iIzNmM2YzZiIgc3Ryb2tlLXdpZHRoPSIxIiBmaWxsPSJub25lIj48cGF0aCBkPSJNNDAsLTUgQzMwLDEwIDU1LDIwIDQ1LDQ3Ii8+PHBhdGggZD0iTTUyLC01IEM4MiwxNSA3MCwyNSA1Nyw0NyIvPjxwYXRoIGQ9Ik02NiwtNSBDNTUsMTAgODUsMjIgNzIsNDciLz48cGF0aCBkPSJNNzgsLTUgQzY4LDEyIDk4LDMwIDgyLDQ3Ii8+PHBhdGggZD0iTTkyLC01IEM4MiwxOCAxMDgsMjUgOTYsNDciLz48cGF0aCBkPSJNMTA1LC01IEM5NiwxMiAxMjAsMjggMTEwLDQ3Ii8+PHBhdGggZD0iTTExOCwtNSBDMTA4LDE1IDEzNSwyMiAxMjIsNDciLz48L2c+PC9zdmc+'); background-position: right center; background-repeat: no-repeat; text-decoration: none; border: 1px solid #111; position: relative; font-family: 'Oswald', 'Microsoft YaHei', sans-serif; box-sizing: border-box; white-space: nowrap;">
+            <div
+                style="position: absolute; left: 10px; top: 12px; bottom: 12px; width: 3px; background-color: #fff100; box-shadow: 0 0 5px rgba(255, 241, 0, 0.5);">
+            </div><span
+                style="color: #ffffff; font-size: 13px; font-weight: bold; letter-spacing: 1px; z-index: 2; position: relative;">假ICP备1202612号</span>
+        </a>
+        <a href="http://wapmz.com/in/292"><img src="http://wapmz.com/cn/big/292" alt="wapmz.com"></a><br>
+        本项目基于 AGPL 协议开源，欢迎部署或学习：<a href="https://github.com/XiaoFeng-QWQ/TuringTalk" target="_blank" rel="noopener"
+            style="color:var(--ink-blue);text-decoration:underline;">github.com/XiaoFeng-QWQ/TuringTalk</a>
+    </div>
 
     <script src="/shared.js?v="></script>
     <script src="/gomoku/gomoku.js?v="></script>
@@ -249,7 +286,13 @@
             <div id="gomoku-chat-messages"></div>
             <div class="gomoku-chat-input-row">
                 <button class="gc-sticker-btn" onclick="toggleGomokuSticker()" title="表情">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" style="width:18px;height:18px;">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                        <line x1="9" y1="9" x2="9.01" y2="9" />
+                        <line x1="15" y1="9" x2="15.01" y2="9" />
+                    </svg>
                 </button>
                 <input type="text" id="gomoku-chat-input" placeholder="输入消息...  @可提及" maxlength="1500"
                     onkeydown="if(event.key==='Enter')sendGomokuChat()">
@@ -261,7 +304,13 @@
     </div>
 
     <div id="gomoku-loading" class="gomoku-loading" style="display:none;">
-        <svg class="gomoku-spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>
+        <svg class="gomoku-spinner" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-dasharray="31.4 31.4" stroke-linecap="round">
+                <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s"
+                    repeatCount="indefinite" />
+            </circle>
+        </svg>
         <span id="gomoku-loading-text">处理中…</span>
     </div>
 

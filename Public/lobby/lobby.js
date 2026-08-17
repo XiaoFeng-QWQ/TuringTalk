@@ -2880,7 +2880,7 @@
                 let eq = p.indexOf('=');
                 if (eq > 0 && /^[a-z\u4e00-\u9fa5][a-z0-9\u4e00-\u9fa5._-]*$/.test(p.slice(0, eq).trim())) {
                     let k = p.slice(0, eq).trim(), v = p.slice(eq + 1).trim();
-                    if (k === '目标' || k === 'target') step.target = v;
+                    if (k === '目标' || k === 'target' || k === '选择' || k === 'select') step.target = v;
                     else if (k === '延时' || k === 'delay') step.delay = parseFloat(v) || 0;
                     else if (k === '条件' || k === 'cond') step.cond = v;
                     else if (k === '跳转' || k === 'jump') step.jump = parseInt(v, 10) || 0;
@@ -5499,7 +5499,7 @@
                 };
             }
             // 去掉 marked 输出的首尾换行（<p>xxx</p>\n 尾部换行会在气泡内多出一行）
-            rawHtml = window.marked.parse(text, { renderer: renderer, breaks: true, gfm: true }).replace(/\s+$/, '');
+            rawHtml = window.marked.parse(text.replace(/\n/g, '  \n'), { renderer: renderer, breaks: true, gfm: true });
         } else {
             // 降级：无 marked 时仅转换行
             rawHtml = text.replace(/\n/g, '<br>');

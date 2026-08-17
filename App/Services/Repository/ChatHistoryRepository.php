@@ -129,12 +129,28 @@ class ChatHistoryRepository
             if ($isP1) {
                 $rawSide = ($rawSide === 'right') ? 'left' : 'right';
             }
-            $cleaned[] = [
+
+            $entry = [
                 'sender' => mb_substr((string)($msg['sender'] ?? ''), 0, 32),
                 'text'   => $text,
                 'side'   => $rawSide,
                 'time'   => (string)($msg['time'] ?? ''),
             ];
+
+            // 表情消息：保留 id/name，并尝试解析当前贴纸 URL，
+            // 使详情页/公开收藏页无需依赖前端 stickerMap 也能渲染
+            if (!empty($msg['sticker_id'])) {
+                $entry['sticker_id']   = $msg['sticker_id'];
+                $entry['sticker_name'] = mb_substr((string)($msg['sticker_name'] ?? ''), 0, 32);
+                try {
+                    $stickerRow = \App\Services\Repository\StickerRepository::getById($msg['sticker_id'], $playerId);
+                    if ($stickerRow && !empty($stickerRow['url'])) {
+                        $entry['sticker_url'] = $stickerRow['url'];
+                    }
+                } catch (\Throwable $e) {}
+            }
+
+            $cleaned[] = $entry;
             $count++;
         }
 

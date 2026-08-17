@@ -3545,11 +3545,20 @@ function showChatHistoryDetail(id) {
                     const bg = isRight ? '#d3e2ed' : '#fdf5c9';
                     const align = isRight ? 'flex-end' : 'flex-start';
                     const radius = isRight ? '12px 12px 0 12px' : '12px 12px 12px 0';
+                    // 表情消息：渲染贴纸图片，避免因 text 为空导致表情丢失
+                    let contentHtml = escapeHtml(msg.text || '');
+                    if (msg.sticker_id) {
+                        const sName = escapeHtml(msg.sticker_name || msg.sticker_id);
+                        const sUrl = resolveStickerUrl(msg.sticker_id, msg.sticker_url || '', stickerMap);
+                        contentHtml = sUrl
+                            ? '<img src="' + escapeHtmlAttr(sUrl) + '" alt="' + sName + '" style="max-width:120px;border-radius:8px;display:block;">'
+                            : '<span style="font-style:italic;color:#999;">[表情: ' + sName + ']</span>';
+                    }
                     msgHtml += `
                         <div style="display:flex;justify-content:${align};margin-bottom:8px;">
                             <div style="max-width:75%;padding:8px 12px;background:${bg};border:1.5px solid #2b2b2b;border-radius:${radius};font-size:13px;line-height:1.4;">
                                 <div style="font-size:10px;color:#888;">${escapeHtml(msg.sender)} · ${escapeHtml(msg.time || '')}</div>
-                                <div style="margin-top:2px;">${escapeHtml(msg.text)}</div>
+                                <div style="margin-top:2px;">${contentHtml}</div>
                             </div>
                         </div>
                     `;
@@ -3781,9 +3790,18 @@ async function showPublicCollection(token) {
                 const bubble = document.createElement('div');
                 const isRight = msg.side === 'right';
                 bubble.className = isRight ? 'bubble bubble-right anim-slide-right' : 'bubble bubble-left anim-slide-left';
+                // 表情消息：渲染贴纸图片，避免因 text 为空导致表情丢失
+                let contentHtml = escapeHtml(msg.text || '');
+                if (msg.sticker_id) {
+                    const sName = escapeHtml(msg.sticker_name || msg.sticker_id);
+                    const sUrl = resolveStickerUrl(msg.sticker_id, msg.sticker_url || '', stickerMap);
+                    contentHtml = sUrl
+                        ? '<img src="' + escapeHtmlAttr(sUrl) + '" alt="' + sName + '" style="max-width:120px;border-radius:8px;display:block;">'
+                        : '<span style="font-style:italic;color:#999;">[表情: ' + sName + ']</span>';
+                }
                 bubble.innerHTML = `
                     <div class="bubble-info">${escapeHtml(msg.sender)} (${escapeHtml(msg.time || '')})</div>
-                    <div style="font-size:18px;">${escapeHtml(msg.text)}</div>
+                    <div style="font-size:18px;">${contentHtml}</div>
                 `;
                 chatBody.appendChild(bubble);
             });
