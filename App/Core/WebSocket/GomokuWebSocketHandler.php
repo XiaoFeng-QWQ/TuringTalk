@@ -383,6 +383,15 @@ class GomokuWebSocketHandler extends BaseGameHandler
             return;
         }
 
+        if (!$this->lobbyHandler) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'gomoku_invite_result',
+                'success' => false,
+                'message' => '聊天室暂不可用',
+            ]);
+            return;
+        }
+
         $row = $this->clientInfo[(string)$fd] ?? [];
         $nickname = $row['nickname'] ?? '';
         if ($nickname === '') {
@@ -390,30 +399,12 @@ class GomokuWebSocketHandler extends BaseGameHandler
             $nickname = $player['nickname'] ?? '玩家';
         }
 
-        if ($this->lobbyHandler) {
-            // 单进程模式：直接调用 lobby handler
-            $this->lobbyHandler->publishGomokuInvite($server, [
-                'nickname'    => $nickname,
-                'player_id'   => $playerId,
-                'ip'          => $row['ip'] ?? '',
-                'fingerprint' => $row['fingerprint'] ?? '',
-            ], $roomId);
-        } else {
-            // 多进程模式：通过 Redis pub/sub 发送到 lobby 模块
-            $payload = json_encode([
-                'sender' => [
-                    'nickname'    => $nickname,
-                    'player_id'   => $playerId,
-                    'ip'          => $row['ip'] ?? '',
-                    'fingerprint' => $row['fingerprint'] ?? '',
-                ],
-                'room_id' => $roomId,
-            ], JSON_UNESCAPED_UNICODE);
-            \App\Services\Infrastructure\RedisService::publish(
-                \App\Services\Infrastructure\RedisService::CHANNEL_GOMOKU_INVITE,
-                $payload
-            );
-        }
+        $this->lobbyHandler->publishGomokuInvite($server, [
+            'nickname'    => $nickname,
+            'player_id'   => $playerId,
+            'ip'          => $row['ip'] ?? '',
+            'fingerprint' => $row['fingerprint'] ?? '',
+        ], $roomId);
 
         $this->sendToPlayer($server, $fd, [
             'type' => 'gomoku_invite_result',

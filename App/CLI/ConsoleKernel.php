@@ -7,12 +7,6 @@ use App\Core\ErrorHandler;
 use App\Services\Infrastructure\Logger;
 use App\CLI\Commands\CleanupInactivePlayers;
 use App\CLI\Commands\GenerateWeeklyReport;
-use App\CLI\Commands\ServerStartCommand;
-use App\CLI\Commands\ServerStopCommand;
-use App\CLI\Commands\ServerRestartCommand;
-use App\CLI\Commands\ModuleListCommand;
-use App\CLI\Commands\ModuleStatusCommand;
-use App\CLI\Commands\ModuleRestartCommand;
 
 /**
  * 命令行接口内核
@@ -33,12 +27,6 @@ class ConsoleKernel
 
         $this->register(new CleanupInactivePlayers());
         $this->register(new GenerateWeeklyReport());
-        $this->register(new ServerStartCommand());
-        $this->register(new ServerStopCommand());
-        $this->register(new ServerRestartCommand());
-        $this->register(new ModuleListCommand());
-        $this->register(new ModuleStatusCommand());
-        $this->register(new ModuleRestartCommand());
     }
 
     public function register(Command $command): void

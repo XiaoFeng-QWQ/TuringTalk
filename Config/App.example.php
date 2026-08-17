@@ -6,26 +6,19 @@ return [
     // 服务器配置
     'Server' => [
         'Host' => '0.0.0.0',
+        'Port' => 9502,
         'DenyMultiConnection' => false, // 是否拒绝多连接，为 true 时每个 IP 只能连接一次
         'Options' => [
             'worker_num' => 1,  // 尽量保持单 Worker，因为代码还没完善，避免跨进程竞态🤓
             'daemonize' => false,
+            'log_file' => __DIR__ . '/../Storage/Logs/swoole.log',
+            'pid_file' => __DIR__ . '/../Storage/swoole.pid',
             'max_request' => 0, // 不限制请求数，避免 Worker 重启导致所有 WebSocket 玩家掉线
             'heartbeat_idle_time' => 60, // 心跳检测：60 秒无消息则判定连接死亡
             'heartbeat_check_interval' => 15, // 心跳检测间隔：15 秒
             'max_wait_time' => 3, // Worker 退出前等待 3 秒，给客户端重连窗口
             'max_connection' => 1024, // 允许的最大连接数
-        ],
-        // 多进程拆分架构的模块端口表（proxy 对外入口固定 9502，其余为内网端口仅绑 127.0.0.1）
-        'Modules' => [
-            'proxy'   => 9502, // 对外统一入口：WS path 路由 + HTTP 转发
-            'web'     => 9503, // HTTP：静态页面 + API
-            'game'    => 9504, // 经典1v1 /ws
-            'whoisai' => 9505, // /ws/WhoisAI
-            'lobby'   => 9506, // /ws/lobby 聊天室
-            'gomoku'  => 9507, // /ws/gomoku
-            'admin'   => 9508, // /admin/ws 管理后台
-        ],
+        ]
     ],
     // WebSocket 配置请勿随意修改
     'WebSocket' => [

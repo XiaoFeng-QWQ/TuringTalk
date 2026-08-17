@@ -84,78 +84,8 @@ class RedisService
     public const KP_WORN_SPECIAL   = self::PREFIX . 'worn_special:';             // worn_special:{playerId} → json 佩戴特殊标签缓存（TTL 60s）
     public const STICKER_CACHE_TTL  = 3600;
 
-    // ====== 跨模块 PUB/SUB（多进程拆分架构） ======
-    public const KP_CROSS_MODULE = self::PREFIX . 'cross:';
-    /** 游戏战绩分享卡片 → lobby 广播 */
-    public const CHANNEL_CARD_RECORD = self::PREFIX . 'cross:card_record';
-    /** 五子棋邀请卡片 → lobby 广播 */
-    public const CHANNEL_GOMOKU_INVITE = self::PREFIX . 'cross:gomoku_invite';
-
-    // ====== 各模块在线人数（阶段 2 多进程聚合） ======
-    public const KP_MODULE_ONLINE = self::PREFIX . 'online:module:';  // online:module:{name} → count (int)
-
-    /**
-     * 发布跨模块消息（Redis pub/sub，非持久化）
-     */
-    public static function publish(string $channel, string $message): void
-    {
-        $redis = self::connect();
-        $redis->publish($channel, $message);
-    }
-
-    /**
-     * 创建专用于 subscribe 的 Redis 连接（独立连接，不共用协程上下文）
-     * 因为 subscribe 进入循环后不会返回，不适合用 connect() 复用。
-     */
-    public static function subscribeConnection(): \Redis
-    {
-        $redis = new \Redis();
-        $redis->connect(
-            self::$config['host'] ?? Config::get('Redis.Host', '127.0.0.1'),
-            (int)(self::$config['port'] ?? Config::get('Redis.Port', 6379)),
-            (float)(self::$config['timeout'] ?? Config::get('Redis.Timeout', 3.0))
-        );
-        $auth = self::$config['auth'] ?? Config::get('Redis.Auth', '');
-        if (!empty($auth)) {
-            $redis->auth($auth);
-        }
-        $redis->select((int)(self::$config['db'] ?? Config::get('Redis.DbIndex', 0)));
-        return $redis;
-    }
-
-    /**
-     * 更新模块在线人数（Redis SET，各模块独立写入）
-     */
-    public static function reportModuleOnline(string $moduleName, int $count): void
-    {
-        $redis = self::connect();
-        $redis->set(self::KP_MODULE_ONLINE . $moduleName, $count, 120); // TTL 120s，模块挂了自动过期
-    }
-
-    /**
-     * 读取所有模块的在线人数聚合
-     * @return array<string, int> moduleName => count
-     */
-    public static function getAllModuleOnline(): array
-    {
-        $redis = self::connect();
-        $keys = $redis->keys(self::KP_MODULE_ONLINE . '*');
-        if (empty($keys)) return [];
-        $result = [];
-        foreach ($keys as $key) {
-            $name = substr($key, strlen(self::KP_MODULE_ONLINE));
-            $count = (int)$redis->get($key);
-            $result[$name] = $count;
-        }
-        return $result;
-    }
-
     /**
      * 获取当前协程专属的 Redis 连接
-     *
-     * 使用 Swoole\Coroutine::getContext() 按协程缓存连接，避免多协程共用 socket。
-     * 协程结束时上下文自动释放，连接也自动关闭。
-     *
      * @return \Redis
      */
     public static function connect(): \Redis
@@ -168,7 +98,7 @@ class RedisService
             'timeout' => Config::get('Redis.Timeout', 3.0),
         ];
 
-        // 协程环境中使用上下文缓存
+        // 协程环境中使用上下文缓存（getCid 上下文安全判断，避免非协程环境死锁）
         $cid = Coroutine::getCid();
         if ($cid > 0) {
             $ctx = Coroutine::getContext();
@@ -197,7 +127,7 @@ class RedisService
         }
         $redis->select((int)self::$config['db']);
 
-        // 存入协程上下文（仅协程环境）
+        // 存入协程上下文（仅协程环境，协程结束时自动释放）
         if ($cid > 0) {
             $ctx = Coroutine::getContext();
             if ($ctx !== null) {
