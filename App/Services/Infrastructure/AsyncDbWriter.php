@@ -300,8 +300,8 @@ class AsyncDbWriter
         $pdo = Database::connect();
         $isSticker = ($msg['type'] ?? '') === 'sticker';
         $stmt = $pdo->prepare(
-            "INSERT IGNORE INTO {$tableName} (id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT IGNORE INTO {$tableName} (id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, sender_titles, sender_special_titles, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         );
         $stmt->execute([
             $msg['id'],
@@ -316,12 +316,20 @@ class AsyncDbWriter
             $msg['reply_to']['id'] ?? null,
             $msg['reply_to']['name'] ?? null,
             $msg['reply_to']['text'] ?? null,
+            isset($msg['sender_titles']) && is_array($msg['sender_titles'])
+                ? json_encode($msg['sender_titles'], JSON_UNESCAPED_UNICODE)
+                : null,
+            isset($msg['sender_special_titles']) && is_array($msg['sender_special_titles'])
+                ? json_encode($msg['sender_special_titles'], JSON_UNESCAPED_UNICODE)
+                : null,
             $msg['created_at'] ?? date('Y-m-d H:i:s'),
         ]);
     }
 
     /**
      * 确保月表存在且结构最新（可选指定月份，如 '202607'）
+     * 每次调用都会 ensureColumn 补 sender_titles / sender_special_titles 列，
+     * 兼容历史月份已存在的老表（修复老数据落库丢失标签的脏数据问题）。
      */
     public static function ensureLobbyTable(?string $monthSuffix = null): string
     {
@@ -341,11 +349,28 @@ class AsyncDbWriter
             reply_to_id   BIGINT UNSIGNED NULL DEFAULT NULL,
             reply_to_name VARCHAR(32)  NULL DEFAULT NULL,
             reply_to_text VARCHAR(300) NULL DEFAULT NULL,
+            sender_titles         TEXT         NULL DEFAULT NULL COMMENT '发送者佩戴的普通标签 JSON 数组',
+            sender_special_titles TEXT         NULL DEFAULT NULL COMMENT '发送者佩戴的特殊标签 JSON 数组',
             is_deleted    TINYINT(1)   NOT NULL DEFAULT 0,
             created_at    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
             INDEX idx_created (created_at),
             INDEX idx_ip     (sender_ip)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        // 对已有老表补齐两列（幂等）
+        \App\Services\Infrastructure\Database::ensureColumn(
+            $pdo,
+            $tableName,
+            'sender_titles',
+            "TEXT NULL DEFAULT NULL COMMENT '发送者佩戴的普通标签 JSON 数组'"
+        );
+        \App\Services\Infrastructure\Database::ensureColumn(
+            $pdo,
+            $tableName,
+            'sender_special_titles',
+            "TEXT NULL DEFAULT NULL COMMENT '发送者佩戴的特殊标签 JSON 数组'"
+        );
+
         return $tableName;
     }
 }

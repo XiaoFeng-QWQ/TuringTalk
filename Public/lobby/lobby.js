@@ -491,7 +491,28 @@
                 break;
 
             case 'lobby_song_search_result':
-                renderSongSearchResults(data.songs || []);
+                if (data.error) {
+                    if ($songSearchResults) {
+                        $songSearchResults.innerHTML = '<div style="font-size:11px;color:#f44336;text-align:center;padding:8px 0;">' + escapeHtml(data.error) + '</div>';
+                    }
+                    if ($songSearchClear) $songSearchClear.style.display = 'inline-block';
+                    showTopToast(data.error, true);
+                } else if (data.direct_requested && data.song) {
+                    // 分享链接 / 纯 ID 直接点歌成功
+                    if ($songSearchResults) {
+                        let song = data.song;
+                        let html = '<div style="padding:10px;border:1px solid var(--border-light);border-radius:6px;background:var(--note-green-bg);">' +
+                            '<div style="font-weight:bold;color:#2e7d32;">✓ 已点歌</div>' +
+                            '<div style="margin-top:4px;font-size:13px;">' + escapeHtml(song.name || '') +
+                            (song.artist ? ' <span style="color:var(--text-muted);">— ' + escapeHtml(song.artist) + '</span>' : '') +
+                            '</div></div>';
+                        $songSearchResults.innerHTML = html;
+                    }
+                    if ($songSearchClear) $songSearchClear.style.display = 'inline-block';
+                    showTopToast('已点歌: ' + (data.song.name || ''), false);
+                } else {
+                    renderSongSearchResults(data.songs || []);
+                }
                 break;
 
             case 'lobby_song_list':
@@ -6824,7 +6845,7 @@
             showTopToast('请输入歌曲名', true);
             return;
         }
-        send({ type: 'lobby_song_search', keyword: keyword });
+        send({ type: 'lobby_song_search', keyword: keyword, nickname: myNickname });
         $songSearchResults.innerHTML = '<div style="font-size:11px;color:let(--text-subtle);text-align:center;padding:8px 0;">搜索中...</div>';
         if ($songSearchClear) $songSearchClear.style.display = 'none';
     }
@@ -6930,6 +6951,17 @@
     if ($songSearchInput) {
         $songSearchInput.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') searchSong();
+        });
+        // 粘贴网易云分享链接 / 数字ID 时自动点歌
+        $songSearchInput.addEventListener('paste', function (e) {
+            const cd = e.clipboardData || window.clipboardData;
+            if (!cd) return;
+            const text = cd.getData('text');
+            if (!text) return;
+            const t = text.trim();
+            if (/^https?:\/\//i.test(t) || /^\d{5,12}$/.test(t)) {
+                setTimeout(() => searchSong(), 0);
+            }
         });
     }
     // 点击外部关闭歌曲信息提示

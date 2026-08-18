@@ -6,6 +6,17 @@
 *,
 *::before,
 *::after {
+    .list-panel {
+        max-height: calc(100dvh - 375px);
+        overflow-y: auto;
+        overflow-x: auto;
+        /* 超宽内容在面板内横向滚动，不撑破页面 */
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+        padding: 6px 12px;
+    }
+
     box-sizing: border-box;
     margin: 0;
     padding: 0;
@@ -54,6 +65,13 @@
     --font: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono",
         "PingFang SC", "Microsoft YaHei", sans-serif;
     --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    /* 通用补充：便签底色 / 浅色边框 / 近白卡片面 */
+    --note-yellow: #d4a017;
+    --note-yellow-bg: #fff8d8;
+    --note-blue-bg: #eef3fb;
+    --border-light: #e3ddd0;
+    --surface-white: #fffdf6;
 }
 
 html {
@@ -109,6 +127,49 @@ a:hover {
     top: 0;
     z-index: 100;
     border-bottom: 1px solid rgba(255, 255, 255, .14);
+}
+
+.topbar-hamburger {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: transparent;
+    border: 1.5px solid rgba(255, 255, 255, .22);
+    border-radius: var(--radius);
+    color: #f2ecdd;
+    cursor: pointer;
+    transition: background .12s;
+    flex-shrink: 0;
+}
+
+.topbar-hamburger:hover {
+    background: rgba(255, 255, 255, .08);
+}
+
+.topbar-hamburger .icon {
+    width: 18px;
+    height: 18px;
+    color: #ffd54a;
+}
+
+.sidebar-mobile-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    top: 54px;
+    background: rgba(31, 30, 27, .55);
+    backdrop-filter: blur(2px);
+    z-index: 80;
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+
+body.sidebar-mobile-open .sidebar-mobile-backdrop {
+    display: block;
+    opacity: 1;
 }
 
 .topbar .logo-text {
@@ -662,7 +723,7 @@ select {
    ============================================================ */
 
 .list-panel {
-    max-height: 320px;
+    max-height: calc(100dvh - 375px);
     overflow-y: auto;
     overflow-x: auto;
     /* 超宽内容在面板内横向滚动，不撑破页面 */
@@ -2027,54 +2088,342 @@ select {
 }
 
 /* ============================================================
+   MDv3 分享站折叠菜单 / 管理面板
+   ============================================================ */
+
+.sidebar-fold-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 14px;
+    border-top: 1px dashed var(--line);
+    padding-top: 12px;
+}
+
+.sidebar-fold-toggle {
+    justify-content: space-between;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.sidebar-fold-toggle .fold-caret {
+    width: 14px;
+    height: 14px;
+    margin-left: auto;
+    transition: transform .18s ease;
+    opacity: .7;
+}
+
+.sidebar-fold-group.open .sidebar-fold-toggle .fold-caret {
+    transform: rotate(180deg);
+}
+
+.sidebar-fold-content {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 10px;
+    margin-top: 4px;
+    border-left: 2px dashed var(--line);
+}
+
+.sidebar-fold-group.open .sidebar-fold-content {
+    display: flex;
+}
+
+.sidebar-fold-content .admin-tab-btn.mdv3-sub-btn {
+    font-size: 12px;
+    padding: 7px 10px;
+    letter-spacing: 0;
+    color: var(--text-secondary);
+}
+
+.sidebar-fold-content .admin-tab-btn.mdv3-sub-btn.active {
+    color: #fffdf6;
+    background: var(--ink);
+    box-shadow: 2px 2px 0 rgba(31, 30, 27, .16);
+    font-weight: 600;
+}
+
+/* 状态徽章：色纸章（与 session-badge / sticker-status 同一语言） */
+.mdv3-status-badge {
+    display: inline-block;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    letter-spacing: .03em;
+    font-weight: 700;
+    line-height: 1.5;
+    border-radius: 2px;
+    border: 1px solid var(--ink);
+    background: var(--card);
+    color: var(--ink);
+    white-space: nowrap;
+}
+
+.mdv3-status-pending  { color: #a16207; border-color: #a16207; background: #fdf5c9; }
+.mdv3-status-approved  { color: #2e7d32; border-color: #2e7d32; background: #d1f2d3; }
+.mdv3-status-rejected  { color: #c2352b; border-color: #c2352b; background: #fde2e4; }
+.mdv3-status-reviewed  { color: #6b675f; border-color: #6b675f; background: #e5e2d8; }
+.mdv3-status-neutral   { color: var(--text-secondary); border-color: var(--border); background: var(--card-alt); }
+
+.mdv3-type-ban     { color: #c2352b; border-color: #c2352b; background: #fde2e4; }
+.mdv3-type-post    { color: #b45309; border-color: #b45309; background: #fde8d7; }
+.mdv3-type-comment { color: #1e3799; border-color: #1e3799; background: #d3e2ed; }
+
+/* 列表行：清晰分层，hover 反馈 */
+.mdv3-row {
+    padding: 14px 12px;
+    border-bottom: 1px dashed var(--line);
+    font-size: 12px;
+    line-height: 1.6;
+    transition: background .1s;
+}
+.mdv3-row:hover { background: rgba(31, 30, 27, .035); }
+.mdv3-row:last-child { border-bottom: none; }
+
+/* 头部：标题/徽章一行，元信息自动整行换行到下一行 */
+.mdv3-row-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+}
+.mdv3-row-head .mdv3-row-meta {
+    width: 100%;
+    margin-top: 3px;
+}
+
+.mdv3-row-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--ink);
+    min-width: 0;
+    word-break: break-word;
+}
+
+.mdv3-row-meta {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 16px;
+}
+.mdv3-row-meta + .mdv3-row-meta { margin-top: 6px; }
+.mdv3-row-body + .mdv3-row-meta { margin-top: 8px; }
+
+/* 内容数据行（赞/藏/评）：与身份信息区分 */
+.mdv3-row-stats {
+    color: var(--text-secondary);
+    margin-top: 8px !important;
+}
+
+.mdv3-row-body {
+    margin: 10px 0 0;
+    padding: 9px 11px;
+    background: #eef3f9;
+    border: 1px dashed #c9d6e4;
+    border-radius: var(--radius);
+    font-size: 12px;
+    color: var(--text);
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+/* 仅帖子列表行的正文截断 3 行；弹窗详情内不截断 */
+.mdv3-row-body-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.mdv3-row-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+/* 内联展开的详情卡片 */
+.mdv3-block-card {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    margin: 10px 0;
+}
+
+.mdv3-block-card h5 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    color: var(--ink);
+    font-family: var(--font-mono);
+    letter-spacing: .04em;
+}
+
+/* 帖子行下方内联详情：左缩进 + 竖线区分层级 */
+.mdv3-post-detail-inline {
+    display: none;
+    margin-top: 12px;
+    margin-left: 16px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--ink-blue);
+    background: var(--card-alt);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    animation: mdv3-inline-in .18s ease-out;
+}
+
+.mdv3-post-detail-inline.open {
+    display: block;
+}
+
+@keyframes mdv3-inline-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 帖子块拼接渲染：纯文本拼接，无样式（见 blocks格式说明.md） */
+
+/* 原始数据弹窗：JSON 原文展示 */
+.raw-json {
+    margin: 8px 0 0;
+    padding: 12px;
+    max-height: calc(88vh - 190px);
+    overflow: auto;
+    background: var(--card-alt);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* 弹窗字段表单：label 上、控件下 */
+.dialog-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-bottom: 12px;
+}
+.dialog-field:last-child { margin-bottom: 0; }
+.dialog-field > label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: var(--text-secondary);
+}
+.dialog-field textarea { min-height: 70px; resize: vertical; }
+
+/* 处理举报弹窗：举报信息摘要 */
+.mdv3-report-info {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    background: var(--card-alt);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    font-size: 12px;
+}
+.mdv3-report-info-row {
+    display: flex;
+    gap: 10px;
+    line-height: 1.8;
+    word-break: break-word;
+}
+.mdv3-report-info-row .info-label {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+/* ============================================================
    响应式
    ============================================================ */
 
 @media (max-width: 880px) {
 
+    .topbar {
+        padding: 0 12px;
+    }
+
+    .topbar-hamburger {
+        display: inline-flex;
+    }
+
+    .topbar .logo-text {
+        /* 顶部栏空间有限时，让 logo 文本在汉堡按钮右侧保持可见 */
+        margin-right: auto;
+    }
+
     .app-shell {
-        flex-direction: column;
+        flex-direction: row;
         align-items: stretch;
-        /* 纵向布局下内容区必须拉伸到全宽 */
     }
 
     .sidebar {
-        width: 100%;
-        position: static;
-        height: auto;
-        border-right: none;
-        border-bottom: 1px solid var(--border);
-        padding: 8px 10px;
+        width: 230px;
+        position: fixed;
+        top: 54px;
+        left: 0;
+        bottom: 0;
+        height: calc(100vh - 54px);
+        border-right: 1px solid var(--border);
+        border-bottom: none;
+        padding: 14px 10px 12px;
+        transform: translateX(-104%);
+        transition: transform .22s cubic-bezier(.2, .8, .2, 1);
+        box-shadow: 2px 0 0 rgba(31, 30, 27, .05);
+        z-index: 85;
+    }
+
+    body.sidebar-mobile-open .sidebar {
+        transform: translateX(0);
     }
 
     .sidebar-brand {
-        display: none;
+        display: flex;
     }
 
     .admin-tab-bar {
-        flex-direction: row;
-        overflow-x: auto;
-        gap: 6px;
-        padding-bottom: 2px;
+        flex-direction: column;
+        overflow-y: auto;
+        overflow-x: hidden;
+        gap: 2px;
+        padding-bottom: 10px;
     }
 
     .admin-tab-btn {
-        flex: 0 0 auto;
-        width: auto;
-        white-space: nowrap;
-        padding: 7px 12px;
+        flex: initial;
+        width: 100%;
+        white-space: normal;
+        padding: 9px 12px;
     }
 
     #tab-users {
-        margin-bottom: 0;
+        margin-bottom: 14px;
     }
 
     .sidebar-foot {
-        display: none;
+        display: inline-flex;
+        margin-top: auto;
     }
 
     .content {
         padding: 14px 12px 24px;
+        width: 100%;
     }
 
     #chat-page {

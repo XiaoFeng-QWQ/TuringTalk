@@ -320,6 +320,14 @@ class AdminWebSocketHandler
                 $this->withOp($server, $fd, "正在设置特殊标签", fn() =>
                 $this->userHandler->handleSetSpecialTag($server, $fd, $data));
                 break;
+            case 'admin_user_add_tag':
+                $this->withOp($server, $fd, "正在添加标签", fn() =>
+                $this->userHandler->handleAddTag($server, $fd, $data));
+                break;
+            case 'admin_user_delete_tag':
+                $this->withOp($server, $fd, "正在删除标签", fn() =>
+                $this->userHandler->handleDeleteTag($server, $fd, $data));
+                break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);
         }

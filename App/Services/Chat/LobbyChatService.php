@@ -247,7 +247,15 @@ class LobbyChatService
      */
     public function getMessagesPage(int $page, int $pageSize, string $nickname = ''): array
     {
-        AsyncDbWriter::ensureLobbyTable();
+        // 确保所有相关月表结构最新（补齐 sender_titles / sender_special_titles 列）
+        foreach ($this->getRelevantMonths() as $tableName) {
+            try {
+                $monthSuffix = substr($tableName, strlen('lobby_messages_'));
+                AsyncDbWriter::ensureLobbyTable($monthSuffix);
+            } catch (\Throwable $e) {
+                Logger::warning('LobbyChatService: ensureLobbyTable failed', ['table' => $tableName, 'error' => $e->getMessage()]);
+            }
+        }
         $pdo = Database::connect();
         $tables = $this->getRelevantMonths();
 
@@ -270,14 +278,14 @@ class LobbyChatService
             }
         }
 
-        // 跨表 UNION 查询分页数据
+        // 跨表 UNION 查询分页数据：包含 sender_titles / sender_special_titles（JSON 字符串）
         $offset = ($page - 1) * $pageSize;
         $unions = [];
         foreach ($tables as $table) {
             try {
                 // 先检查表是否存在
                 $pdo->query("SELECT 1 FROM `{$table}` LIMIT 0");
-                $unions[] = "SELECT id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, is_deleted, created_at FROM `{$table}`{$whereClause}";
+                $unions[] = "SELECT id, sender_name, sender_ip, sender_fp, content, type, sticker_id, sticker_name, sticker_url, reply_to_id, reply_to_name, reply_to_text, sender_titles, sender_special_titles, is_deleted, created_at FROM `{$table}`{$whereClause}";
             } catch (\Throwable $e) {
                 Logger::warning('LobbyChatService: table check failed, skipping', ['table' => $table, 'error' => $e->getMessage()]);
                 continue;
@@ -317,6 +325,15 @@ class LobbyChatService
                 'sticker_url' => $row['sticker_url'] ?? '',
                 'created_at'  => $row['created_at'] ?? '',
             ];
+            // 还原佩戴的标签（DB 中存 JSON 字符串，Redis 历史中已是数组）
+            if (!empty($row['sender_titles']) && is_string($row['sender_titles'])) {
+                $decoded = json_decode($row['sender_titles'], true);
+                if (is_array($decoded)) $m['sender_titles'] = $decoded;
+            }
+            if (!empty($row['sender_special_titles']) && is_string($row['sender_special_titles'])) {
+                $decoded = json_decode($row['sender_special_titles'], true);
+                if (is_array($decoded)) $m['sender_special_titles'] = $decoded;
+            }
             if ($row['reply_to_id']) {
                 $m['reply_to'] = [
                     'id'   => (int)$row['reply_to_id'],

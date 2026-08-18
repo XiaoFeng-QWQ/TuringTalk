@@ -655,6 +655,9 @@ class PlayerStatsRepository
      * 授予/取消玩家某个标签的特殊称号（管理员后台调用）
      * 授予：upsert is_special=1（不动 count，也不覆盖既有普通标签的计数）
      * 取消：仅置 is_special=0
+     *
+     * 同时自动迁移玩家的佩戴数据，避免标签卡在 worn_tags / worn_special_tags
+     * 与实际 is_special 不一致导致设置页不可见、用户无法移除的问题。
      */
     public static function setSpecialTag(string $playerId, string $tag, bool $special): bool
     {
@@ -675,6 +678,147 @@ class PlayerStatsRepository
             );
             $stmt->execute([$playerId, $tag]);
         }
+
+        // 迁移佩戴数据：读取 player_data 当前 worn 列，按新 is_special 对齐
+        self::migrateWornTagsAfterSpecialChange($pdo, $playerId, $tag, $special);
+
+        self::invalidateWornTagsCache($playerId);
+        self::invalidateWornSpecialCache($playerId);
+
+        return true;
+    }
+
+    /**
+     * 辅助：在 is_special 改变后，把 $tag 从旧的 worn 列移到新的 worn 列
+     * - 授予特殊（special=true）：从 worn_tags 中移除，若 worn_special_tags 未满则追加
+     * - 取消特殊（special=false）：从 worn_special_tags 中移除，若 worn_tags 未满则追加
+     */
+    private static function migrateWornTagsAfterSpecialChange(
+        \PDO $pdo,
+        string $playerId,
+        string $tag,
+        bool $toSpecial
+    ): void {
+        if ($playerId === '' || $tag === '') return;
+
+        $stmt = $pdo->prepare('SELECT worn_tags, worn_special_tags FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) return;
+
+        $worn = json_decode((string)($row['worn_tags'] ?? ''), true);
+        $worn = is_array($worn) ? array_values(array_filter($worn, 'is_string')) : [];
+        $wornSpecial = json_decode((string)($row['worn_special_tags'] ?? ''), true);
+        $wornSpecial = is_array($wornSpecial) ? array_values(array_filter($wornSpecial, 'is_string')) : [];
+
+        $changed = false;
+
+        if ($toSpecial) {
+            // 普通 → 特殊：从 worn_tags 移除
+            $idx = array_search($tag, $worn, true);
+            if ($idx !== false) {
+                array_splice($worn, $idx, 1);
+                $changed = true;
+            }
+            // 若 worn_special_tags 未满且未佩戴，自动追加以保持展示连续性
+            if (!in_array($tag, $wornSpecial, true) && count($wornSpecial) < self::MAX_WORN_TAGS) {
+                $wornSpecial[] = $tag;
+                $changed = true;
+            }
+        } else {
+            // 特殊 → 普通：从 worn_special_tags 移除
+            $idx = array_search($tag, $wornSpecial, true);
+            if ($idx !== false) {
+                array_splice($wornSpecial, $idx, 1);
+                $changed = true;
+            }
+            // 若 worn_tags 未满且未佩戴，追加回去（用户仍可再手动移除）
+            if (!in_array($tag, $worn, true) && count($worn) < self::MAX_WORN_TAGS) {
+                $worn[] = $tag;
+                $changed = true;
+            }
+        }
+
+        if ($changed) {
+            $upd = $pdo->prepare('UPDATE player_data SET worn_tags = ?, worn_special_tags = ? WHERE id = ?');
+            $upd->execute([
+                json_encode($worn, JSON_UNESCAPED_UNICODE),
+                json_encode($wornSpecial, JSON_UNESCAPED_UNICODE),
+                $playerId,
+            ]);
+        }
+    }
+
+    /**
+     * 管理员后台添加标签（完整 CRUD 的 Create）。
+     * 支持设置 is_special 和 count，调用前应确保参数已校验。
+     * 不会触发 migrateWornTagsAfterSpecialChange（管理部门可后再手动设特殊）。
+     */
+    public static function addTag(string $playerId, string $tag, int $count = 1, bool $special = false): bool
+    {
+        if (empty($playerId) || empty($tag)) return false;
+        $tag = mb_substr(trim($tag), 0, 50);
+        if ($tag === '') return false;
+
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'INSERT INTO player_tags (player_id, tag, count, is_special) VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE count = VALUES(count), is_special = VALUES(is_special)'
+        );
+        $stmt->execute([$playerId, $tag, max(1, $count), $special ? 1 : 0]);
+        return true;
+    }
+
+    /**
+     * 管理员后台删除标签（完整 CRUD 的 Delete）。
+     * 从 player_tags 删除记录，同时清理 player_data.worn_tags / worn_special_tags 中该标签。
+     */
+    public static function deleteTag(string $playerId, string $tag): bool
+    {
+        if (empty($playerId) || empty($tag)) return false;
+        $tag = mb_substr(trim($tag), 0, 50);
+        if ($tag === '') return false;
+
+        $pdo = Database::connect();
+
+        // 从 player_tags 删除
+        $stmt = $pdo->prepare('DELETE FROM player_tags WHERE player_id = ? AND tag = ?');
+        $stmt->execute([$playerId, $tag]);
+
+        // 清理佩戴数据：从 worn_tags 和 worn_special_tags 中移除
+        $select = $pdo->prepare('SELECT worn_tags, worn_special_tags FROM player_data WHERE id = ? LIMIT 1');
+        $select->execute([$playerId]);
+        $row = $select->fetch(\PDO::FETCH_ASSOC);
+        if ($row) {
+            $changed = false;
+            $worn = json_decode((string)($row['worn_tags'] ?? ''), true);
+            $worn = is_array($worn) ? array_values(array_filter($worn, 'is_string')) : [];
+            $idx = array_search($tag, $worn, true);
+            if ($idx !== false) {
+                array_splice($worn, $idx, 1);
+                $changed = true;
+            }
+            $wornSpecial = json_decode((string)($row['worn_special_tags'] ?? ''), true);
+            $wornSpecial = is_array($wornSpecial) ? array_values(array_filter($wornSpecial, 'is_string')) : [];
+            $idx = array_search($tag, $wornSpecial, true);
+            if ($idx !== false) {
+                array_splice($wornSpecial, $idx, 1);
+                $changed = true;
+            }
+            if ($changed) {
+                $upd = $pdo->prepare('UPDATE player_data SET worn_tags = ?, worn_special_tags = ? WHERE id = ?');
+                $upd->execute([
+                    json_encode($worn, JSON_UNESCAPED_UNICODE),
+                    json_encode($wornSpecial, JSON_UNESCAPED_UNICODE),
+                    $playerId,
+                ]);
+            }
+        }
+
+        // 失效缓存
+        self::invalidateWornTagsCache($playerId);
+        self::invalidateWornSpecialCache($playerId);
+
         return true;
     }
 
@@ -740,10 +884,12 @@ class PlayerStatsRepository
             return ['success' => false, 'message' => '玩家不存在'];
         }
 
-        // 普通佩戴标签
+        // 普通佩戴标签：必须是非特殊（is_special=0）且存在于标签库
         $ownedSet = [];
         foreach (self::getPlayerTags($playerId) as $t) {
-            $ownedSet[$t['tag']] = true;
+            if (empty($t['is_special'])) {
+                $ownedSet[$t['tag']] = true;
+            }
         }
 
         $clean = [];
@@ -751,7 +897,7 @@ class PlayerStatsRepository
             if (!is_string($tag)) continue;
             $tag = mb_substr(trim($tag), 0, 50);
             if ($tag === '') continue;
-            if (!isset($ownedSet[$tag])) continue; // 只允许佩戴被贴过的标签
+            if (!isset($ownedSet[$tag])) continue; // 只允许佩戴普通（非特殊）标签
             if (in_array($tag, $clean, true)) continue;
             $clean[] = $tag;
             if (count($clean) >= self::MAX_WORN_TAGS) break;
@@ -848,13 +994,27 @@ class PlayerStatsRepository
 
     private static function loadWornSpecialFromDb(string $playerId): array
     {
+        if ($playerId === '') return [];
         $pdo = Database::connect();
         $stmt = $pdo->prepare('SELECT worn_special_tags FROM player_data WHERE id = ? LIMIT 1');
         $stmt->execute([$playerId]);
         $raw = $stmt->fetchColumn();
-        if (empty($raw)) return [];
-        $tags = json_decode($raw, true);
-        return is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [];
+        $tags = [];
+        if (!empty($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $tags = array_values(array_filter($decoded, 'is_string'));
+            }
+        }
+        if (empty($tags)) return [];
+
+        // 合法性校验：只保留 player_tags 中 is_special=1 且属于该玩家的 tag
+        $sanitized = self::filterWornTagsByIsSpecial($pdo, $playerId, $tags, true);
+        if (count($sanitized) !== count($tags)) {
+            self::overwriteWornColumn($pdo, $playerId, 'worn_special_tags', $sanitized);
+            self::invalidateWornSpecialCache($playerId);
+        }
+        return $sanitized;
     }
 
     private static function invalidateWornSpecialCache(string $playerId): void
@@ -894,13 +1054,27 @@ class PlayerStatsRepository
 
     private static function loadWornTagsFromDb(string $playerId): array
     {
+        if ($playerId === '') return [];
         $pdo = Database::connect();
         $stmt = $pdo->prepare('SELECT worn_tags FROM player_data WHERE id = ? LIMIT 1');
         $stmt->execute([$playerId]);
         $raw = $stmt->fetchColumn();
-        if (empty($raw)) return [];
-        $tags = json_decode($raw, true);
-        return is_array($tags) ? array_values(array_filter($tags, 'is_string')) : [];
+        $tags = [];
+        if (!empty($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $tags = array_values(array_filter($decoded, 'is_string'));
+            }
+        }
+        if (empty($tags)) return [];
+
+        // 合法性校验：只保留 player_tags 中 is_special=0 且属于该玩家的 tag
+        $sanitized = self::filterWornTagsByIsSpecial($pdo, $playerId, $tags, false);
+        if (count($sanitized) !== count($tags)) {
+            self::overwriteWornColumn($pdo, $playerId, 'worn_tags', $sanitized);
+            self::invalidateWornTagsCache($playerId);
+        }
+        return $sanitized;
     }
 
     /**
@@ -922,6 +1096,56 @@ class PlayerStatsRepository
                 \App\Services\Infrastructure\RedisService::KP_WORN_TAGS . $playerId
             );
         } catch (\Throwable $e) {}
+    }
+
+    /**
+     * 辅助：按 player_tags 中的实际 is_special 过滤 worn 标签列表
+     * - $expectSpecial=true：只保留该玩家 is_special=1 的 tag（用于 worn_special_tags 校验）
+     * - $expectSpecial=false：只保留该玩家 is_special=0 的 tag（用于 worn_tags 校验）
+     * 用于兜底盘中存在的脏数据：普通标签被转为特殊后仍卡在 worn_tags，或反之。
+     *
+     * @param string[] $tags
+     * @return string[]
+     */
+    private static function filterWornTagsByIsSpecial(
+        \PDO $pdo,
+        string $playerId,
+        array $tags,
+        bool $expectSpecial
+    ): array {
+        $tags = array_values(array_unique(array_filter($tags, 'is_string')));
+        if (empty($tags)) return [];
+
+        $placeholders = implode(',', array_fill(0, count($tags), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT tag, is_special FROM player_tags WHERE player_id = ? AND tag IN ({$placeholders})"
+        );
+        $params = array_merge([$playerId], $tags);
+        $stmt->execute($params);
+        $specialMap = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $specialMap[(string)($row['tag'] ?? '')] = !empty($row['is_special']);
+        }
+
+        $result = [];
+        foreach ($tags as $t) {
+            if (!isset($specialMap[$t])) continue; // 标签已不存在，丢弃
+            if ($specialMap[$t] !== $expectSpecial) continue; // is_special 不匹配，丢弃
+            $result[] = $t;
+        }
+        return $result;
+    }
+
+    /**
+     * 辅助：覆写 player_data 中单个 worn 列（用于兜底清理脏数据后写回）
+     * @param string $column  'worn_tags' | 'worn_special_tags'
+     * @param string[] $value
+     */
+    private static function overwriteWornColumn(\PDO $pdo, string $playerId, string $column, array $value): void
+    {
+        if ($playerId === '' || ($column !== 'worn_tags' && $column !== 'worn_special_tags')) return;
+        $stmt = $pdo->prepare("UPDATE player_data SET {$column} = ? WHERE id = ?");
+        $stmt->execute([json_encode($value, JSON_UNESCAPED_UNICODE), $playerId]);
     }
 
     // ================================================================

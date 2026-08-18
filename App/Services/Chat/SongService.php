@@ -53,7 +53,138 @@ class SongService
     // ==================== API 调用 ====================
 
     /**
-     * 搜索歌曲
+     * 解析玩家输入为网易云音乐 songId。
+     * 支持三种输入：
+     *   1) 纯数字歌曲 ID（含前后空白/非数字的外围字符也能提取）
+     *   2) Web 分享链接：https://music.163.com/song?id=xxx&userid=...
+     *                    https://y.music.163.com/m/song?id=xxx&...
+     *   3) 短链：https://163cn.tv/xxxx  → 302 → location 里解析 id
+     * 失败返回 null
+     */
+    public function resolveInputToSongId(string $input): ?string
+    {
+        $input = trim($input);
+        if ($input === '') return null;
+
+        // --- 1) 纯数字 ID（整个字符串就是纯数字、或只含前后空白）
+        if (preg_match('/^\d{5,12}$/', $input)) {
+            return $input;
+        }
+
+        // --- 2) URL 里夹带纯数字（用户不小心复制了带空白/双引号的 id 字符串）
+        if (preg_match('/(?:^|[^\d])(\d{5,12})(?:[^\d]|$)/', $input, $m)
+            && strpos($input, 'http') === false
+            && strpos($input, '163') === false) {
+            // 仅在整体不含 URL 时用这一宽松匹配，避免误抓 userid
+            return $m[1];
+        }
+
+        // --- 3) 看起来是 URL：先尝试直接解析 query / fragment 里的 id=
+        if (stripos($input, 'http') === 0) {
+            $id = $this->extractSongIdFromUrl($input);
+            if ($id !== null) return $id;
+
+            // --- 4) 短链：请求 1 次跟随 302 的 Location，再解析 id
+            if (stripos($input, '163cn.tv') !== false || stripos($input, '163.lu') !== false) {
+                $redirected = $this->followRedirectOnce($input);
+                if ($redirected !== null) {
+                    $id = $this->extractSongIdFromUrl($redirected);
+                    if ($id !== null) return $id;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 从 URL（含 fragment，如 #/song?id= ）的 query / fragment 中解析 song id
+     */
+    private function extractSongIdFromUrl(string $url): ?string
+    {
+        $parsed = parse_url($url);
+        if (!is_array($parsed)) return null;
+
+        // query 部分（?id=xxx）
+        if (!empty($parsed['query'])) {
+            parse_str($parsed['query'], $qs);
+            if (!empty($qs['id']) && preg_match('/^\d{5,12}$/', (string)$qs['id'])) {
+                return (string)$qs['id'];
+            }
+        }
+
+        // fragment 部分（#/song?id=xxx）
+        if (!empty($parsed['fragment'])) {
+            $frag = $parsed['fragment'];
+            // 去掉开头可能的 '/'
+            $qPos = strpos($frag, '?');
+            if ($qPos !== false) {
+                parse_str(substr($frag, $qPos + 1), $qs);
+                if (!empty($qs['id']) && preg_match('/^\d{5,12}$/', (string)$qs['id'])) {
+                    return (string)$qs['id'];
+                }
+            }
+            // path-style 片段里的最后一段是 id（/song/12345）
+            if (preg_match('#/song/(\d{5,12})#', $frag, $mm)) {
+                return $mm[1];
+            }
+        }
+
+        // path 里路径式：/song/12345
+        if (!empty($parsed['path']) && preg_match('#/song/(\d{5,12})#', $parsed['path'], $mm)) {
+            return $mm[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * 跟随一次 301/302 重定向（主要给 163cn.tv 短链用），不跟随超过 1 次
+     */
+    private function followRedirectOnce(string $url): ?string
+    {
+        $parsed  = parse_url($url);
+        $host    = $parsed['host'] ?? '';
+        $path    = ($parsed['path'] ?? '/') . (isset($parsed['query']) ? '?' . $parsed['query'] : '');
+        $isHttps = ($parsed['scheme'] ?? 'http') === 'https';
+        if ($host === '') return null;
+
+        $resolveIp = $this->resolveIps[$host] ?? null;
+        $connHost  = $resolveIp ?: $host;
+
+        try {
+            $client = new Client($connHost, $isHttps ? 443 : 80, $isHttps);
+            $client->set([
+                'timeout'              => 8,
+                'ssl_host_name'        => $host,
+                'ssl_verify_peer'      => false,
+                'ssl_allow_self_signed' => true,
+            ]);
+            $client->setHeaders([
+                'Host'       => $host,
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept'     => '*/*',
+            ]);
+            // 仅发 HEAD 能少一点流量，但 163cn.tv HEAD 有时行为不一致；GET 只取 headers 也行
+            $client->get($path);
+            $code = $client->statusCode;
+            $headers = $client->headers ?? [];
+            $client->close();
+
+            if ($code === 301 || $code === 302 || $code === 303 || $code === 307 || $code === 308) {
+                $loc = $headers['location'] ?? $headers['Location'] ?? null;
+                if (is_string($loc) && $loc !== '') {
+                    return $loc;
+                }
+            }
+        } catch (\Throwable $e) {
+            Logger::warning('Song short link resolve failed', ['url' => $url, 'err' => $e->getMessage()]);
+        }
+        return null;
+    }
+
+    /**
+     * 搜索歌曲（若输入是分享链接/纯 ID，则作为「直接点歌」返回 single-item 命中）
      */
     public function search(string $keyword, int $limit = 15): array
     {

@@ -26,6 +26,7 @@ class GameController
         '/favicon.svg'            => ['favicon.svg',            'image/svg+xml'],
         '/shared.js'              => ['shared.js',              'application/javascript'],
         '/admin/admin.js'         => ['admin/admin.js',               'application/javascript'],
+        '/admin/admin_mdv3.js'    => ['admin/admin_mdv3.js',           'application/javascript'],
         '/admin/admin.css'        => ['admin/admin.css',              'text/css'],
         '/admin/favicon.svg'      => ['admin/favicon.svg',      'image/svg+xml'],
         '/whoisai/whoisai.css'    => ['whoisai/whoisai.css',            'text/css'],
@@ -889,7 +890,7 @@ class GameController
     {
         $html = file_get_contents(self::PUBLIC_DIR . '/admin/index.html');
 
-        $files = ['/admin/admin.css', '/admin/admin.js', '/shared.js'];
+        $files = ['/admin/admin.css', '/admin/admin.js', '/admin/admin_mdv3.js', '/shared.js'];
         foreach ($files as $file) {
             $hash = $this->getFileVersionHash(ltrim($file, '/'));
             $html = str_replace(

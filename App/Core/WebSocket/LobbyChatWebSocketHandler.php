@@ -507,16 +507,6 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
             ];
         }
 
-        // 批量附带佩戴标签 + 佩戴的特殊标签（各一次 IN 查询，供在线列表展示称号）
-        $playerIds   = array_filter(array_column($seen, 'player_id'));
-        $titlesMap   = PlayerStatsRepository::getWornTagsBatch($playerIds);
-        $specialMap  = PlayerStatsRepository::getWornSpecialTagsBatch($playerIds);
-        foreach ($seen as &$item) {
-            $item['titles']         = $titlesMap[$item['player_id']] ?? [];
-            $item['special_titles'] = $specialMap[$item['player_id']] ?? [];
-        }
-        unset($item);
-
         return array_values($seen);
     }
 

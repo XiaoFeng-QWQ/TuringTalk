@@ -228,6 +228,96 @@ class UserHandler
     }
 
     /**
+     * 管理员后台添加标签（完整 CRUD 的 Create）
+     * 可设置标签名、出现次数、是否特殊称号
+     */
+    public function handleAddTag(Server $server, int $fd, array $data): void
+    {
+        $playerId = (string)($data['player_id'] ?? '');
+        $tag = trim((string)($data['tag'] ?? ''));
+        $count = max(1, (int)($data['count'] ?? 1));
+        $special = !empty($data['special']);
+
+        if ($playerId === '' || $tag === '') {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '参数不完整']);
+            return;
+        }
+        if (mb_strlen($tag) > 50) {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '标签不能超过 50 字']);
+            return;
+        }
+
+        PlayerStatsRepository::addTag($playerId, $tag, $count, $special);
+
+        $this->send($server, $fd, [
+            'type'      => 'admin_user_tag_added',
+            'player_id' => $playerId,
+            'tag'       => $tag,
+            'special'   => $special,
+        ]);
+
+        $username = $this->tracker->getUsername($fd);
+        $adminId  = $this->tracker->getAdminId($fd);
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'user_add_tag',
+            'player',
+            $playerId,
+            json_encode(['tag' => $tag, 'count' => $count, 'special' => $special], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
+
+        Logger::info('Admin added tag', [
+            'admin_fd' => $fd,
+            'player_id' => $playerId,
+            'tag' => $tag,
+            'special' => $special,
+        ]);
+    }
+
+    /**
+     * 管理员后台删除标签（完整 CRUD 的 Delete）
+     * 从 player_tags 彻底删除，同时清理佩戴数据
+     */
+    public function handleDeleteTag(Server $server, int $fd, array $data): void
+    {
+        $playerId = (string)($data['player_id'] ?? '');
+        $tag = trim((string)($data['tag'] ?? ''));
+
+        if ($playerId === '' || $tag === '') {
+            $this->send($server, $fd, ['type' => 'system', 'text' => '参数不完整']);
+            return;
+        }
+
+        PlayerStatsRepository::deleteTag($playerId, $tag);
+
+        $this->send($server, $fd, [
+            'type'      => 'admin_user_tag_deleted',
+            'player_id' => $playerId,
+            'tag'       => $tag,
+        ]);
+
+        $username = $this->tracker->getUsername($fd);
+        $adminId  = $this->tracker->getAdminId($fd);
+        AdminRepository::writeLog(
+            $adminId,
+            $username,
+            'user_delete_tag',
+            'player',
+            $playerId,
+            json_encode(['tag' => $tag], JSON_UNESCAPED_UNICODE),
+            $this->tracker->getAdminIp($fd)
+        );
+
+        Logger::info('Admin deleted tag', [
+            'admin_fd' => $fd,
+            'player_id' => $playerId,
+            'tag' => $tag,
+        ]);
+    }
+
+    /**
      * 尝试踢掉匹配的在线连接
      */
     private function kickOnlineConnection(Server $server, string $playerId, string $ip, string $fp, string $reason): void

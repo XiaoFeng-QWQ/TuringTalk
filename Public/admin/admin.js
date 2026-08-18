@@ -193,7 +193,7 @@ let btnAddSticker, stickerList, stickerListEmpty;
 let btnStickerUpload, stickerFileInput, stickerUploadStatus, stickerBatchProgress;
 let stickerLightbox, stickerLightboxImg, stickerLightboxClose;
 let stickerBatchToolbar, stickerSelectAll, stickerSelectCount, btnStickerBatchDelete;
-let btnStickerSync, stickerSyncStatus, btnStickerSyncJson, stickerJsonInput;
+let stickerSyncStatus, btnStickerSyncJson, stickerJsonInput;
 // 用户表情审核
 let stickerReviewList, stickerReviewListEmpty, stickerReviewSearch, stickerReviewPagination;
 let stickerReviewActions, stickerReviewSelectAll, btnStickerReviewBatchApprove, btnStickerReviewBatchReject;
@@ -206,8 +206,8 @@ let _batchUploadPending = 0;
 let _batchSuccessCount = 0;
 let _batchTotalCount = 0;
 
-// 同步服务器表情状态
-let _syncState = null; // null | { phase: 'delete'|'add', pending: number, apiUrl: string }
+// JSON 同步表情状态
+let _syncState = null; // null | { phase: 'delete'|'add', pending: number, _jsonItems: array }
 
 /**
  * 批量上传完成后的收尾工作
@@ -705,7 +705,21 @@ function handleAdminMessage(data) {
         case 'admin_user_special_result':
             showAdminToast((data.special ? '已授予特殊称号' : '已取消特殊称号') + ': ' + data.tag, 'success');
             // 刷新当前弹窗内的标签列表
-            if (specialTagDialog && document.getElementById('special-tag-list')) {
+            if (tagDialog && document.getElementById('tag-list')) {
+                adminSend('admin_user_get_tags', { player_id: data.player_id });
+            }
+            break;
+
+        case 'admin_user_tag_added':
+            showAdminToast('已添加标签: ' + data.tag, 'success');
+            if (tagDialog && document.getElementById('tag-list')) {
+                adminSend('admin_user_get_tags', { player_id: data.player_id });
+            }
+            break;
+
+        case 'admin_user_tag_deleted':
+            showAdminToast('已删除标签: ' + data.tag, 'success');
+            if (tagDialog && document.getElementById('tag-list')) {
                 adminSend('admin_user_get_tags', { player_id: data.player_id });
             }
             break;
@@ -783,7 +797,6 @@ function handleAdminMessage(data) {
                 setTimeout(() => { stickerSyncStatus.style.display = 'none'; }, 5000);
                 _syncState = null;
                 loadStickers();
-                if (btnStickerSync) { btnStickerSync.disabled = false; btnStickerSync.style.opacity = ''; }
                 if (btnStickerSyncJson) { btnStickerSyncJson.disabled = false; btnStickerSyncJson.style.opacity = ''; }
             }
             break;
@@ -797,10 +810,8 @@ function handleAdminMessage(data) {
                     _syncState = { phase: 'add', pending: 0, total: 0 };
                     adminSend('admin_sticker_batch_add', { items: items });
                 } else {
-                    stickerSyncStatus.textContent = '已清空 ' + data.deleted + ' 个表情，正在拉取新数据...';
-                    stickerSyncStatus.style.color = '#888';
                     _syncState = null;
-                    fetchAndSyncStickers();
+                    loadStickers();
                 }
             } else {
                 loadStickers();
@@ -953,13 +964,29 @@ function switchAdminTab(tab) {
         );
     }
 
+    const allMdKeys = ['posts', 'reports', 'restrictions', 'settings'];
+    const isMdTab = allMdKeys.includes(tab);
+
     allTabs.forEach(t => {
-        const active = t.name === tab;
+        const active = (t.name === tab) && !isMdTab;
         if (t.btn) t.btn.classList.toggle('active', active);
         if (t.panel) t.panel.style.display = active ? '' : 'none';
     });
 
-    if (tab === 'reports') {
+    // MDv3 子面板：隐藏所有子面板，仅显示目标
+    const mdPanels = document.querySelectorAll('.mdv3-panel');
+    mdPanels.forEach(p => {
+        const active = isMdTab && p.dataset.mdv3 === tab;
+        p.style.display = active ? '' : 'none';
+    });
+    // 子菜单按钮高亮
+    const mdSubBtns = document.querySelectorAll('.mdv3-sub-btn');
+    mdSubBtns.forEach(b => {
+        const active = isMdTab && b.dataset.mdv3 === tab;
+        b.classList.toggle('active', active);
+    });
+
+    if (tab === 'reports' && !isMdTab) {
         loadReports(1);
     }
     if (tab === 'WhoisAI') {
@@ -978,6 +1005,66 @@ function switchAdminTab(tab) {
     if (tab === 'lobby') {
         adminSend('admin_lobby_players');
         loadLobbyPage(1);
+    }
+    // MDv3 子面板切换后的自动加载（钩子：由 admin_mdv3.js 监听 window 事件自行实现）
+    if (isMdTab) {
+        window.dispatchEvent(new CustomEvent('mdv3:tab-switched', { detail: { tab } }));
+    }
+
+    // 移动端：切换完标签页自动收起侧边栏，方便看到内容
+    closeMobileSidebar();
+}
+
+// ==================== 移动端抽屉式侧边栏 ====================
+
+function isMobileViewport() {
+    return window.matchMedia && window.matchMedia('(max-width: 880px)').matches;
+}
+
+function openMobileSidebar() {
+    if (!isMobileViewport()) return;
+    document.body.classList.add('sidebar-mobile-open');
+}
+
+function closeMobileSidebar() {
+    if (!document.body.classList.contains('sidebar-mobile-open')) return;
+    document.body.classList.remove('sidebar-mobile-open');
+}
+
+function toggleMobileSidebar() {
+    if (document.body.classList.contains('sidebar-mobile-open')) {
+        closeMobileSidebar();
+    } else {
+        openMobileSidebar();
+    }
+}
+
+function initMobileSidebar() {
+    const btn = document.getElementById('btn-mobile-sidebar-toggle');
+    const backdrop = document.getElementById('sidebar-mobile-backdrop');
+    if (btn) {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            toggleMobileSidebar();
+        });
+    }
+    if (backdrop) {
+        backdrop.addEventListener('click', closeMobileSidebar);
+    }
+    // Esc 关闭
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeMobileSidebar();
+    });
+    // 窗口变大回到桌面端时，清除残留的 body 类
+    if (window.matchMedia) {
+        const mql = window.matchMedia('(min-width: 881px)');
+        const onChange = (ev) => { if (ev.matches) closeMobileSidebar(); };
+        if (typeof mql.addEventListener === 'function') {
+            mql.addEventListener('change', onChange);
+        } else if (typeof mql.addListener === 'function') {
+            mql.addListener(onChange); // Safari <14
+        }
     }
 }
 
@@ -1805,55 +1892,6 @@ function updateStickerSelectCount() {
 }
 
 /**
- * 阶段 2：拉取 API 并批量添加表情
- * 由 admin_sticker_deleted 在删除阶段完成后调用
- */
-function fetchAndSyncStickers() {
-    _syncState.phase = 'add';
-    stickerSyncStatus.textContent = '正在拉取服务器数据...';
-    stickerSyncStatus.style.color = '#888';
-
-    const apiUrl = 'https://yuju.99kpk.top:81/NetworkDiskList.php?backstage=3764594081&appid=1335&key=1785040538';
-    fetch(apiUrl)
-        .then(resp => resp.json())
-        .then(result => {
-            if (result.code !== 1 || !result.list || !result.list.length) {
-                stickerSyncStatus.textContent = '同步失败：API 返回数据为空';
-                stickerSyncStatus.style.color = '#f44336';
-                btnStickerSync.disabled = false;
-                btnStickerSync.style.opacity = '';
-                setTimeout(() => { stickerSyncStatus.style.display = 'none'; }, 5000);
-                _syncState = null;
-                loadStickers();
-                return;
-            }
-            // 过滤 + 标准化
-            const items = _normalizeStickerItems(result.list);
-            if (!items || !items.length) {
-                stickerSyncStatus.textContent = '同步完成：无需同步';
-                stickerSyncStatus.style.color = '#4caf50';
-                btnStickerSync.disabled = false;
-                btnStickerSync.style.opacity = '';
-                setTimeout(function() { stickerSyncStatus.style.display = 'none'; }, 5000);
-                _syncState = null;
-                loadStickers();
-                return;
-            }
-            _syncState = { phase: 'add', pending: 0, total: 0 };
-            adminSend('admin_sticker_batch_add', { items: items });
-        })
-        .catch(e => {
-            stickerSyncStatus.textContent = '同步失败：' + e.message;
-            stickerSyncStatus.style.color = '#f44336';
-            btnStickerSync.disabled = false;
-            btnStickerSync.style.opacity = '';
-            setTimeout(() => { stickerSyncStatus.style.display = 'none'; }, 5000);
-            _syncState = null;
-            loadStickers();
-        });
-}
-
-/**
  * 从 JSON 文本同步表情
  * 支持格式：
  *   {"code":1,"list":[{"title":"","url":"https://..."}]}
@@ -1940,17 +1978,6 @@ function _normalizeStickerItems(list) {
             url: item.url || ''
         };
     }).filter((item) => { return item.url; });
-}
-
-/**
- * 无现有表情时直接开始拉取
- */
-function _startSyncFetch() {
-    btnStickerSync.disabled = true;
-    btnStickerSync.style.opacity = '0.5';
-    stickerSyncStatus.style.display = 'inline';
-    _syncState = { phase: 'add', pending: 0, total: 0, apiUrl: '' };
-    fetchAndSyncStickers();
 }
 
 /**
@@ -2813,7 +2840,7 @@ function renderUserSearchResult(users) {
             ' <span style="color:let(--text-muted);font-size:10px;">最后活跃: ' + escapeHtml(timeStr) + '</span>' +
             '</span>' +
             '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-ban-pid="' + escapeHtmlAttr(pid) + '" data-ban-ip="' + escapeHtmlAttr(u.ip) + '" data-ban-fp="' + escapeHtmlAttr(u.fp) + '" data-ban-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">封禁</button>' +
-            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;border-color:let(--note-blue);color:let(--ink-blue);" data-special-pid="' + escapeHtmlAttr(pid) + '" data-special-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">特殊标签</button>' +
+            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;border-color:let(--note-blue);color:let(--ink-blue);" data-special-pid="' + escapeHtmlAttr(pid) + '" data-special-name="' + escapeHtmlAttr(u.nickname || 'PID=' + pid.substring(0, 12)) + '">管理标签</button>' +
         '</div>';
     });
     userSearchResult.innerHTML = html;
@@ -2855,40 +2882,50 @@ function renderUserSearchResult(users) {
     });
 }
 
-// ==================== 特殊标签管理弹窗 ====================
+// ==================== 管理标签弹窗（完整 CRUD） ====================
 
-let specialTagDialog = null;
+let tagDialog = null;
 
 function showSpecialTagDialog(player) {
-    if (specialTagDialog) specialTagDialog.remove();
+    if (tagDialog) tagDialog.remove();
     let overlay = document.createElement('div');
     overlay.className = 'admin-dialog-overlay';
     overlay.innerHTML =
         '<div class="admin-dialog">' +
-        '<h3>特殊标签管理</h3>' +
+        '<h3>管理标签</h3>' +
         '<p class="admin-dialog-target">' + escapeHtml(player.nickname || '') + '</p>' +
-        '<div id="special-tag-list" style="max-height:200px;overflow-y:auto;margin-bottom:8px;font-size:12px;">加载中...</div>' +
+        '<div id="tag-list" style="max-height:200px;overflow-y:auto;margin-bottom:8px;font-size:12px;">加载中...</div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:6px;">' +
+        '<input type="text" id="tag-input" placeholder="输入标签名" maxlength="50" style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">' +
+        '</div>' +
         '<div style="display:flex;gap:6px;">' +
-        '<input type="text" id="special-tag-input" placeholder="输入标签名授予" maxlength="50" style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">' +
-        '<button class="doodle-btn" id="special-tag-grant" style="font-size:12px;padding:4px 10px;">授予</button>' +
+        '<button class="doodle-btn" id="tag-add-normal" style="font-size:12px;padding:4px 10px;flex:1;">添加普通</button>' +
+        '<button class="doodle-btn" id="tag-add-special" style="font-size:12px;padding:4px 10px;flex:1;border-color:#d4a017;color:#d4a017;">添加特殊</button>' +
         '</div>' +
         '<div class="admin-dialog-actions">' +
-        '<button class="doodle-btn" id="special-tag-close">关闭</button>' +
+        '<button class="doodle-btn" id="tag-close">关闭</button>' +
         '</div></div>';
     document.body.appendChild(overlay);
-    specialTagDialog = overlay;
-    overlay.querySelector('#special-tag-close').addEventListener('click', () => overlay.remove());
+    tagDialog = overlay;
+    overlay.querySelector('#tag-close').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    overlay.querySelector('#special-tag-grant').addEventListener('click', () => {
-        const tag = overlay.querySelector('#special-tag-input').value.trim();
+    overlay.querySelector('#tag-add-normal').addEventListener('click', () => {
+        const tag = overlay.querySelector('#tag-input').value.trim();
         if (!tag) { showAdminToast('请输入标签名', 'warn'); return; }
-        adminSend('admin_user_set_special', { player_id: player.player_id, tag, special: true });
+        adminSend('admin_user_add_tag', { player_id: player.player_id, tag, special: false });
+        overlay.querySelector('#tag-input').value = '';
+    });
+    overlay.querySelector('#tag-add-special').addEventListener('click', () => {
+        const tag = overlay.querySelector('#tag-input').value.trim();
+        if (!tag) { showAdminToast('请输入标签名', 'warn'); return; }
+        adminSend('admin_user_add_tag', { player_id: player.player_id, tag, special: true });
+        overlay.querySelector('#tag-input').value = '';
     });
     adminSend('admin_user_get_tags', { player_id: player.player_id });
 }
 
 function renderSpecialTagList(playerId, tags) {
-    const list = document.getElementById('special-tag-list');
+    const list = document.getElementById('tag-list');
     if (!list) return;
     if (!tags.length) {
         list.innerHTML = '<div style="color:var(--text-muted);padding:4px;">该玩家还没有标签</div>';
@@ -2896,10 +2933,14 @@ function renderSpecialTagList(playerId, tags) {
     }
     list.innerHTML = tags.map(t => {
         const isSpecial = !!t.is_special;
+        const tagName = escapeHtmlAttr(t.tag);
         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 4px;border-bottom:1px solid var(--border-light);">' +
             '<span>' + escapeHtml(t.tag) + ' <span style="color:var(--text-muted);">×' + t.count + '</span>' +
             (isSpecial ? ' <span style="color:#d4a017;">★特殊</span>' : '') + '</span>' +
-            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-special-toggle="' + escapeHtmlAttr(t.tag) + '" data-special-state="' + (isSpecial ? 1 : 0) + '">' + (isSpecial ? '取消特殊' : '设为特殊') + '</button>' +
+            '<span style="display:flex;gap:4px;">' +
+            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;color:let(--ink-blue);" data-special-toggle="' + tagName + '" data-special-state="' + (isSpecial ? 1 : 0) + '">' + (isSpecial ? '取消特殊' : '设为特殊') + '</button>' +
+            '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;color:let(--danger);" data-delete-tag="' + tagName + '">删除</button>' +
+            '</span>' +
             '</div>';
     }).join('');
     list.querySelectorAll('[data-special-toggle]').forEach(btn => {
@@ -2909,6 +2950,13 @@ function renderSpecialTagList(playerId, tags) {
                 tag: btn.dataset.specialToggle,
                 special: btn.dataset.specialState === '0'
             });
+        });
+    });
+    list.querySelectorAll('[data-delete-tag]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tag = btn.dataset.deleteTag;
+            if (!confirm('确认删除标签 "' + tag + '"？此操作不可撤销。')) return;
+            adminSend('admin_user_delete_tag', { player_id: playerId, tag });
         });
     });
 }
@@ -3416,7 +3464,6 @@ function initAdminDOMRefs() {
     stickerSelectAll = document.getElementById('sticker-select-all');
     stickerSelectCount = document.getElementById('sticker-select-count');
     btnStickerBatchDelete = document.getElementById('btn-sticker-batch-delete');
-    btnStickerSync = document.getElementById('btn-sticker-sync');
     stickerSyncStatus = document.getElementById('sticker-sync-status');
     btnStickerSyncJson = document.getElementById('btn-sticker-sync-json');
     stickerJsonInput = document.getElementById('sticker-json-input');
@@ -3700,42 +3747,6 @@ function initAdminEvents() {
             }
             if (stickerSelectAll) stickerSelectAll.checked = false;
             updateStickerSelectCount();
-        });
-    }
-
-    // 同步服务器数据
-    if (btnStickerSync) {
-        btnStickerSync.addEventListener('click', () => {
-            if (!confirm('将清空所有现有表情，并从服务器同步新数据。确定继续？')) return;
-
-            // 获取当前所有表情 ID
-            const allCheckboxes = stickerList ? stickerList.querySelectorAll('.sticker-checkbox') : [];
-            if (allCheckboxes.length === 0) {
-                // 没有现有表情，直接拉取 API
-                _startSyncFetch();
-                return;
-            }
-
-            // 阶段 1：批量删除所有现有表情
-            btnStickerSync.disabled = true;
-            btnStickerSync.style.opacity = '0.5';
-            stickerSyncStatus.style.display = 'inline';
-            stickerSyncStatus.textContent = '正在清空现有表情...';
-            stickerSyncStatus.style.color = '#ff9800';
-
-            _syncState = { phase: 'delete', pending: 0, total: 0, apiUrl: '' };
-            const ids = [];
-            allCheckboxes.forEach(cb => {
-                const id = cb.dataset.stickerId;
-                if (id) ids.push(id);
-            });
-            if (ids.length > 0) {
-                adminSend('admin_sticker_batch_delete', { ids: ids });
-            } else {
-                // 无现有表情，直接拉取
-                _syncState = null;
-                _startSyncFetch();
-            }
         });
     }
 
@@ -4042,6 +4053,7 @@ function initAdmin() {
     initAdminDOMRefs();
     initAdminEvents();
     initOnlineStatus();
+    initMobileSidebar();
 
     // 绑定 header 退出按钮
     const btnExitHeader = document.getElementById('btn-exit-admin-header');

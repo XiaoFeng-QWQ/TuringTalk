@@ -16,6 +16,13 @@
 
     <!-- ==================== 顶部栏 ==================== -->
     <header class="topbar">
+        <button class="topbar-hamburger" id="btn-mobile-sidebar-toggle" type="button" aria-label="菜单">
+            <svg class="icon" viewBox="0 0 24 24">
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+        </button>
         <div class="logo-text">
             <svg class="icon" viewBox="0 0 24 24">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -76,6 +83,52 @@
                     </svg>
                     用户管理
                 </button>
+
+                <!-- MDv3 分享站折叠菜单 -->
+                <div class="sidebar-fold-group" id="mdv3-fold-group">
+                    <button class="admin-tab-btn sidebar-fold-toggle" id="mdv3-fold-toggle" type="button">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M4 4h16v4H4zM4 11h10v9H4zM16 11h4v9h-4z" />
+                        </svg>
+                        MDv3 分享站管理
+                        <svg class="fold-caret" viewBox="0 0 24 24">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                    <div class="sidebar-fold-content" id="mdv3-fold-content">
+                        <button class="admin-tab-btn mdv3-sub-btn" data-mdv3="posts">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <polyline points="14 2 14 8 20 8" />
+                                <line x1="16" y1="13" x2="8" y2="13" />
+                                <line x1="16" y1="17" x2="8" y2="17" />
+                            </svg>
+                            帖子管理
+                        </button>
+                        <button class="admin-tab-btn mdv3-sub-btn" data-mdv3="reports">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                                <line x1="4" y1="22" x2="4" y2="15" />
+                            </svg>
+                            举报管理
+                        </button>
+                        <button class="admin-tab-btn mdv3-sub-btn" data-mdv3="restrictions">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <rect x="3" y="11" width="18" height="10" rx="2" />
+                                <circle cx="12" cy="5" r="2" />
+                                <path d="M12 7v4M8 16h8" />
+                            </svg>
+                            限制封禁
+                        </button>
+                        <button class="admin-tab-btn mdv3-sub-btn" data-mdv3="settings">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                            </svg>
+                            接口设置
+                        </button>
+                    </div>
+                </div>
             </nav>
 
             <div class="sidebar-foot">
@@ -214,14 +267,6 @@
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                             </svg>
                             批量删除
-                        </button>
-                        <span class="batch-toolbar-spacer"></span>
-                        <button class="doodle-btn btn-primary btn-xs" id="btn-sticker-sync">
-                            <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px;">
-                                <polyline points="1 4 1 10 7 10" />
-                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                            </svg>
-                            同步服务器数据
                         </button>
                         <button class="doodle-btn btn-primary btn-xs" id="btn-sticker-sync-json">
                             <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px;">
@@ -362,6 +407,87 @@
                     </div>
                 </section>
 
+                <!-- MDv3 分享站管理：帖子 -->
+                <section class="setting-row mdv3-panel" id="panel-mdv3-posts" data-mdv3="posts" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                        <h4>帖子管理</h4>
+                        <span class="card-desc">MDv3 分享站所有帖子审核与处理</span>
+                    </div>
+                    <div class="toolbar-row">
+                        <button class="doodle-btn btn-primary btn-xs" id="mdv3-posts-refresh">刷新列表</button>
+                        <div class="form-status" id="mdv3-posts-status"></div>
+                    </div>
+                    <div class="list-panel" id="mdv3-posts-list">
+                        <div class="list-empty">点击「刷新列表」加载帖子</div>
+                    </div>
+                </section>
+
+                <!-- MDv3 分享站管理：举报 -->
+                <section class="setting-row mdv3-panel" id="panel-mdv3-reports" data-mdv3="reports" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                        <h4>举报管理</h4>
+                        <span class="card-desc">MDv3 分享站举报记录、处理封禁限制等操作</span>
+                    </div>
+                    <div class="toolbar-row">
+                        <select id="mdv3-report-status">
+                            <option value="">全部</option>
+                            <option value="pending" selected>待处理</option>
+                            <option value="reviewed">已处理</option>
+                        </select>
+                        <button class="doodle-btn btn-primary btn-xs" id="mdv3-reports-refresh">刷新列表</button>
+                        <div class="form-status" id="mdv3-reports-status"></div>
+                    </div>
+                    <div class="list-panel" id="mdv3-reports-list">
+                        <div class="list-empty">点击「刷新列表」加载举报记录</div>
+                    </div>
+                </section>
+
+                <!-- MDv3 分享站管理：限制 / 封禁 -->
+                <section class="setting-row mdv3-panel" id="panel-mdv3-restrictions" data-mdv3="restrictions" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h8"/></svg>
+                        <h4>限制 / 封禁</h4>
+                        <span class="card-desc">查看封禁 / 限制发帖 / 限制评论记录，支持解除</span>
+                    </div>
+                    <div class="toolbar-row">
+                        <select id="mdv3-restriction-type">
+                            <option value="">全部</option>
+                            <option value="ban">永久封禁</option>
+                            <option value="post">限制发帖</option>
+                            <option value="comment">限制评论</option>
+                        </select>
+                        <button class="doodle-btn btn-primary btn-xs" id="mdv3-restrictions-refresh">刷新</button>
+                        <div class="form-status" id="mdv3-restrictions-status"></div>
+                    </div>
+                    <div class="list-panel" id="mdv3-restrictions-list">
+                        <div class="list-empty">点击「刷新」加载限制记录</div>
+                    </div>
+                </section>
+
+                <!-- MDv3 分享站管理：接口设置 -->
+                <section class="setting-row mdv3-panel" id="panel-mdv3-settings" data-mdv3="settings" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        <h4>接口设置</h4>
+                        <span class="card-desc">MDv3 分享站基础地址与鉴权说明</span>
+                    </div>
+                    <div class="toolbar-row" style="flex-wrap:wrap;gap:10px;">
+                        <label style="display:flex;align-items:center;gap:6px;flex:1;min-width:260px;">
+                            <span style="white-space:nowrap;">基础地址：</span>
+                            <input type="text" id="mdv3-baseurl" placeholder="http(s)://host:port" style="flex:1;padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:12px;">
+                        </label>
+                        <button class="doodle-btn btn-primary btn-xs" id="mdv3-save-settings">保存</button>
+                        <button class="doodle-btn btn-xs" id="mdv3-settest-settings">测试连通性</button>
+                        <div class="form-status" id="mdv3-settings-status"></div>
+                    </div>
+                    <div style="margin-top:14px;padding:10px;background:var(--note-yellow-bg);border:1px solid var(--note-yellow);border-radius:6px;font-size:12px;line-height:1.7;">
+                        <div><strong>鉴权说明：</strong>本管理后台已登录的 <code>turing_admin_token</code> 将被作为 <code>token</code> 字段放入每个 POST 请求的 body 内。</div>
+                        <div>若目标接口返回 401（token 无效/过期），请重新登录此管理后台。</div>
+                    </div>
+                </section>
+
             </div>
 
             <!-- 旁观聊天页 -->
@@ -390,6 +516,7 @@
             </section>
 
         </main>
+        <div class="sidebar-mobile-backdrop" id="sidebar-mobile-backdrop"></div>
     </div>
 
     <!-- 举报详情弹窗 -->
@@ -415,6 +542,7 @@
 
     <script src="/shared.js?v="></script>
     <script src="/admin/admin.js?v="></script>
+    <script src="/admin/admin_mdv3.js?v="></script>
 </body>
 
 </html>

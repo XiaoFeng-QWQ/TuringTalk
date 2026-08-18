@@ -21,13 +21,62 @@ class SongHandler
     }
 
     /**
-     * 搜索歌曲
+     * 搜索歌曲；若 keyword 是网易云分享链接 / 短链 / 纯歌曲 ID，
+     * 则直接按该歌曲点歌（复用 request 流程），返回带 direct_requested 标记的结果。
      */
     public function handleSongSearch(Server $server, int $fd, array $data): void
     {
         $keyword = trim($data['keyword'] ?? '');
         if ($keyword === '') {
             $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_song_search_result', 'error' => '请输入搜索关键词']);
+            return;
+        }
+
+        // --- 输入看起来是分享链接或纯 ID → 直接按此歌曲点歌
+        $songId = $this->game->songService()->resolveInputToSongId($keyword);
+        if ($songId !== null) {
+            $nickname = Sanitizer::nickname($data['nickname'] ?? '');
+            if ($nickname === '') {
+                $this->game->sendToPlayer($server, $fd, [
+                    'type' => 'lobby_song_search_result',
+                    'error' => '请先设置昵称后再通过分享链接点歌',
+                ]);
+                return;
+            }
+            $clientInfo = $this->game->getClientInfo($fd) ?? [];
+            $playerId = $clientInfo['player_id'] ?? '';
+            if ($playerId === '') {
+                $this->game->sendToPlayer($server, $fd, [
+                    'type' => 'lobby_song_search_result',
+                    'error' => '身份验证失败，请重新进入',
+                ]);
+                return;
+            }
+
+            $result = $this->game->songService()->request($fd, $songId, $playerId, $nickname);
+            if (isset($result['error'])) {
+                $this->game->sendToPlayer($server, $fd, [
+                    'type' => 'lobby_song_search_result',
+                    'error' => $result['error'],
+                ]);
+                return;
+            }
+
+            // 同步后续动作与 handleSongRequest 保持一致
+            if (!$this->game->songService()->getPlaying()) {
+                $this->game->songService()->replenishPlaylist(3);
+                $next = $this->game->songService()->popPlaylist();
+                if ($next) {
+                    $this->game->songService()->setPlaying($next, time(), count($this->game->getOnlinePlayers($server)));
+                }
+            }
+            $this->game->sendToPlayer($server, $fd, [
+                'type'              => 'lobby_song_search_result',
+                'direct_requested'  => true,
+                'keyword'           => $keyword,
+                'song'              => $result,
+            ]);
+            $this->broadcastPlaylistUpdate($server);
             return;
         }
 
