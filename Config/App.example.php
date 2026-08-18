@@ -79,6 +79,65 @@ return [
         'Username' => 'admin', // 初始超级管理员用户名（首次启动自动创建，已有管理员则忽略）
         'Password' => '', // 初始超级管理员密码（首次启动自动创建，已有管理员则忽略）
     ],
+    // OAuth 2.0 快捷登录配置（命名空间化，仅作为已有玩家的快捷登录入口）
+    // 支持多个 provider；玩家可在设置页随时添加 / 撤销绑定（不限数量，仅提示）
+    // 注意：
+    //   - 未配置 ClientId 的 provider 不会注册
+    //   - 配置支持热重载（改完无需重启服务）
+    //   - OAuth 仅用于"已有账户"的快捷登录；若 OAuth 邮箱在数据库中没有对应玩家，
+    //     会询问用户是否创建账户（创建走与普通注册相同的 IP/FP 上限与频率限制）
+    'OAuth' => [
+        // 回调地址前缀，完整回调地址为 {CallbackBase}/oauth/callback/{provider}
+        // 本地开发：http://localhost:9502
+        // 生产环境：必须改为正式域名（建议 HTTPS），并在各平台同步注册该回调
+        'CallbackBase' => 'http://localhost:9502',
+        // 登录成功后默认跳转页面（可用 ?redirect=/lobby 覆盖，仅允许站内路径）
+        'RedirectDefault' => '/',
+        'Providers' => [
+            // ---- OIDC，自动发现端点 ----
+            // 自有 OIDC 服务，只需配置 Issuer，服务端会请求
+            //   {Issuer}/.well-known/openid-configuration 自动发现三个端点
+            // 'oidc' => [
+            //     'Name'          => 'OIDC',
+            //     'ClientId'      => 'YOUR_CLIENT_ID',
+            //     'ClientSecret'  => 'YOUR_CLIENT_SECRET',
+            //     'Issuer'        => 'https://user.example.com',
+            //     'Scopes'        => ['profile', 'email'],
+            //     'UserinfoMap'   => [
+            //         'DataKey'  => 'data',
+            //         'Id'       => 'id',
+            //         'Nickname' => 'nickname',
+            //         'Email'    => 'email',
+            //     ],
+            // ],
+            // UserinfoMap：把平台返回 JSON 归一化为 Id / Nickname / Email；
+            //   DataKey 为外层包裹键（可无）。
+
+            // ---- GitHub（非 OIDC，需手写端点）----
+            // 注册地址：https://github.com/settings/developers
+            // 'github' => [
+            //     'Name'          => 'GitHub',
+            //     'ClientId'      => 'YOUR_GITHUB_CLIENT_ID',
+            //     'ClientSecret'  => 'YOUR_GITHUB_CLIENT_SECRET',
+            //     'AuthorizeUrl'  => 'https://github.com/login/oauth/authorize',
+            //     'TokenUrl'      => 'https://github.com/login/oauth/access_token',
+            //     'UserinfoUrl'   => 'https://api.github.com/user',
+            //     'Scopes'        => ['read:user', 'user:email'],
+            // ],
+            // GitHub 没有 OIDC Discovery，必须手写三个端点。
+            // Scopes：read:user 读取昵称/头像；user:email 才能读取邮箱，缺少则 Email 为空。
+
+            // ---- Microsoft Entra ID（OIDC，自动发现端点）----
+            // 注册地址：https://go.microsoft.com/fwlink/?linkid=2083908
+            // 'microsoft' => [
+            //     'Name'          => 'Microsoft',
+            //     'ClientId'      => 'YOUR_AZURE_CLIENT_ID',
+            //     'ClientSecret'  => 'YOUR_AZURE_CLIENT_SECRET',
+            //     'Issuer'        => 'https://login.microsoftonline.com/common/v2.0',
+            //     'Scopes'        => ['openid', 'profile', 'email'],
+            // ],
+        ],
+    ],
     // 图床上传配置（管理后台添自定义表情时使用）
     // 通过 SuccessField/SuccessValue/UrlField 兼容不同 API 的返回格式：
     //   示例 A { code: 1, url: "..." }        → SuccessField=code, SuccessValue=1, UrlField=url

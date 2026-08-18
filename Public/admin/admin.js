@@ -273,6 +273,9 @@ function connectAdminWS(url) {
         if (adminToken) {
             _adminConnecting = true;
             ws.send(JSON.stringify({ type: 'admin_connect', token: adminToken }));
+            setConnStatus('busy');
+        } else {
+            setConnStatus('login');
         }
         // 等待 need_admin_login 或 admin_connected
     };
@@ -298,6 +301,7 @@ function connectAdminWS(url) {
         _adminConnecting = false;
         adminTransport = null;
         updateOnlineStatusBar();
+        setConnStatus('off');
 
         // 被动断开时自动重试，指数退避
         if (wasUnexpected && _wsRetryCount < _WS_MAX_RETRIES) {
@@ -351,9 +355,9 @@ function showAdminLogin() {
     adminLoginOverlay.id = 'admin-login-overlay';
     adminLoginOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
     adminLoginOverlay.innerHTML = `
-        <div class="doodle-border" style="padding:24px;max-width:360px;width:90%;background:#fff;">
-            <h2 style="font-size:20px;color:let(--ink-blue);margin:0 0 16px;text-align:center;">
-                <svg class="icon" viewBox="0 0 24 24" style="width:20px;height:20px;">
+        <div class="doodle-border" style="padding:24px;max-width:380px;width:90%;">
+            <h2 style="font-size:17px;margin:0 0 16px;text-align:center;">
+                <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                 </svg>
@@ -361,15 +365,15 @@ function showAdminLogin() {
             </h2>
             <div style="margin-bottom:12px;">
                 <input type="text" id="admin-login-username" placeholder="用户名"
-                    style="width:100%;padding:10px 12px;border:2px solid let(--ink-black);border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:8px;">
+                    style="width:100%;padding:10px 12px;border-radius:4px;font-size:14px;outline:none;box-sizing:border-box;margin-bottom:8px;">
                 <input type="password" id="admin-login-password" placeholder="密码"
-                    style="width:100%;padding:10px 12px;border:2px solid let(--ink-black);border-radius:10px;font-size:14px;outline:none;box-sizing:border-box;">
+                    style="width:100%;padding:10px 12px;border-radius:4px;font-size:14px;outline:none;box-sizing:border-box;">
             </div>
-            <div id="admin-login-error" style="color:#e74c3c;font-size:12px;margin-bottom:8px;display:none;"></div>
+            <div id="admin-login-error" style="color:#c2352b;font-size:12px;margin-bottom:8px;display:none;"></div>
             <div style="display:flex;gap:10px;justify-content:flex-end;">
-                <button class="doodle-btn" id="btn-admin-login-cancel" style="font-size:14px;">取消</button>
+                <button class="doodle-btn" id="btn-admin-login-cancel" style="font-size:13px;">取消</button>
                 <button class="doodle-btn" id="btn-admin-login-submit"
-                    style="font-size:14px;background:let(--ink-blue);color:let(--surface-white);border-color:let(--ink-blue);">登录</button>
+                    style="font-size:13px;">登录</button>
             </div>
         </div>
     `;
@@ -540,6 +544,7 @@ function handleAdminMessage(data) {
         case 'need_admin_login':
             if (!_adminConnecting) {
                 showAdminLogin();
+                setConnStatus('login');
             }
             break;
 
@@ -549,6 +554,7 @@ function handleAdminMessage(data) {
             _adminConnecting = false;
             _isSuperAdmin = data.role === 'super_admin';
             hideAdminLogin();
+            setConnStatus('on');
             showAdminPanelContent();
             if (btnAdminPanel) btnAdminPanel.style.display = 'inline-flex';
             updateAdminTabs();
@@ -949,10 +955,8 @@ function switchAdminTab(tab) {
 
     allTabs.forEach(t => {
         const active = t.name === tab;
-        t.btn.classList.toggle('active', active);
-        t.btn.style.background = active ? '#e8e0d4' : 'transparent';
-        t.btn.style.color = active ? 'let(--ink-blue)' : '#999';
-        t.panel.style.display = active ? '' : 'none';
+        if (t.btn) t.btn.classList.toggle('active', active);
+        if (t.panel) t.panel.style.display = active ? '' : 'none';
     });
 
     if (tab === 'reports') {
@@ -1009,8 +1013,7 @@ function updateAdminTabs() {
         tabWhoisAI = document.createElement('button');
         tabWhoisAI.className = 'admin-tab-btn';
         tabWhoisAI.id = 'tab-WhoisAI';
-        tabWhoisAI.style.cssText = 'flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;';
-        tabWhoisAI.textContent = '谁是AI';
+        tabWhoisAI.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>谁是AI';
         tabWhoisAI.addEventListener('click', () => switchAdminTab('WhoisAI'));
         // 插入到 sessions 之后、reports 之前
         if (tabReports) {
@@ -1042,16 +1045,14 @@ function updateAdminTabs() {
             tabAdmin = document.createElement('button');
             tabAdmin.className = 'admin-tab-btn';
             tabAdmin.id = 'tab-admin';
-            tabAdmin.style.cssText = 'flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;';
-            tabAdmin.textContent = '管理员';
+            tabAdmin.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>管理员';
             tabAdmin.addEventListener('click', () => switchAdminTab('admin'));
             tabContainer.appendChild(tabAdmin);
 
             tabLogs = document.createElement('button');
             tabLogs.className = 'admin-tab-btn';
             tabLogs.id = 'tab-logs';
-            tabLogs.style.cssText = 'flex:1;padding:6px 0;font-size:13px;border:none;background:transparent;color:#999;cursor:pointer;';
-            tabLogs.textContent = '操作日志';
+            tabLogs.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>操作日志';
             tabLogs.addEventListener('click', () => switchAdminTab('logs'));
             tabContainer.appendChild(tabLogs);
         }
@@ -1660,9 +1661,9 @@ function renderReportsList(reports, total, page, pageSize) {
 
 function _reportPageBtn(pg, current) {
     if (pg === current) {
-        return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+        return '<span class="pg-btn pg-current">' + pg + '</span>';
     }
-    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
+    return '<span class="pg-btn" data-pg="' + pg + '">' + pg + '</span>';
 }
 
 /**
@@ -1774,12 +1775,8 @@ function renderStickerList(stickers) {
     stickers.forEach(s => {
         const item = document.createElement('div');
         item.className = 'sticker-item';
-        item.style.cssText = 'position:relative;';
         item.innerHTML =
-            '<label class="sticker-checkbox-label" style="position:absolute;top:4px;left:4px;z-index:2;cursor:pointer;">' +
-            '<input type="checkbox" class="sticker-checkbox" data-sticker-id="' + escapeHtmlAttr(s.id) + '" ' +
-            'style="width:14px;height:14px;accent-color:let(--ink-blue);">' +
-            '</label>' +
+            '<input type="checkbox" class="sticker-checkbox" data-sticker-id="' + escapeHtmlAttr(s.id) + '" title="选择">' +
             '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">' +
             '<span class="sticker-name">' + escapeHtml(s.name) + '</span>' +
             '<button class="sticker-delete" data-sticker-id="' + escapeHtmlAttr(s.id) + '">删除</button>';
@@ -2001,38 +1998,34 @@ function renderStickerReviewList(stickers, total, page, pageSize) {
     }
     stickerReviewListEmpty.style.display = 'none';
 
-    const statusLabel = { pending: '⏳待审核', approved: '✓已通过', rejected: '✕已拒绝' };
-    const statusColor = { pending: '#ff9800', approved: '#4caf50', rejected: '#f44336' };
+    const statusLabel = { pending: '待审核', approved: '已通过', rejected: '已拒绝' };
+    const statusClass = { pending: 'status-pending', approved: 'status-approved', rejected: 'status-rejected' };
 
     stickers.forEach(s => {
         const item = document.createElement('div');
-        item.className = 'sticker-item';
+        item.className = 'sticker-item sticker-review-item';
         item.setAttribute('data-user-id', escapeHtmlAttr(s.user_id));
         item.setAttribute('data-sticker-id', escapeHtmlAttr(s.id));
 
-        const checkbox = '<label style="display:flex;align-items:center;cursor:pointer;flex-shrink:0;">'
-            + '<input type="checkbox" class="sticker-review-check" data-user-id="' + escapeHtmlAttr(s.user_id)
-            + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" style="width:14px;height:14px;accent-color:let(--ink-blue);">'
-            + '</label>';
+        const checkbox = '<input type="checkbox" class="sticker-review-check" data-user-id="' + escapeHtmlAttr(s.user_id)
+            + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" title="选择">';
 
-        const statusBadge = '<span style="font-size:11px;color:' + (statusColor[s.status] || '#999') + ';font-weight:600;">'
-            + (statusLabel[s.status] || s.status) + '</span>';
+        const statusBadge = '<span class="sticker-status ' + (statusClass[s.status] || '') + '">'
+            + (statusLabel[s.status] || escapeHtml(s.status)) + '</span>';
 
         const buttons = s.status === 'pending'
-            ? '<div style="display:flex;gap:4px;margin-top:4px;">'
+            ? '<div class="review-actions">'
                 + '<button class="sticker-review-approve" data-user-id="' + escapeHtmlAttr(s.user_id)
-                    + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" '
-                    + 'style="font-size:11px;padding:2px 8px;background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;">通过</button>'
+                    + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '">通过</button>'
                 + '<button class="sticker-review-reject" data-user-id="' + escapeHtmlAttr(s.user_id)
-                    + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '" '
-                    + 'style="font-size:11px;padding:2px 8px;background:#f44336;color:#fff;border:none;border-radius:4px;cursor:pointer;">拒绝</button>'
+                    + '" data-sticker-id="' + escapeHtmlAttr(s.id) + '">拒绝</button>'
                 + '</div>'
             : '';
 
         item.innerHTML = checkbox +
             '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy" class="sticker-review-thumb">'
-            + '<div style="display:flex;flex-direction:column;gap:2px;font-size:12px;margin-left:8px;flex:1;min-width:0;">'
-                + '<span style="color:let(--text-muted);">用户: ' + escapeHtml(s.nickname || s.user_id || '未知') + '</span>'
+            + '<div class="review-meta">'
+                + '<span class="review-user">' + escapeHtml(s.nickname || s.user_id || '未知') + '</span>'
                 + statusBadge
                 + buttons
             + '</div>';
@@ -2139,9 +2132,9 @@ function _renderStickerReviewPagination() {
 
 function _reviewPageBtn(pg, current) {
     if (current) {
-        return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+        return '<span class="pg-btn pg-current">' + pg + '</span>';
     }
-    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-review-pg="' + pg + '">' + pg + '</span>';
+    return '<span class="pg-btn" data-review-pg="' + pg + '">' + pg + '</span>';
 }
 
 function _getSelectedStickersForReview() {
@@ -2191,29 +2184,23 @@ function createAdminManagementPanel() {
     panel.style.display = 'none';
     panel.innerHTML = `
         <h4>管理员列表</h4>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-            <input type="text" id="admin-add-username" placeholder="用户名"
-                style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
-            <input type="password" id="admin-add-password" placeholder="密码"
-                style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
-            <button class="doodle-btn" id="btn-add-admin"
-                style="white-space:nowrap;font-size:12px;padding:6px 12px;">添加</button>
+        <div class="toolbar-row">
+            <input type="text" id="admin-add-username" placeholder="用户名">
+            <input type="password" id="admin-add-password" placeholder="密码">
+            <button class="doodle-btn btn-primary" id="btn-add-admin">添加</button>
         </div>
-        <div id="admin-add-error" style="color:#e74c3c;font-size:12px;margin-bottom:6px;display:none;"></div>
-        <div id="admin-list" style="max-height:200px;overflow-y:auto;font-size:13px;">
-            <div style="text-align:center;color:#999;padding:10px;">加载中...</div>
+        <div id="admin-add-error" class="form-error"></div>
+        <div class="list-panel" id="admin-list">
+            <div class="list-empty">加载中...</div>
         </div>
-        <div style="margin-top:12px;padding-top:10px;border-top:1px dashed #ddd;">
-            <label style="font-size:13px;font-weight:bold;display:block;margin-bottom:6px;">修改自己的密码</label>
-            <div style="display:flex;gap:8px;margin-bottom:4px;">
-                <input type="password" id="admin-own-password-old" placeholder="当前密码"
-                    style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
-                <input type="password" id="admin-own-password-new" placeholder="新密码"
-                    style="flex:1;padding:6px 10px;border:2px solid let(--ink-blue);border-radius:6px;font-size:13px;outline:none;">
-                <button class="doodle-btn" id="btn-change-own-password"
-                    style="white-space:nowrap;font-size:12px;padding:6px 12px;">修改</button>
+        <div class="sub-section">
+            <div class="sub-head">修改自己的密码</div>
+            <div class="toolbar-row">
+                <input type="password" id="admin-own-password-old" placeholder="当前密码">
+                <input type="password" id="admin-own-password-new" placeholder="新密码">
+                <button class="doodle-btn btn-primary" id="btn-change-own-password">修改</button>
             </div>
-            <div id="admin-own-password-error" style="color:#e74c3c;font-size:12px;display:none;"></div>
+            <div id="admin-own-password-error" class="form-error"></div>
         </div>
     `;
     return panel;
@@ -2230,18 +2217,14 @@ function createAdminLogsPanel() {
     panel.style.display = 'none';
     panel.innerHTML = `
         <h4>操作日志</h4>
-        <div style="display:flex;gap:6px;margin-bottom:8px;">
-            <button class="doodle-btn log-filter-btn active" data-filter="my"
-                style="flex:1;font-size:11px;padding:4px 0;justify-content:center;">我的操作</button>
-            <button class="doodle-btn log-filter-btn" data-filter="all"
-                style="flex:1;font-size:11px;padding:4px 0;justify-content:center;">全部日志</button>
+        <div class="seg">
+            <button class="doodle-btn log-filter-btn active" data-filter="my">我的操作</button>
+            <button class="doodle-btn log-filter-btn" data-filter="all">全部日志</button>
         </div>
-        <div id="admin-log-list" style="max-height:400px;overflow-y:auto;font-size:13px;">
-            <div style="text-align:center;color:#999;padding:10px;">点击上方按钮查看</div>
+        <div class="list-panel" id="admin-log-list">
+            <div class="list-empty">点击上方按钮查看</div>
         </div>
-        <div id="admin-log-pagination"
-            style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:8px;font-size:12px;color:#888;">
-        </div>
+        <div class="pagination" id="admin-log-pagination"></div>
     `;
     return panel;
 }
@@ -2415,9 +2398,9 @@ function renderLogList(logs, total, page, pageSize, logType) {
 
 function _logPageBtn(pg, current) {
     if (pg === current) {
-        return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + pg + '</span>';
+        return '<span class="pg-btn pg-current">' + pg + '</span>';
     }
-    return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-pg="' + pg + '">' + pg + '</span>';
+    return '<span class="pg-btn" data-pg="' + pg + '">' + pg + '</span>';
 }
 
 // ==================== 在线状态 ====================
@@ -2509,6 +2492,24 @@ function updateOnlineStatusBar() {
         // 关闭下拉面板
         if (onlineStatusList) onlineStatusList.style.display = 'none';
     }
+}
+
+/**
+ * 更新侧边栏连接状态指示（on | busy | login | off | idle）
+ */
+function setConnStatus(state) {
+    const el = document.getElementById('conn-status');
+    if (!el) return;
+    const labels = {
+        on: '管理通道已连接',
+        busy: '正在验证身份...',
+        login: '等待管理员登录',
+        off: '连接已断开',
+        idle: '未连接',
+    };
+    el.className = 'conn conn-' + (state || 'idle');
+    const t = document.getElementById('conn-status-text');
+    if (t) t.textContent = labels[state || 'idle'];
 }
 
 /**
@@ -2743,9 +2744,9 @@ function _renderLobbyPagination() {
 
     function pageBtn(i, isCurrent) {
         if (isCurrent) {
-            return '<span style="font-weight:bold;padding:2px 8px;background:let(--ink-blue);color:let(--surface-white);border-radius:4px;margin:0 2px;cursor:default;">' + i + '</span>';
+            return '<span class="pg-btn pg-current">' + i + '</span>';
         }
-        return '<span style="cursor:pointer;padding:2px 8px;border:1px solid let(--ink-blue);border-radius:4px;margin:0 2px;" data-lobby-pg="' + i + '">' + i + '</span>';
+        return '<span class="pg-btn" data-lobby-pg="' + i + '">' + i + '</span>';
     }
 
     if (totalPages <= 9) {
@@ -2925,12 +2926,11 @@ function createWhoisAIRoomsPanel() {
     panel.style.display = 'none';
     panel.innerHTML = `
         <h4>谁是AI 房间</h4>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-            <button class="doodle-btn" id="btn-refresh-WhoisAI-rooms"
-                style="font-size:12px;padding:4px 10px;">刷新</button>
+        <div class="toolbar-row">
+            <button class="doodle-btn" id="btn-refresh-WhoisAI-rooms">刷新</button>
         </div>
-        <div id="WhoisAI-rooms-list" style="max-height:300px;overflow-y:auto;font-size:13px;">
-            <div style="text-align:center;color:#999;padding:10px;">点击刷新获取房间列表</div>
+        <div class="list-panel" id="WhoisAI-rooms-list">
+            <div class="list-empty">点击刷新获取房间列表</div>
         </div>
     `;
     // 事件绑定延迟到 panel 插入 DOM 后
@@ -3625,7 +3625,7 @@ function initAdminEvents() {
             if (url && stickerPreview && stickerPreviewImg) {
                 stickerPreviewImg.src = url;
                 stickerPreviewImg.onerror = () => { stickerPreview.style.display = 'none'; };
-                stickerPreviewImg.onload = () => { stickerPreview.style.display = 'block'; };
+                stickerPreviewImg.onload = () => { stickerPreview.style.display = 'flex'; };
             } else if (stickerPreview) {
                 stickerPreview.style.display = 'none';
             }

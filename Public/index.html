@@ -6,13 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <title>更好的图灵测试</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="shortcut icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <meta name="theme-color" content="#2c3e50">
     <meta name="description" content="系统随机连线陌生对象，你们要在聊天中试探彼此，猜猜对方是人类还是 AI 机器人。">
     <meta property="og:title" content="更好的图灵测试">
     <meta property="og:description" content="系统随机连线陌生对象，你们要在聊天中试探彼此，猜猜对方是人类还是 AI 机器人。">
     <meta property="og:type" content="website">
-    <meta property="og:image" content="/favicon.svg">
+    <meta property="og:image" content="/favicon.png">
     <meta name="twitter:card" content="summary">
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -115,6 +116,12 @@
                             autocomplete="current-password">
                         <button class="doodle-btn" id="btn-recover-main"
                             style="font-size:13px;padding:6px 14px;white-space:nowrap;flex-shrink:0;">找回</button>
+                    </div>
+                </div>
+                <div id="oauth-quick-line" style="display:none;margin-top:14px;">
+                    <div style="font-size:12px;color:var(--text-subtle);text-align:center;margin-bottom:6px;">—
+                        快捷登录（已有账号）—</div>
+                    <div id="oauth-quick-buttons" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
                     </div>
                 </div>
                 <div class="agreement-line">
@@ -460,14 +467,13 @@
     </main>
 
     <div style="text-align:center;padding:12px 20px 20px;font-size:12px;color:var(--text-subtle);">
-        <a href="https://fakeicp.top/query.html?number=1202612" target="_blank"
-            style="display: inline-flex; align-items: center; height: 42px; padding: 0 20px 0 24px; background-color: #2a2a2a; background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjQyIiB2aWV3Qm94PSIwIDAgMTIwIDQyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxnIHN0cm9rZT0iIzNmM2YzZiIgc3Ryb2tlLXdpZHRoPSIxIiBmaWxsPSJub25lIj48cGF0aCBkPSJNNDAsLTUgQzMwLDEwIDU1LDIwIDQ1LDQ3Ii8+PHBhdGggZD0iTTUyLC01IEM4MiwxNSA3MCwyNSA1Nyw0NyIvPjxwYXRoIGQ9Ik02NiwtNSBDNTUsMTAgODUsMjIgNzIsNDciLz48cGF0aCBkPSJNNzgsLTUgQzY4LDEyIDk4LDMwIDgyLDQ3Ii8+PHBhdGggZD0iTTkyLC01IEM4MiwxOCAxMDgsMjUgOTYsNDciLz48cGF0aCBkPSJNMTA1LC01IEM5NiwxMiAxMjAsMjggMTEwLDQ3Ii8+PHBhdGggZD0iTTExOCwtNSBDMTA4LDE1IDEzNSwyMiAxMjIsNDciLz48L2c+PC9zdmc+'); background-position: right center; background-repeat: no-repeat; text-decoration: none; border: 1px solid #111; position: relative; font-family: 'Oswald', 'Microsoft YaHei', sans-serif; box-sizing: border-box; white-space: nowrap;">
-            <div
-                style="position: absolute; left: 10px; top: 12px; bottom: 12px; width: 3px; background-color: #fff100; box-shadow: 0 0 5px rgba(255, 241, 0, 0.5);">
-            </div><span
-                style="color: #ffffff; font-size: 13px; font-weight: bold; letter-spacing: 1px; z-index: 2; position: relative;">假ICP备1202612号</span>
+        <a href="https://fakeicp.top" target="_blank" title="点击查看 假ICP备 访问量统计">
+          <img src="https://fakeicp.top/api/analytics/badge?site=https://game.xfcode.top/" alt="访问量统计 | fakeicp.top" />
         </a>
         <a href="http://wapmz.com/in/292"><img src="http://wapmz.com/cn/big/292" alt="wapmz.com"></a><br>
+        <a href="https://icp.gov.moe/?keyword=20269944" target="_blank">萌ICP备20269944号</a>
+        <a href="https://fakeicp.top/query.html?number=1202612" target="_blank">假ICP备1202612号</a>
+        <br>
         本项目基于 AGPL 协议开源，欢迎部署或学习：<a href="https://github.com/XiaoFeng-QWQ/TuringTalk" target="_blank" rel="noopener"
             style="color:var(--ink-blue);text-decoration:underline;">github.com/XiaoFeng-QWQ/TuringTalk</a>
     </div>
@@ -593,6 +599,20 @@
                     </div>
                 </div>
 
+                <div class="setting-row" id="oauth-bindings-section" style="display:none;">
+                    <h4>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                        OAuth 快捷登录绑定
+                    </h4>
+                    <p style="font-size:12px;">绑定第三方平台后可用它快捷登录。<b
+                            style="color:var(--danger);">解绑后若浏览器缓存被清除，将无法再通过该平台登录</b>（仍可用昵称+密码）。</p>
+                    <div id="oauth-binding-list" style="max-height:260px;overflow-y:auto;margin-top:6px;"></div>
+                    <div id="oauth-bind-add" style="margin-top:8px;"></div>
+                </div>
+
                 <div class="setting-row" id="chat-history-section" style="display:none;">
                     <h4>
                         <svg class="icon" viewBox="0 0 24 24">
@@ -629,8 +649,10 @@
                     <p>聊天室展示的称号，从别人给你贴的标签里选（最多 3 个）</p>
                     <div id="worn-tags-special" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
                     <div id="worn-tags-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
-                    <div id="worn-tags-status" style="display:none;text-align:center;font-size:12px;margin-top:6px;"></div>
-                    <button class="doodle-btn" id="btn-save-worn-tags" style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">保存佩戴</button>
+                    <div id="worn-tags-status" style="display:none;text-align:center;font-size:12px;margin-top:6px;">
+                    </div>
+                    <button class="doodle-btn" id="btn-save-worn-tags"
+                        style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">保存佩戴</button>
                 </div>
 
                 <div class="setting-row">
@@ -688,21 +710,21 @@
                     </p>
                 </div>
 
-                <!--<div class="setting-row">-->
-                <!--    <h4>-->
-                <!--        <svg class="icon" viewBox="0 0 24 24">-->
-                <!--            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />-->
-                <!--            <polyline points="17 8 12 3 7 8" />-->
-                <!--            <line x1="12" y1="3" x2="12" y2="15" />-->
-                <!--        </svg>-->
-                <!--        上传数据到服务器-->
-                <!--    </h4>-->
-                <!--    <p>将本地的昵称、密码和战绩上传到服务器保存</p>-->
-                <!--    <button class="doodle-btn" id="btn-upload-userdata"-->
-                <!--        style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">-->
-                <!--        上传我的数据-->
-                <!--    </button>-->
-                <!--</div>-->
+                <div class="setting-row">
+                    <h4>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        上传数据到服务器
+                    </h4>
+                    <p>将本地的昵称、密码和战绩上传到服务器保存</p>
+                    <button class="doodle-btn" id="btn-upload-userdata"
+                        style="display:block;width:100%;margin-top:10px;justify-content:center;font-size:12px;padding:6px 12px;">
+                        上传我的数据
+                    </button>
+                </div>
 
                 <div class="setting-row">
                     <h4>
@@ -1174,6 +1196,7 @@
         </div>
     </div>
 
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="caab6c43-2fba-4eb5-9654-e1fe179ce0f2"></script>
     <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
     <script src="/shared.js?v="></script>
     <script src="/script.js?v="></script>

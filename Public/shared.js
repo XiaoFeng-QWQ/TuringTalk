@@ -435,3 +435,189 @@ let _fingerprint = generateFingerprint(); // 先用回退值，FingerprintJS 完
 function getFingerprint() {
     return _fingerprint;
 }
+
+// ================================================================
+// OAuth 快捷登录（各页面共用）
+// ================================================================
+
+/**
+ * 获取服务端已配置的 OAuth provider 列表：[{key, name}, ...]
+ */
+function getOAuthProviders() {
+    return fetch('/api/oauth/providers')
+        .then(function (r) { return r.json(); })
+        .catch(function () { return []; });
+}
+
+/**
+ * 构造快捷登录跳转 URL（GET 模式）。
+ */
+function oauthLoginUrl(provider, redirect) {
+    let url = '/oauth/login/' + encodeURIComponent(provider);
+    if (redirect) {
+        url += '?redirect=' + encodeURIComponent(redirect);
+    }
+    return url;
+}
+
+/**
+ * 绑定模式：form POST 携带 token 跳转授权页。
+ * （302 跳转无法携带 Authorization 头，故 token 放 form body）
+ */
+function oauthBindSubmit(provider, redirect) {
+    const token = getUserToken();
+    if (!token) {
+        alert('请先登录后再绑定');
+        return;
+    }
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/oauth/login/' + encodeURIComponent(provider);
+    form.style.display = 'none';
+    const fields = { bind: '1', redirect: redirect || '/', token: token };
+    Object.keys(fields).forEach(function (k) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = k;
+        input.value = fields[k];
+        form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+}
+
+/**
+ * 用一次性 exchange code 换 player token（回调回跳后调用）。
+ */
+function oauthExchangeCode(code) {
+    return fetch('/oauth/complete?code=' + encodeURIComponent(code))
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: '网络错误' }; });
+}
+
+/**
+ * 获取当前玩家的 OAuth 绑定列表。
+ */
+function oauthFetchBindings() {
+    const token = getUserToken();
+    if (!token) return Promise.resolve({ ok: false, error: '未登录' });
+    return fetch('/api/oauth/bindings', {
+        headers: { 'Authorization': 'Bearer ' + token }
+    })
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: '网络错误' }; });
+}
+
+/**
+ * 解绑 OAuth provider。
+ */
+function oauthUnbind(provider) {
+    const token = getUserToken();
+    if (!token) return Promise.resolve({ ok: false, error: '未登录' });
+    return fetch('/api/oauth/unbind', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'provider=' + encodeURIComponent(provider)
+    })
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: '网络错误' }; });
+}
+
+/**
+ * 读取 pending 建号确认信息（弹窗展示邮箱 + 预填昵称）。
+ */
+function oauthPendingInfo(code) {
+    return fetch('/api/oauth/pending-info?code=' + encodeURIComponent(code))
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: '网络错误' }; });
+}
+
+/**
+ * 确认创建账户（未注册邮箱场景）。
+ */
+function oauthConfirmCreate(code, nickname, fp) {
+    return fetch('/api/oauth/confirm-create?code=' + encodeURIComponent(code)
+        + '&nickname=' + encodeURIComponent(nickname)
+        + '&fp=' + encodeURIComponent(fp))
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false, error: '网络错误' }; });
+}
+
+/**
+ * 取消创建账户（清理 pending）。
+ */
+function oauthCancelCreate(code) {
+    return fetch('/api/oauth/cancel?code=' + encodeURIComponent(code))
+        .then(function (r) { return r.json(); })
+        .catch(function () { return { ok: false }; });
+}
+
+/**
+ * 清理当前 URL 中的 oauth 相关参数（避免刷新重放）。
+ */
+function oauthCleanUrlParams() {
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+    ['oauth_code', 'pending_code', 'oauth_error'].forEach(function (key) {
+        if (params.has(key)) { params.delete(key); changed = true; }
+    });
+    if (!changed) return;
+    const qs = params.toString();
+    const newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+    window.history.replaceState(null, '', newUrl);
+}
+
+/**
+ * 统一的 OAuth 回调处理（各页面 onload 调用）：
+ *   - oauth_code     → 兑换 token 存入 UserData
+ *   - pending_code   → 弹建号确认窗
+ *   - oauth_error    → 提示错误
+ */
+function oauthHandleReturn(params) {
+    params = params || new URLSearchParams(window.location.search);
+
+    const oauthError = params.get('oauth_error');
+    if (oauthError) {
+        if (typeof showTopToast === 'function') showTopToast(oauthError, true);
+        else alert(oauthError);
+        oauthCleanUrlParams();
+        return;
+    }
+
+    const oauthCode = params.get('oauth_code');
+    if (oauthCode) {
+        oauthExchangeCode(oauthCode).then(function (data) {
+            if (data.ok && data.token) {
+                setUserToken(data.token);
+                if (data.nickname) setUserNickname(data.nickname);
+                if (typeof showTopToast === 'function') {
+                    showTopToast('快捷登录成功！', false);
+                }
+                oauthCleanUrlParams();
+                // 刷新页面使登录状态生效（子页面重新走 join 流程）
+                window.location.reload();
+            } else {
+                if (typeof showTopToast === 'function') {
+                    showTopToast(data.error || '登录失败，请重试', true);
+                } else {
+                    alert(data.error || '登录失败，请重试');
+                }
+                oauthCleanUrlParams();
+            }
+        });
+        return;
+    }
+
+    const pendingCode = params.get('pending_code');
+    if (pendingCode) {
+        if (typeof showOAuthCreateDialog === 'function') {
+            showOAuthCreateDialog(pendingCode);
+        } else {
+            // 子页面未实现弹窗：跳回首页处理
+            window.location.href = '/?pending_code=' + encodeURIComponent(pendingCode);
+        }
+    }
+}

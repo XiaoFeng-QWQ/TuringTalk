@@ -17,6 +17,7 @@ use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Infrastructure\StickerService;
 use App\Services\Repository\OnlineCountRepository;
 use App\Admin\Repository\AdminRepository;
+use App\Services\Repository\OAuthBindingRepository;
 
 /**
  * 应用程序入口
@@ -47,6 +48,7 @@ class Application
         PlayerStatsRepository::initialize();
         ChatHistoryRepository::ensureTable();
         AdminRepository::initialize();
+        OAuthBindingRepository::initialize();
 
         $host = Config::get('Server.Host', '0.0.0.0');
         $port = Config::get('Server.Port', 9502);

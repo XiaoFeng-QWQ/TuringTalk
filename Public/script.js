@@ -2869,6 +2869,16 @@ function updateLbUI() {
             wornTagsSection.style.display = 'none';
         }
     }
+
+    // OAuth 绑定管理区域
+    let oauthSection = document.getElementById('oauth-bindings-section');
+    if (oauthSection) {
+        if (getUserToken()) {
+            loadOAuthBindingsUI();
+        } else {
+            oauthSection.style.display = 'none';
+        }
+    }
 }
 
 // ================================================================
@@ -4177,3 +4187,185 @@ if (chatDetailOverlay) {
         }
     };
 })();
+
+// ================================================================
+// OAuth 快捷登录
+// ================================================================
+
+/**
+ * 渲染首页登录区的快捷登录按钮（已配置的 provider 列表）。
+ * 仅在"未登录游客 + 已配置 provider"时显示：
+ * 已登录用户不需要快捷登录入口（绑定/解绑在设置面板管理）。
+ */
+function initOAuthLoginButtons() {
+    const line = document.getElementById('oauth-quick-line');
+    const container = document.getElementById('oauth-quick-buttons');
+    if (!line || !container) return;
+
+    // 已登录：不显示快捷登录区
+    if (getUserToken()) return;
+
+    getOAuthProviders().then(function (providers) {
+        if (!Array.isArray(providers) || providers.length === 0) return;
+        container.innerHTML = '';
+        providers.forEach(function (p) {
+            const btn = document.createElement('a');
+            btn.className = 'doodle-btn';
+            btn.href = oauthLoginUrl(p.key, '/');
+            btn.style.cssText = 'font-size:12px;padding:6px 14px;';
+            btn.textContent = p.name + ' 登录';
+            container.appendChild(btn);
+        });
+        line.style.display = '';
+    });
+}
+
+/**
+ * 建号确认弹窗：OAuth 邮箱未关联本站玩家时询问是否创建账户。
+ */
+function showOAuthCreateDialog(pendingCode) {
+    oauthPendingInfo(pendingCode).then(function (info) {
+        if (!info.ok) {
+            if (typeof showTopToast === 'function') showTopToast(info.error || '登录凭证已失效，请重新登录', true);
+            oauthCleanUrlParams();
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        overlay.innerHTML = `
+            <div class="doodle-border" style="background:var(--surface-white,#fff);border-radius:14px;padding:22px;width:min(360px,90vw);box-sizing:border-box;">
+                <h3 style="margin:0 0 10px;font-size:16px;">创建新账号？</h3>
+                <p style="font-size:13px;color:#666;margin:0 0 12px;">该 <b>${escapeHtml(info.provider || '')}</b> 账号尚未关联本站玩家，是否用以下邮箱创建账号？</p>
+                <div style="font-size:13px;background:#f5f5f5;border-radius:8px;padding:8px 10px;margin-bottom:12px;word-break:break-all;">邮箱：${escapeHtml(info.email || '（未提供）')}</div>
+                <label style="font-size:12px;color:#888;">昵称（可修改）：</label>
+                <input id="oauth-create-nickname" type="text" maxlength="12" value="${escapeHtmlAttr(info.nickname || '')}"
+                    style="width:100%;box-sizing:border-box;margin-top:4px;padding:8px 10px;border:2px solid var(--ink-black);border-radius:8px;font-size:14px;">
+                <div id="oauth-create-error" style="display:none;font-size:12px;color:#e74c3c;margin-top:8px;"></div>
+                <div style="display:flex;gap:10px;margin-top:16px;">
+                    <button id="oauth-create-confirm" class="doodle-btn" style="flex:1;justify-content:center;">创建账户</button>
+                    <button id="oauth-create-cancel" class="doodle-btn" style="flex:1;justify-content:center;">不创建</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        function showErr(msg) {
+            const el = overlay.querySelector('#oauth-create-error');
+            if (el) { el.textContent = msg; el.style.display = ''; }
+        }
+
+        overlay.querySelector('#oauth-create-cancel').addEventListener('click', function () {
+            oauthCancelCreate(pendingCode);
+            overlay.remove();
+            oauthCleanUrlParams();
+            if (typeof showTopToast === 'function') showTopToast('已取消创建', false);
+        });
+
+        overlay.querySelector('#oauth-create-confirm').addEventListener('click', function () {
+            const nickname = overlay.querySelector('#oauth-create-nickname').value.trim();
+            if (!nickname) { showErr('昵称不能为空'); return; }
+            const btn = overlay.querySelector('#oauth-create-confirm');
+            btn.disabled = true;
+            oauthConfirmCreate(pendingCode, nickname, getFingerprint()).then(function (data) {
+                if (data.ok && data.token) {
+                    setUserToken(data.token);
+                    if (data.nickname) setUserNickname(data.nickname);
+                    overlay.remove();
+                    oauthCleanUrlParams();
+                    if (typeof showTopToast === 'function') showTopToast('账号创建成功！', false);
+                    setTimeout(function () { window.location.reload(); }, 800);
+                } else {
+                    btn.disabled = false;
+                    showErr(data.error || '创建失败，请重试');
+                }
+            });
+        });
+    });
+}
+
+/**
+ * 渲染设置面板的 OAuth 绑定管理区（已绑定列表 + 可添加平台）。
+ */
+function loadOAuthBindingsUI() {
+    const section = document.getElementById('oauth-bindings-section');
+    const listEl = document.getElementById('oauth-binding-list');
+    const addEl = document.getElementById('oauth-bind-add');
+    if (!section || !listEl || !addEl) return;
+
+    const tok = getUserToken();
+    if (!tok) { section.style.display = 'none'; return; }
+    section.style.display = '';
+
+    Promise.all([getOAuthProviders(), oauthFetchBindings()]).then(function (results) {
+        const providers = Array.isArray(results[0]) ? results[0] : [];
+        const bindingsData = (results[1] && results[1].ok) ? results[1].bindings : [];
+        const boundMap = {};
+        (bindingsData || []).forEach(function (b) { boundMap[b.provider] = b; });
+
+        const providerName = function (key) {
+            for (let i = 0; i < providers.length; i++) {
+                if (providers[i].key === key) return providers[i].name;
+            }
+            return key;
+        };
+
+        // 已绑定列表
+        listEl.innerHTML = '';
+        const boundKeys = Object.keys(boundMap);
+        if (boundKeys.length === 0) {
+            listEl.innerHTML = '<div style="font-size:12px;color:#999;padding:4px 0;">尚未绑定任何平台</div>';
+        } else {
+            boundKeys.forEach(function (pKey) {
+                const b = boundMap[pKey];
+                const name = providerName(pKey);
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:2px solid var(--ink-black);border-radius:8px;margin-bottom:6px;';
+                const emailSpan = (b.email && b.email !== '')
+                    ? '<span style="color:#999;font-size:11px;margin-left:6px;">' + escapeHtml(b.email) + '</span>'
+                    : '';
+                row.innerHTML = '<span style="font-size:13px;">' + escapeHtml(name) + emailSpan + '</span>';
+                const btn = document.createElement('button');
+                btn.className = 'doodle-btn';
+                btn.textContent = '解绑';
+                btn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e74c3c;border-color:#e74c3c;flex-shrink:0;';
+                btn.addEventListener('click', function () {
+                    if (!confirm('确定解绑 ' + name + ' 吗？\n\n解绑后若浏览器缓存被清除，将无法再通过该平台快捷登录（仍可用昵称+密码登录）。')) return;
+                    oauthUnbind(pKey).then(function (data) {
+                        if (data.ok) {
+                            if (typeof showTopToast === 'function') showTopToast('已解绑 ' + name, false);
+                            loadOAuthBindingsUI();
+                        } else if (typeof showTopToast === 'function') {
+                            showTopToast(data.error || '解绑失败', true);
+                        }
+                    });
+                });
+                row.appendChild(btn);
+                listEl.appendChild(row);
+            });
+        }
+
+        // 可添加的平台（未绑定的）
+        addEl.innerHTML = '';
+        const unbound = providers.filter(function (p) { return !boundMap[p.key]; });
+        if (unbound.length > 0) {
+            const tip = document.createElement('div');
+            tip.style.cssText = 'font-size:12px;color:#888;margin-bottom:6px;';
+            tip.textContent = '添加绑定：';
+            addEl.appendChild(tip);
+            unbound.forEach(function (p) {
+                const btn = document.createElement('button');
+                btn.className = 'doodle-btn';
+                btn.textContent = '绑定 ' + p.name;
+                btn.style.cssText = 'font-size:12px;padding:5px 12px;margin:0 6px 6px 0;';
+                btn.addEventListener('click', function () {
+                    oauthBindSubmit(p.key, '/');
+                });
+                addEl.appendChild(btn);
+            });
+        }
+    });
+}
+
+// OAuth 初始化：渲染登录区按钮 + 处理回调参数
+initOAuthLoginButtons();
+oauthHandleReturn();

@@ -497,12 +497,15 @@
             case 'lobby_song_list':
                 songList = data.playlist || [];
                 songPool = data.pool || [];
-                if (data.playing) {
-                    handleForcePlay({ song: data.playing, start_time: data.playing.start_time || Date.now() / 1000 });
-                } else {
-                    songPlaying = null;
-                    stopSongPlayback();
-                    updateConnStatusSong();
+                // 个人模式：仅刷新歌单，不跟随服务器播放状态（避免打断本地续播）
+                if (songSyncMode) {
+                    if (data.playing) {
+                        handleForcePlay({ song: data.playing, start_time: data.playing.start_time || Date.now() / 1000 });
+                    } else {
+                        songPlaying = null;
+                        stopSongPlayback();
+                        updateConnStatusSong();
+                    }
                 }
                 renderSongPanel();
                 break;
@@ -515,12 +518,15 @@
             case 'list_update':
                 songList = data.playlist || [];
                 songPool = data.pool || [];
-                if (data.playing) {
-                    handleForcePlay({ song: data.playing, start_time: data.playing.start_time || Date.now() / 1000 });
-                } else {
-                    songPlaying = null;
-                    stopSongPlayback();
-                    updateConnStatusSong();
+                // 个人模式：仅刷新歌单，不跟随服务器播放状态（避免打断本地续播）
+                if (songSyncMode) {
+                    if (data.playing) {
+                        handleForcePlay({ song: data.playing, start_time: data.playing.start_time || Date.now() / 1000 });
+                    } else {
+                        songPlaying = null;
+                        stopSongPlayback();
+                        updateConnStatusSong();
+                    }
                 }
                 renderSongPanel();
                 break;
@@ -538,10 +544,12 @@
                 break;
 
             case 'waiting_vote':
-                songPlaying = null;
-                stopSongPlayback();
-                updateConnStatusSong();
-                renderSongPanel();
+                if (songSyncMode) {
+                    songPlaying = null;
+                    stopSongPlayback();
+                    updateConnStatusSong();
+                    renderSongPanel();
+                }
                 break;
         }
     }
@@ -6198,17 +6206,25 @@
                 elapsed = (Date.now() / 1000) - song.start_time;
             }
             let total = (song.duration || 0) / 1000;
+            // duration 缺失时退回音频元数据的实际时长，避免进度条无限走下去
+            if ((!total || total <= 0) && songCurAudio && isFinite(songCurAudio.duration) && songCurAudio.duration > 0) {
+                total = songCurAudio.duration;
+            }
 
             // 提前 60 秒预加载下一首（音频+歌词），实现无缝衔接
             if (songListen && total > 0 && (total - elapsed) <= 60 && (total - elapsed) >= 0) {
                 preloadNextSong();
             }
 
-            // 歌曲播放完毕：停止本地播放并通知服务端立即切歌广播（全员同步下一首）
+            // 歌曲播放完毕：停止本地播放；个人模式本地续播，同步模式通知服务端切歌广播
             if (total > 0 && elapsed >= total) {
                 stopSongProgress();
                 if (songCurAudio) { try { songCurAudio.pause(); } catch (e) { } }
-                send({ type: 'lobby_song_finished' });
+                if (!songSyncMode) {
+                    advancePersonal();
+                } else {
+                    send({ type: 'lobby_song_finished' });
+                }
                 return;
             }
 
@@ -6265,8 +6281,9 @@
             if (!songPlaying || !songPlaying.duration) return;
             let totalSec = songPlaying.duration / 1000;
             let serverElapsed = (Date.now() / 1000) - parseFloat(songPlaying.start_time);
-            // 歌曲已结束 → 同步下一首
+            // 歌曲已结束 → 同步下一首（个人模式由 onended / 进度定时器本地续播，不推动服务器队列）
             if (totalSec > 0 && serverElapsed >= totalSec) {
+                if (!songSyncMode) return;
                 send({ type: 'lobby_song_finished' });
                 return;
             }
@@ -6369,10 +6386,15 @@
                 nextAudio.src = song.url;
                 nextAudio.preload = 'auto';
             }
-            // 监听真实播放结束事件，自动同步下一首
+            // 监听真实播放结束事件，自动续播
             nextAudio.onended = function () {
                 if (songPlaying && String(songPlaying.id) === String(song.id)) {
-                    send({ type: 'lobby_song_finished' });
+                    if (!songSyncMode) {
+                        // 个人模式：本地自动续播队列下一首（不推动服务器共享队列）
+                        advancePersonal();
+                    } else {
+                        send({ type: 'lobby_song_finished' });
+                    }
                 }
             };
             // 自动校准：歌曲已开始一段时间时，将音频 seek 到真实进度。
@@ -6463,6 +6485,23 @@
         }
         songPlaying = null;
         updateConnStatusSong();
+    }
+
+    // 个人模式：一首播完后本地自动续播到队列下一首；无下一首则干净地停止播放
+    // （个人模式不推动服务器共享队列，也不依赖服务器广播，全靠本地 onended/进度定时器触发）
+    function advancePersonal() {
+        let next = getNextSong();
+        // 队列里只有刚播完的这首歌时，不原地循环，直接停止
+        if (next && songPlaying && String(next.id) === String(songPlaying.id)) {
+            next = null;
+        }
+        if (next && next.url) {
+            handleForcePlay({ song: next, start_time: Date.now() / 1000 }, true);
+        } else {
+            stopSongPlayback();
+            updateConnStatusSong();
+            renderSongPanel();
+        }
     }
 
     // ==================== 歌词 ====================

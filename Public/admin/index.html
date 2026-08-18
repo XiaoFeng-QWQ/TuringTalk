@@ -5,69 +5,40 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <title>管理后台 - 图灵测试</title>
+    <title>管理后台 · 图灵测试</title>
     <link rel="icon" type="image/svg+xml" href="/admin/favicon.svg">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#1f1e1b">
     <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
     <link rel="stylesheet" href="/admin/admin.css?v=">
 </head>
 
 <body>
 
-    <header>
+    <!-- ==================== 顶部栏 ==================== -->
+    <header class="topbar">
         <div class="logo-text">
             <svg class="icon" viewBox="0 0 24 24">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
             管理模式
         </div>
-
-        <button class="doodle-btn" id="btn-exit-admin-header" style="display:none;">
-            退出管理模式
-        </button>
+        <div class="topbar-right">
+            <button class="doodle-btn topbar-exit" id="btn-exit-admin-header" style="display:none;">
+                退出管理模式
+            </button>
+        </div>
     </header>
 
-    <main>
-        
-        <div id="admin-login-prompt" style="text-align:center;padding:80px 20px;">
-            <h2>管理后台</h2>
-            <p class="text-muted" style="margin-top:8px;">正在连接管理服务...</p>
-        </div>
+    <!-- ==================== 应用外壳：侧边导航 + 内容 ==================== -->
+    <div class="app-shell">
 
-        
-        <div id="admin-panel-content" style="display:none;">
-
-            
-            <div class="doodle-border">
-                <h4 style="display:flex;align-items:center;gap:6px;font-size:14px;font-weight:600;margin-bottom:8px;">
-                    <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;">
-                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                    </svg>
-                    全服公告
-                </h4>
-                <p class="text-muted" style="font-size:12px;margin-bottom:10px;">发送弹幕公告给所有在线玩家</p>
-                <div style="display:flex;gap:8px;">
-                    <input type="text" id="broadcast-input" placeholder="输入公告内容..." maxlength="100" style="flex:1;">
-                    <input type="number" id="broadcast-duration" value="60" min="1" max="3600" step="1" style="width:65px;border:1px solid var(--border);border-radius:6px;padding:6px 4px;font-size:13px;background:var(--surface);color:var(--text);" title="显示时长（秒）">
-                    <button class="doodle-btn" id="btn-send-broadcast" style="flex-shrink:0;">发送</button>
-                </div>
-                <span id="broadcast-status" class="text-sm text-muted" style="display:none;"></span>
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <strong class="brand-title">管理控制台</strong>
             </div>
 
-            
-            <div class="admin-tab-bar" style="margin-bottom:16px;">
-                <button class="admin-tab-btn active" id="tab-sessions">活跃对局</button>
-                <button class="admin-tab-btn" id="tab-reports">举报审核</button>
-                <button class="admin-tab-btn" id="tab-stickers">自定义表情包</button>
-                <button class="admin-tab-btn" id="tab-lobby">聊天室管理</button>
-                <button class="admin-tab-btn" id="tab-users">用户管理</button>
-            </div>
-
-            
-            <div class="setting-row" id="panel-sessions">
-                <h4>
+            <nav class="admin-tab-bar">
+                <button class="admin-tab-btn active" id="tab-sessions">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                         <circle cx="9" cy="7" r="4" />
@@ -75,272 +46,353 @@
                         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                     </svg>
                     活跃对局
-                </h4>
-                <input type="text" id="search-sessions-input" placeholder="搜索玩家昵称..." style="margin-bottom:8px;">
-                <button class="doodle-btn" id="btn-refresh-sessions"
-                    style="width:100%;justify-content:center;margin-bottom:8px;">
-                    刷新列表
                 </button>
-                <div id="sessions-list">
-                    <div style="text-align:center;color:var(--text-muted);padding:10px;">点击刷新查看</div>
-                </div>
-            </div>
-
-            
-            <div class="setting-row" id="panel-reports" style="display:none;">
-                <h4>
+                <button class="admin-tab-btn" id="tab-reports">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
                         <line x1="4" y1="22" x2="4" y2="15" />
                     </svg>
                     举报审核
-                </h4>
-                <div style="display:flex;gap:6px;margin-bottom:8px;">
-                    <button class="doodle-btn report-filter-btn active" data-filter="">全部</button>
-                    <button class="doodle-btn report-filter-btn" data-filter="0">未审</button>
-                    <button class="doodle-btn report-filter-btn" data-filter="1">已审</button>
-                </div>
-                <div id="reports-list"
-                    style="max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;padding:8px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border);">
-                    <div style="text-align:center;color:var(--text-muted);padding:10px;">加载中...</div>
-                </div>
-                <div id="reports-pagination"
-                    style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:8px;font-size:12px;color:var(--text-muted);">
-                </div>
-            </div>
-
-            
-            <div class="setting-row" id="panel-stickers" style="display:none;">
-                <h4>
+                </button>
+                <button class="admin-tab-btn" id="tab-stickers">
                     <svg class="icon" viewBox="0 0 24 24">
                         <circle cx="12" cy="12" r="10" />
                         <path d="M8 14s1.5 2 4 2 4-2 4-2" />
                         <line x1="9" y1="9" x2="9.01" y2="9" />
                         <line x1="15" y1="9" x2="15.01" y2="9" />
                     </svg>
-                    自定义表情
-                </h4>
-                <div class="sticker-add-form">
-                    <label style="font-size:13px;font-weight:500;display:block;margin-bottom:6px;">添加新表情</label>
-                    <div style="display:flex;gap:8px;margin-bottom:4px;flex-direction:column;">
-                        <input type="text" id="sticker-name-input" placeholder="表情名称（可选）" maxlength="20">
-                        <input type="text" id="sticker-url-input" placeholder="图片 URL 或点击下方上传" maxlength="500">
-                    </div>
-                    <div style="display:flex;gap:8px;margin-bottom:4px;align-items:center;">
-                        <label class="doodle-btn" id="btn-sticker-upload"
-                            style="flex:1;justify-content:center;cursor:pointer;">
-                            <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                <polyline points="17 8 12 3 7 8" />
-                                <line x1="12" y1="3" x2="12" y2="15" />
-                            </svg>
-                            本地上传
-                        </label>
-                        <input type="file" id="sticker-file-input" accept="image/*" multiple style="display:none;">
-                        <span id="sticker-upload-status" class="text-sm text-muted" style="display:none;"></span>
-                    </div>
-                    <div id="sticker-batch-progress" style="display:none;margin:8px 0;padding:8px;background:var(--bg-secondary);border-radius:6px;max-height:200px;overflow-y:auto;font-size:12px;"></div>
-                    <div id="sticker-preview" style="margin:4px 0;display:none;">
-                        <span class="text-sm text-muted">预览：</span>
-                        <img id="sticker-preview-img" src="" alt="预览"
-                            style="max-width:80px;max-height:80px;vertical-align:middle;border-radius:6px;border:1px solid var(--border);">
-                    </div>
-                    <button class="doodle-btn" id="btn-add-sticker"
-                        style="display:block;width:100%;margin-top:6px;justify-content:center;">
-                        添加表情
-                    </button>
-                </div>
-                <div id="sticker-batch-toolbar" style="align-items:center;gap:8px;margin-bottom:8px;padding:6px 8px;background:var(--bg-secondary);border-radius:6px;">
-                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                        <input type="checkbox" id="sticker-select-all"> 全选
-                    </label>
-                    <span style="font-size:12px;color:var(--text-muted);" id="sticker-select-count"></span>
-                    <button class="doodle-btn" id="btn-sticker-batch-delete" style="font-size:12px;padding:4px 10px;background:#e74c3c;color:#fff;">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                        批量删除
-                    </button>
-                    <button class="doodle-btn" id="btn-sticker-sync" style="font-size:12px;padding:4px 10px;margin-left:auto;background:var(--ink-blue);color:#fff;">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                            <polyline points="1 4 1 10 7 10"/>
-                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
-                        </svg>
-                        同步服务器数据
-                    </button>
-                    <button class="doodle-btn" id="btn-sticker-sync-json" style="font-size:12px;padding:4px 10px;background:var(--ink-blue);color:#fff;">
-                        <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
-                            <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-                            <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
-                        </svg>
-                        从JSON同步
-                    </button>
-                    <span id="sticker-sync-status" style="font-size:12px;color:var(--text-muted);display:none;"></span>
-                </div>
-                <div class="sticker-toolbar" style="margin-top:8px;">
-                    <textarea id="sticker-json-input" placeholder="粘贴JSON数据：{"list":[{"name":"表情名","url":"https://..."}]} 或 [{"name":"...","url":"..."}]"
-                        style="width:100%;height:80px;font-size:12px;font-family:monospace;background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);border-radius:4px;padding:8px;resize:vertical;box-sizing:border-box;" spellcheck="false"></textarea>
-                </div>
-                <div class="sticker-list" id="sticker-list">
-                    <div class="text-sm text-muted" style="text-align:center;" id="sticker-list-empty">
-                        暂无自定义表情</div>
-                </div>
-
-                <h4 style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border);">
-                    用户表情审核
-                </h4>
-                <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
-                    <input type="text" id="sticker-review-search" placeholder="按玩家昵称搜索" maxlength="64"
-                        style="flex:1;padding:6px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);min-width:0;">
-                    <button class="doodle-btn sticker-review-filter-btn active" data-filter="">全部</button>
-                    <button class="doodle-btn sticker-review-filter-btn" data-filter="pending">待审核</button>
-                    <button class="doodle-btn sticker-review-filter-btn" data-filter="approved">已通过</button>
-                    <button class="doodle-btn sticker-review-filter-btn" data-filter="rejected">已拒绝</button>
-                </div>
-                <div id="sticker-review-list"
-                    style="max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;padding:8px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border);">
-                    <div class="text-sm text-muted" style="text-align:center;" id="sticker-review-list-empty">
-                        暂无待审核的用户表情</div>
-                </div>
-                <div id="sticker-review-actions" style="display:none;gap:6px;margin-top:6px;">
-                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                        <input type="checkbox" id="sticker-review-select-all"> 全选
-                    </label>
-                    <button class="doodle-btn" id="btn-sticker-review-batch-approve" style="font-size:12px;padding:2px 10px;color:#4caf50;border-color:#4caf50;">批量通过</button>
-                    <button class="doodle-btn" id="btn-sticker-review-batch-reject" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量拒绝</button>
-                </div>
-                <div id="sticker-review-pagination" style="margin-top:8px;display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;"></div>
-            </div>
-
-            
-            <div class="setting-row" id="panel-lobby" style="display:none;">
-                <h4>
+                    表情管理
+                </button>
+                <button class="admin-tab-btn" id="tab-lobby">
                     <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     </svg>
                     聊天室管理
-                </h4>
-                <div style="display:flex;gap:6px;margin-bottom:8px;">
-                    <button class="doodle-btn" id="btn-lobby-refresh"
-                        style="flex:1;justify-content:center;">刷新在线玩家</button>
-                    <input type="text" id="lobby-search-input" placeholder="按玩家昵称搜索..."
-                        style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
-                    <button class="doodle-btn" id="btn-lobby-history"
-                        style="flex-shrink:0;justify-content:center;">加载聊天记录</button>
-                </div>
-                <div style="display:flex;gap:6px;margin-bottom:8px;">
-                    <input type="text" id="lobby-announce-input" placeholder="输入聊天室警告内容..." maxlength="100"
-                        style="flex:1;padding:4px 8px;border:1px solid var(--danger);border-radius:6px;font-size:12px;outline:none;">
-                    <button class="doodle-btn" id="btn-lobby-announce"
-                        style="flex-shrink:0;justify-content:center;background:#d32f2f;border-color:#d32f2f;color:#fff;">发送警告</button>
-                </div>
-                <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:12px;">
-                    <label style="white-space:nowrap;color:var(--text-muted);">发言间隔：</label>
-                    <input type="number" id="lobby-rate-input" placeholder="秒" min="0" max="60" value="0"
-                        style="width:50px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;text-align:center;">
-                    <span style="color:var(--text-muted);">秒（0=不限）</span>
-                    <button class="doodle-btn" id="btn-lobby-rate-set"
-                        style="flex-shrink:0;justify-content:center;font-size:12px;padding:2px 10px;">设置</button>
-                    <button class="doodle-btn" id="btn-lobby-rate-query"
-                        style="flex-shrink:0;justify-content:center;font-size:12px;padding:2px 10px;">查询</button>
-                    <span id="lobby-rate-status" style="color:var(--text-muted);font-size:11px;"></span>
-                </div>
-                <div id="lobby-players-list" style="margin-bottom:8px;">
-                    <div style="text-align:center;color:var(--text-muted);padding:10px;">点击刷新查看在线玩家</div>
-                </div>
-                <div id="lobby-players-actions" style="display:none;gap:6px;margin-bottom:8px;">
-                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                        <input type="checkbox" id="lobby-players-select-all"> 全选
-                    </label>
-                    <button class="doodle-btn" id="btn-lobby-batch-ban" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量封禁</button>
-                </div>
-                <div id="lobby-messages-list"
-                    style="max-height:400px;overflow-y:auto;font-size:12px;line-height:1.6;padding:8px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border);">
-                    <div style="text-align:center;color:var(--text-muted);padding:10px;">点击加载聊天记录查看</div>
-                </div>
-                <div id="lobby-messages-actions" style="display:none;gap:6px;margin-top:6px;">
-                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                        <input type="checkbox" id="lobby-messages-select-all"> 全选
-                    </label>
-                    <button class="doodle-btn" id="btn-lobby-batch-delete" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量删除</button>
-                </div>
-                <div id="lobby-messages-pagination"
-                    style="display:flex;gap:6px;justify-content:center;align-items:center;margin-top:8px;font-size:12px;color:var(--text-muted);">
-                </div>
-            </div>
-
-            
-            <div class="setting-row" id="panel-users" style="display:none;">
-                <h4>
+                </button>
+                <button class="admin-tab-btn" id="tab-users">
                     <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                        <circle cx="9" cy="7" r="4"/>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        <circle cx="11" cy="11" r="7" />
+                        <line x1="21" y1="21" x2="16.5" y2="16.5" />
                     </svg>
-                    用户搜索与封禁
-                </h4>
-                <div style="display:flex;gap:6px;margin-bottom:8px;">
-                    <select id="user-search-field" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text);">
-                        <option value="nickname">昵称</option>
-                        <option value="player_id">玩家ID</option>
-                        <option value="ip">IP地址</option>
-                        <option value="fp">指纹</option>
-                    </select>
-                    <input type="text" id="user-search-input" placeholder="输入搜索关键词..." maxlength="64"
-                        style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
-                    <button class="doodle-btn" id="btn-user-search"
-                        style="flex-shrink:0;justify-content:center;">搜索</button>
-                </div>
-                <div id="user-search-result" style="margin-bottom:8px;">
-                    <div style="text-align:center;color:var(--text-muted);padding:10px;">输入关键词搜索在线用户</div>
-                </div>
-                <div id="user-search-actions" style="display:none;gap:6px;margin-bottom:8px;">
-                    <label style="font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                        <input type="checkbox" id="user-search-select-all"> 全选
-                    </label>
-                    <button class="doodle-btn" id="btn-user-batch-ban" style="font-size:12px;padding:2px 10px;color:var(--danger);border-color:var(--danger);">批量封禁</button>
-                </div>
-                <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <strong style="font-size:13px;">封禁列表</strong>
-                        <button class="doodle-btn" id="btn-refresh-banned" style="font-size:11px;padding:2px 8px;">刷新</button>
-                    </div>
-                    <div id="banned-list" style="max-height:300px;overflow-y:auto;">
-                        <div style="text-align:center;color:var(--text-muted);padding:10px;">点击刷新查看封禁列表</div>
-                    </div>
+                    用户管理
+                </button>
+            </nav>
+
+            <div class="sidebar-foot">
+                <span class="conn conn-idle" id="conn-status">
+                    <i class="conn-dot"></i><span id="conn-status-text">未连接</span>
+                </span>
+            </div>
+        </aside>
+
+        <main class="content">
+
+            <!-- 登录等待 -->
+            <div id="admin-login-prompt">
+                <div class="prompt-card">
+                    <div class="prompt-mark">A</div>
+                    <h2>管理后台</h2>
+                    <p>正在连接管理服务...</p>
+                    <div class="prompt-loader"></div>
                 </div>
             </div>
-        </div>
 
-        
-        <section id="chat-page">
-            <div class="notebook-container">
-                <div class="chat-header">
-                    <div class="opponent-info">
-                        <div class="avatar">
-                            <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                                <circle cx="12" cy="7" r="4" />
+            <!-- 管理面板 -->
+            <div id="admin-panel-content" style="display:none;">
+
+                <!-- 全服公告 -->
+                <section class="broadcast-card">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M3 11l18-5v12L3 14v-3z" />
+                            <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+                        </svg>
+                        <h4>全服公告</h4>
+                        <span class="card-desc">发送弹幕公告给所有在线玩家</span>
+                    </div>
+                    <div class="broadcast-row">
+                        <input type="text" id="broadcast-input" placeholder="输入公告内容..." maxlength="100">
+                        <label class="duration-field" title="显示时长（秒）">
+                            时长
+                            <input type="number" id="broadcast-duration" value="60" min="1" max="3600" step="1">
+                        </label>
+                        <button class="doodle-btn btn-primary" id="btn-send-broadcast">发送</button>
+                    </div>
+                    <span class="form-status" id="broadcast-status"></span>
+                </section>
+
+                <!-- 活跃对局 -->
+                <section class="setting-row" id="panel-sessions">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                        </svg>
+                        <h4>活跃对局</h4>
+                        <span class="card-desc">查看并旁观正在进行的对局</span>
+                    </div>
+                    <div class="toolbar-row">
+                        <input type="text" id="search-sessions-input" placeholder="搜索玩家昵称...">
+                        <button class="doodle-btn" id="btn-refresh-sessions">刷新列表</button>
+                    </div>
+                    <div class="list-panel" id="sessions-list">
+                        <div class="list-empty">点击刷新查看</div>
+                    </div>
+                </section>
+
+                <!-- 举报审核 -->
+                <section class="setting-row" id="panel-reports" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                            <line x1="4" y1="22" x2="4" y2="15" />
+                        </svg>
+                        <h4>举报审核</h4>
+                        <span class="card-desc">处理玩家举报与封禁</span>
+                    </div>
+                    <div class="seg">
+                        <button class="doodle-btn report-filter-btn active" data-filter="">全部</button>
+                        <button class="doodle-btn report-filter-btn" data-filter="0">未审</button>
+                        <button class="doodle-btn report-filter-btn" data-filter="1">已审</button>
+                    </div>
+                    <div class="list-panel list-tall" id="reports-list">
+                        <div class="list-empty">加载中...</div>
+                    </div>
+                    <div class="pagination" id="reports-pagination"></div>
+                </section>
+
+                <!-- 自定义表情 -->
+                <section class="setting-row" id="panel-stickers" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                            <line x1="9" y1="9" x2="9.01" y2="9" />
+                            <line x1="15" y1="9" x2="15.01" y2="9" />
+                        </svg>
+                        <h4>自定义表情</h4>
+                        <span class="card-desc">管理自定义表情包与用户上传审核</span>
+                    </div>
+
+                    <div class="sticker-add-form">
+                        <label class="field-label">添加新表情</label>
+                        <div class="form-grid">
+                            <input type="text" id="sticker-name-input" placeholder="表情名称（可选）" maxlength="20">
+                            <input type="text" id="sticker-url-input" placeholder="图片 URL 或点击下方上传" maxlength="500">
+                        </div>
+                        <div class="upload-row">
+                            <label class="doodle-btn" id="btn-sticker-upload">
+                                <svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="17 8 12 3 7 8" />
+                                    <line x1="12" y1="3" x2="12" y2="15" />
+                                </svg>
+                                本地上传
+                            </label>
+                            <input type="file" id="sticker-file-input" accept="image/*" multiple style="display:none;">
+                            <span class="form-status" id="sticker-upload-status"></span>
+                            <span class="upload-row-spacer"></span>
+                            <button class="doodle-btn btn-primary" id="btn-add-sticker">添加表情</button>
+                        </div>
+                        <div class="upload-progress" id="sticker-batch-progress"></div>
+                        <div class="sticker-preview" id="sticker-preview">
+                            <span class="text-sm text-muted">预览：</span>
+                            <img id="sticker-preview-img" src="" alt="预览">
+                        </div>
+                    </div>
+
+                    <div class="batch-toolbar" id="sticker-batch-toolbar">
+                        <label class="check-label">
+                            <input type="checkbox" id="sticker-select-all"> 全选
+                        </label>
+                        <span class="batch-count" id="sticker-select-count"></span>
+                        <button class="doodle-btn btn-danger-solid btn-xs" id="btn-sticker-batch-delete">
+                            <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px;">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                             </svg>
-                        </div>
-                        <div>
-                            <div class="text-sm text-muted">旁观对局</div>
-                            <strong style="font-size:18px;">旁观模式</strong>
-                        </div>
+                            批量删除
+                        </button>
+                        <span class="batch-toolbar-spacer"></span>
+                        <button class="doodle-btn btn-primary btn-xs" id="btn-sticker-sync">
+                            <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px;">
+                                <polyline points="1 4 1 10 7 10" />
+                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                            </svg>
+                            同步服务器数据
+                        </button>
+                        <button class="doodle-btn btn-primary btn-xs" id="btn-sticker-sync-json">
+                            <svg class="icon" viewBox="0 0 24 24" style="width:13px;height:13px;">
+                                <polyline points="16 3 21 3 21 8" />
+                                <line x1="4" y1="20" x2="21" y2="3" />
+                                <polyline points="21 16 21 21 16 21" />
+                                <line x1="15" y1="15" x2="21" y2="21" />
+                            </svg>
+                            从JSON同步
+                        </button>
+                        <span class="form-status" id="sticker-sync-status"></span>
                     </div>
-                    <div style="text-align:right;">
-                        <div class="text-sm text-muted" style="margin-bottom:2px;">状态</div>
-                        <div class="timer-sketch" id="timer-display">旁观</div>
-                    </div>
-                </div>
-                <div class="chat-body" id="chat-body"></div>
-            </div>
-        </section>
-    </main>
 
-    
+                    <textarea class="code-input" id="sticker-json-input" spellcheck="false"
+                        placeholder="粘贴JSON数据：{&quot;list&quot;:[{&quot;name&quot;:&quot;表情名&quot;,&quot;url&quot;:&quot;https://...&quot;}]} 或 [{&quot;name&quot;:&quot;...&quot;,&quot;url&quot;:&quot;...&quot;}]"></textarea>
+
+                    <div class="list-panel" id="sticker-list">
+                        <div class="list-empty" id="sticker-list-empty">暂无自定义表情</div>
+                    </div>
+
+                    <div class="sub-section">
+                        <div class="sub-head">用户表情审核</div>
+                        <div class="toolbar-row">
+                            <input type="text" id="sticker-review-search" placeholder="按玩家昵称搜索" maxlength="64">
+                            <button class="doodle-btn sticker-review-filter-btn active" data-filter="">全部</button>
+                            <button class="doodle-btn sticker-review-filter-btn" data-filter="pending">待审核</button>
+                            <button class="doodle-btn sticker-review-filter-btn" data-filter="approved">已通过</button>
+                            <button class="doodle-btn sticker-review-filter-btn" data-filter="rejected">已拒绝</button>
+                        </div>
+                        <div class="list-panel" id="sticker-review-list">
+                            <div class="list-empty" id="sticker-review-list-empty">暂无待审核的用户表情</div>
+                        </div>
+                        <div class="batch-bar" id="sticker-review-actions" style="display:none;">
+                            <label class="check-label">
+                                <input type="checkbox" id="sticker-review-select-all"> 全选
+                            </label>
+                            <button class="doodle-btn btn-success-ghost btn-xs" id="btn-sticker-review-batch-approve">批量通过</button>
+                            <button class="doodle-btn btn-danger-ghost btn-xs" id="btn-sticker-review-batch-reject">批量拒绝</button>
+                        </div>
+                        <div class="pagination" id="sticker-review-pagination"></div>
+                    </div>
+                </section>
+
+                <!-- 聊天室管理 -->
+                <section class="setting-row" id="panel-lobby" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        </svg>
+                        <h4>聊天室管理</h4>
+                        <span class="card-desc">监控在线玩家与聊天内容</span>
+                    </div>
+
+                    <div class="toolbar-row">
+                        <button class="doodle-btn" id="btn-lobby-refresh">刷新在线玩家</button>
+                        <input type="text" id="lobby-search-input" placeholder="按玩家昵称搜索...">
+                        <button class="doodle-btn" id="btn-lobby-history">加载聊天记录</button>
+                    </div>
+
+                    <div class="toolbar-row">
+                        <input type="text" id="lobby-announce-input" class="danger-input"
+                            placeholder="输入聊天室警告内容..." maxlength="100">
+                        <button class="doodle-btn btn-danger-solid" id="btn-lobby-announce">发送警告</button>
+                    </div>
+
+                    <div class="rate-row">
+                        <label style="white-space:nowrap;">发言间隔：</label>
+                        <input type="number" id="lobby-rate-input" placeholder="秒" min="0" max="60" value="0">
+                        <span>秒（0=不限）</span>
+                        <button class="doodle-btn btn-xs" id="btn-lobby-rate-set">设置</button>
+                        <button class="doodle-btn btn-xs" id="btn-lobby-rate-query">查询</button>
+                        <span class="rate-status" id="lobby-rate-status"></span>
+                    </div>
+
+                    <div class="sub-head">在线玩家</div>
+                    <div class="list-panel" id="lobby-players-list">
+                        <div class="list-empty">点击刷新查看在线玩家</div>
+                    </div>
+                    <div class="batch-bar" id="lobby-players-actions" style="display:none;">
+                        <label class="check-label">
+                            <input type="checkbox" id="lobby-players-select-all"> 全选
+                        </label>
+                        <button class="doodle-btn btn-danger-ghost btn-xs" id="btn-lobby-batch-ban">批量封禁</button>
+                    </div>
+
+                    <div class="sub-head">聊天记录</div>
+                    <div class="list-panel list-tall" id="lobby-messages-list">
+                        <div class="list-empty">点击加载聊天记录查看</div>
+                    </div>
+                    <div class="batch-bar" id="lobby-messages-actions" style="display:none;">
+                        <label class="check-label">
+                            <input type="checkbox" id="lobby-messages-select-all"> 全选
+                        </label>
+                        <button class="doodle-btn btn-danger-ghost btn-xs" id="btn-lobby-batch-delete">批量删除</button>
+                    </div>
+                    <div class="pagination" id="lobby-messages-pagination"></div>
+                </section>
+
+                <!-- 用户管理 -->
+                <section class="setting-row" id="panel-users" style="display:none;">
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <circle cx="11" cy="11" r="7" />
+                            <line x1="21" y1="21" x2="16.5" y2="16.5" />
+                        </svg>
+                        <h4>用户管理</h4>
+                        <span class="card-desc">搜索用户、封禁与特殊标签</span>
+                    </div>
+
+                    <div class="toolbar-row">
+                        <select id="user-search-field">
+                            <option value="nickname">昵称</option>
+                            <option value="player_id">玩家ID</option>
+                            <option value="ip">IP地址</option>
+                            <option value="fp">指纹</option>
+                        </select>
+                        <input type="text" id="user-search-input" placeholder="输入搜索关键词..." maxlength="64">
+                        <button class="doodle-btn" id="btn-user-search">搜索</button>
+                    </div>
+                    <div class="list-panel" id="user-search-result">
+                        <div class="list-empty">输入关键词搜索在线用户</div>
+                    </div>
+                    <div class="batch-bar" id="user-search-actions" style="display:none;">
+                        <label class="check-label">
+                            <input type="checkbox" id="user-search-select-all"> 全选
+                        </label>
+                        <button class="doodle-btn btn-danger-ghost btn-xs" id="btn-user-batch-ban">批量封禁</button>
+                    </div>
+
+                    <div class="sub-section">
+                        <div class="sub-head-row">
+                            <span class="sub-head">封禁列表</span>
+                            <button class="doodle-btn btn-xs" id="btn-refresh-banned">刷新</button>
+                        </div>
+                        <div class="list-panel list-short" id="banned-list">
+                            <div class="list-empty">点击刷新查看封禁列表</div>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+
+            <!-- 旁观聊天页 -->
+            <section id="chat-page">
+                <div class="notebook-container">
+                    <div class="chat-header">
+                        <div class="opponent-info">
+                            <div class="avatar">
+                                <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                                    <circle cx="12" cy="7" r="4" />
+                                </svg>
+                            </div>
+                            <div>
+                                <div class="text-sm text-muted">旁观对局</div>
+                                <strong style="font-size:17px;">旁观模式</strong>
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div class="text-sm text-muted" style="margin-bottom:3px;">状态</div>
+                            <div class="timer-sketch" id="timer-display">旁观</div>
+                        </div>
+                    </div>
+                    <div class="chat-body" id="chat-body"></div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- 举报详情弹窗 -->
     <div id="report-detail-overlay" class="admin-dialog-overlay" style="display:none;">
         <div class="admin-dialog admin-dialog-wide">
             <h2 id="report-detail-title">举报详情</h2>
@@ -353,7 +405,7 @@
         </div>
     </div>
 
-    
+    <!-- 表情大图预览 -->
     <div id="sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>
         <img id="sticker-lightbox-img" src="" alt="">

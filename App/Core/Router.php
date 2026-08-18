@@ -3,6 +3,7 @@
 namespace App\Core;
 
 use App\Controllers\GameController;
+use App\Controllers\OAuthController;
 use App\Config\Config;
 
 /**
@@ -42,6 +43,14 @@ class Router
                 '/api/weekly-report' => [GameController::class, 'weeklyReport'],
                 '/player/{nickname}' => [GameController::class, 'index'],
                 '/collection/{token}' => [GameController::class, 'viewPublicCollection'],
+
+                // OAuth 快捷登录
+                '/oauth/login/{provider}' => [OAuthController::class, 'login'],
+                '/oauth/callback/{provider}' => [OAuthController::class, 'callback'],
+                '/oauth/complete' => [OAuthController::class, 'complete'],
+                '/api/oauth/providers' => [OAuthController::class, 'providers'],
+                '/api/oauth/bindings' => [OAuthController::class, 'bindings'],
+                '/api/oauth/pending-info' => [OAuthController::class, 'pendingInfo'],
             ],
             'POST' => [
                 '/api/upload-userdata' => [GameController::class, 'uploadUserData'],
@@ -52,6 +61,12 @@ class Router
                 '/api/collection/like' => [GameController::class, 'likeCollection'],
                 '/api/sticker/upload' => [GameController::class, 'uploadSticker'],
                 '/api/sticker/delete' => [GameController::class, 'deleteSticker'],
+
+                // OAuth 快捷登录（绑定模式用 form POST 携带 token）
+                '/oauth/login/{provider}' => [OAuthController::class, 'login'],
+                '/api/oauth/unbind' => [OAuthController::class, 'unbind'],
+                '/api/oauth/confirm-create' => [OAuthController::class, 'confirmCreate'],
+                '/api/oauth/cancel' => [OAuthController::class, 'cancel'],
             ],
         ];
 
