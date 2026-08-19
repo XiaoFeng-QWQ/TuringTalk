@@ -581,6 +581,12 @@
                                 style="width:100%;padding:6px 8px;border:2px solid var(--ink-black);border-radius:6px;font-size:12px;margin-bottom:6px;">
                             <input type="password" id="cp-new-password" placeholder="新密码（6位以上）"
                                 style="width:100%;padding:6px 8px;border:2px solid var(--ink-black);border-radius:6px;font-size:12px;margin-bottom:6px;">
+                            <input type="password" id="cp-confirm-password" placeholder="确认新密码"
+                                style="width:100%;padding:6px 8px;border:2px solid var(--ink-black);border-radius:6px;font-size:12px;margin-bottom:6px;">
+                            <label id="cp-first-time-label" style="display:flex;align-items:center;gap:4px;font-size:11px;color:#888;margin-bottom:6px;cursor:pointer;">
+                                <input type="checkbox" id="cp-first-time" style="cursor:pointer;">
+                                通过 OAuth 注册，还没有密码？首次设置（无需旧密码）
+                            </label>
                             <div style="display:flex;gap:6px;">
                                 <button class="doodle-btn" id="btn-cp-submit"
                                     style="font-size:11px;padding:4px 12px;">确认修改</button>

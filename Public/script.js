@@ -952,7 +952,8 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
                 showTopToast('昵称已修改为：' + trimmed, false);
             };
             document.addEventListener('nickname_update_result', onResult);
-            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint });
+            // 携带 player_token：设置页等未加入对局（连接未绑定 player_id）时服务端可凭 token 识别身份
+            transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint, player_token: getUserToken() });
             return;
         } catch (e) {
             // WS 未连接时静默降级，仅更新本地
@@ -2977,6 +2978,12 @@ WebSocketTransport.prototype.connect = function (nickname, duration, password) {
             case 'update_nickname_result':
                 document.dispatchEvent(new CustomEvent('nickname_update_result', { detail: data }));
                 break;
+            case 'change_password_result':
+                document.dispatchEvent(new CustomEvent('change_password_result', { detail: data }));
+                break;
+            case 'set_password_result':
+                document.dispatchEvent(new CustomEvent('set_password_result', { detail: data }));
+                break;
             default:
                 break;
         }
@@ -3570,64 +3577,142 @@ document.getElementById('btn-share-record').addEventListener('click', function (
     }
 });
 
-// 改密码
+// 改密码 / 首次设置密码（均走现有 WS，模式由"首次设置"勾选切换）
 document.getElementById('btn-change-password').addEventListener('click', () => {
     const form = document.getElementById('change-password-form');
     form.style.display = form.style.display === 'none' ? '' : 'none';
 });
+
+// 首次设置模式：隐藏旧密码输入框，提交走 set_password 消息
+const cpFirstTime = document.getElementById('cp-first-time');
+if (cpFirstTime) {
+    cpFirstTime.addEventListener('change', () => {
+        const oldInput = document.getElementById('cp-old-password');
+        if (oldInput) oldInput.style.display = cpFirstTime.checked ? 'none' : '';
+        if (cpFirstTime.checked) oldInput.value = '';
+        const msgEl = document.getElementById('cp-msg');
+        if (msgEl) { msgEl.style.display = 'none'; msgEl.style.color = ''; }
+    });
+}
 
 document.getElementById('btn-cp-cancel').addEventListener('click', () => {
     document.getElementById('change-password-form').style.display = 'none';
     document.getElementById('cp-msg').style.display = 'none';
     document.getElementById('cp-old-password').value = '';
     document.getElementById('cp-new-password').value = '';
+    document.getElementById('cp-confirm-password').value = '';
+    if (cpFirstTime) {
+        cpFirstTime.checked = false;
+        document.getElementById('cp-old-password').style.display = '';
+    }
 });
 
 document.getElementById('btn-cp-submit').addEventListener('click', () => {
+    const firstTime = !!(cpFirstTime && cpFirstTime.checked);
     const oldPwd = document.getElementById('cp-old-password').value;
     const newPwd = document.getElementById('cp-new-password').value;
+    const confirmPwd = document.getElementById('cp-confirm-password').value;
     const msgEl = document.getElementById('cp-msg');
 
-    if (!oldPwd || !newPwd) {
+    if (!firstTime && !oldPwd) {
         msgEl.textContent = '请填写旧密码和新密码';
+        msgEl.style.color = '';
+        msgEl.style.display = '';
+        return;
+    }
+    if (!newPwd) {
+        msgEl.textContent = '请填写新密码';
+        msgEl.style.color = '';
         msgEl.style.display = '';
         return;
     }
     if (newPwd.length < 6) {
         msgEl.textContent = '新密码至少6位';
+        msgEl.style.color = '';
+        msgEl.style.display = '';
+        return;
+    }
+    if (confirmPwd !== newPwd) {
+        msgEl.textContent = '两次输入的新密码不一致';
+        msgEl.style.color = '';
         msgEl.style.display = '';
         return;
     }
 
-    const token = getPlayerId();
+    const token = getUserToken();
     if (!token) {
         msgEl.textContent = '请先开始一局游戏获取身份';
+        msgEl.style.color = '';
+        msgEl.style.display = '';
+        return;
+    }
+    if (!transport || !transport._ws || transport._ws.readyState !== WebSocket.OPEN) {
+        msgEl.textContent = '连接未就绪，请稍后再试';
+        msgEl.style.color = '';
         msgEl.style.display = '';
         return;
     }
 
-    fetch('/api/generate-player-id?action=change_password&old_password=' + encodeURIComponent(oldPwd) + '&new_password=' + encodeURIComponent(newPwd) + '&fp=' + encodeURIComponent(browserFingerprint), {
-        headers: { 'Authorization': 'Bearer ' + token }
-    })
-        .then(r => r.json())
-        .then(data => {
-            if (data.error) {
-                msgEl.textContent = data.error;
-                msgEl.style.display = '';
-                return;
+    const btn = document.getElementById('btn-cp-submit');
+    btn.disabled = true;
+    msgEl.style.display = 'none';
+
+    const resultType = firstTime ? 'set_password_result' : 'change_password_result';
+    // 超时兜底：服务端无响应时恢复按钮，避免事件监听泄漏
+    const timeout = setTimeout(() => {
+        document.removeEventListener(resultType, onResult);
+        btn.disabled = false;
+        msgEl.textContent = '请求超时，请重试';
+        msgEl.style.color = '';
+        msgEl.style.display = '';
+    }, 15000);
+
+    const onResult = (e) => {
+        clearTimeout(timeout);
+        document.removeEventListener(resultType, onResult);
+        btn.disabled = false;
+        const data = e.detail || {};
+        if (!data.success) {
+            // 已设置过密码却走了首次设置：自动切回"修改密码"模式
+            if (firstTime && data.error && data.error.indexOf('已设置过密码') !== -1 && cpFirstTime) {
+                cpFirstTime.checked = false;
+                document.getElementById('cp-old-password').style.display = '';
             }
-            if (data.token) setUserToken(data.token);
-            msgEl.textContent = '密码修改成功';
-            msgEl.style.color = '#28a745';
+            msgEl.textContent = data.error || '操作失败，请重试';
+            msgEl.style.color = '';
             msgEl.style.display = '';
-            document.getElementById('change-password-form').style.display = 'none';
-            document.getElementById('cp-old-password').value = '';
-            document.getElementById('cp-new-password').value = '';
-        })
-        .catch(() => {
-            msgEl.textContent = '网络错误，请重试';
-            msgEl.style.display = '';
+            return;
+        }
+        if (data.token) setUserToken(data.token);
+        msgEl.textContent = '密码设置成功';
+        msgEl.style.color = '#28a745';
+        msgEl.style.display = '';
+        document.getElementById('change-password-form').style.display = 'none';
+        document.getElementById('cp-old-password').value = '';
+        document.getElementById('cp-new-password').value = '';
+        document.getElementById('cp-confirm-password').value = '';
+        if (cpFirstTime) {
+            cpFirstTime.checked = false;
+            document.getElementById('cp-old-password').style.display = '';
+        }
+        setTimeout(() => { msgEl.style.color = ''; }, 3000);
+    };
+    document.addEventListener(resultType, onResult);
+
+    try {
+        transport.send(firstTime ? 'set_password' : 'change_password', {
+            new_password: newPwd,
+            old_password: oldPwd,
+            player_token: token,
         });
+    } catch (e) {
+        clearTimeout(timeout);
+        document.removeEventListener(resultType, onResult);
+        btn.disabled = false;
+        msgEl.textContent = '发送失败，请检查连接后重试';
+        msgEl.style.color = '';
+        msgEl.style.display = '';
+    }
 });
 
 // 查看公开资料

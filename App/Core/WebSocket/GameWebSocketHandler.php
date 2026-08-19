@@ -247,6 +247,12 @@ class GameWebSocketHandler extends BaseGameHandler
                 case 'update_nickname':
                     $this->actionHandler->handleUpdateNickname($server, $fd, $data);
                     break;
+                case 'change_password':
+                    $this->actionHandler->handleChangePassword($server, $fd, $data);
+                    break;
+                case 'set_password':
+                    $this->actionHandler->handleSetPassword($server, $fd, $data);
+                    break;
                 case 'share_record':
                     $this->actionHandler->handleShareRecord($server, $fd, $data);
                     break;

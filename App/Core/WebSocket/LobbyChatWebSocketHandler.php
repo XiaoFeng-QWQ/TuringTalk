@@ -187,14 +187,13 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         // 清理本地管理员记录
         unset($this->lobbyAdminFds[(string)$fd]);
 
-        // 在清理前获取昵称和玩家ID
+        // 在清理前获取昵称（离开通知用）
         $nickname = $this->clientInfo[(string)$fd]['nickname'] ?? '';
-        $playerId = $this->clientInfo[(string)$fd]['player_id'] ?? '';
 
         $this->cleanupConnection($server, $fd);
 
-        // 清理该用户的点歌投票记录和频率队列（用 player_data.id 清理，避免重连后 fd 变化的旧记录泄漏）
-        $this->songService->cleanupUserData($fd, $playerId);
+        // 注意：不清理该玩家的点歌投票/移除投票记录（VOTERS / REMOVE_VOTERS 按 player_id 记录，
+        // 跨重连持久生效，防止"投票后退出重进再次投票"；记录随歌曲晋升/移除/陈旧清理/每日清空而释放）。
 
         // 在线人数减少 → 阈值降低
         $onlineCount = count($this->getOnlinePlayers($server));
@@ -217,8 +216,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         // 2. 检查移除投票阈值（人数下降 → 阈值降低 → 已有票数可能达标）
         $removedByVote = $this->songService->checkRemoveThresholds($onlineCount);
 
-        // 3. 广播歌单更新，同步票数到客户端
-        //    cleanupUserData 清除了该玩家的所有投票，不广播会导致客户端票数不同步
+        // 3. 广播歌单更新，同步票数到客户端（晋升/移除改变了票数，需全员刷新）
         if (count($promoted) > 0 || count($removedByVote) > 0) {
             $this->songHandler->broadcastPlaylistUpdate($server);
         }

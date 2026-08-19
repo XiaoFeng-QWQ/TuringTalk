@@ -258,29 +258,177 @@ class ActionHandler
     }
 
     /**
-     * 通过 WS 更新昵称（与恢复码绑定）
+     * 通过 WS 更新昵称（与恢复码绑定）。
+     * 身份解析与 change_password/set_password 一致：优先连接绑定的 player_id，
+     * 设置页等未加入对局（或绑定过期）场景回退到消息携带的 player_token。
      */
     public function handleUpdateNickname(Server $server, int $fd, array $data): void
     {
-        $playerId = GameService::getPlayerId($fd);
+        $playerId = $this->resolvePlayerIdFromMessage($fd, $data);
         $nickname = Sanitizer::text($data['nickname'] ?? '', 16);
         $fp = Sanitizer::identifier($data['fp'] ?? '');
 
-        if (empty($playerId) || empty($nickname)) {
-            $this->game->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'error' => '参数不完整']);
+        if ($playerId === '' || empty($nickname)) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type'    => 'update_nickname_result',
+                'success' => false,
+                'error'   => '参数不完整',
+            ]);
             return;
         }
 
         // 检查昵称唯一性
         $existing = PlayerStatsRepository::findByNickname($nickname);
         if ($existing && $existing['id'] !== $playerId) {
-            $this->game->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'error' => '昵称已被占用']);
+            $this->game->sendToPlayer($server, $fd, [
+                'type'    => 'update_nickname_result',
+                'success' => false,
+                'error'   => '昵称已被占用',
+            ]);
             return;
         }
 
         $myInfo = $this->game->getClientInfo($fd) ?? [];
         PlayerStatsRepository::updateNickname($playerId, $nickname, $myInfo['ip'] ?? '', $fp);
-        $this->game->sendToPlayer($server, $fd, ['type' => 'update_nickname_result', 'success' => true]);
+        $this->game->sendToPlayer($server, $fd, [
+            'type'      => 'update_nickname_result',
+            'success'   => true,
+            'player_id' => $playerId,
+            'nickname'  => $nickname,
+        ]);
+    }
+
+    /**
+     * 解析消息中的玩家身份：优先取连接绑定的 player_id；
+     * 未加入对局（如设置页）时回退到消息携带的 player_token 验签。
+     */
+    private function resolvePlayerIdFromMessage(int $fd, array $data): string
+    {
+        $playerId = GameService::getPlayerId($fd) ?: '';
+        if ($playerId === '' && !empty($data['player_token'])) {
+            $payload = GameController::verifyPlayerToken(Sanitizer::identifier($data['player_token']));
+            $playerId = $payload['player_id'] ?? '';
+        }
+        return $playerId;
+    }
+
+    /**
+     * 通过 WS 修改密码（与 update_nickname 同一通道，复用现有连接）。
+     * 修改后旧 token 自动失效（token 以 password_hash 为签名密钥），
+     * 故响应中返回新 token + player_id + nickname，前端据此刷新本地登录态。
+     */
+    public function handleChangePassword(Server $server, int $fd, array $data): void
+    {
+        $playerId = $this->resolvePlayerIdFromMessage($fd, $data);
+        if ($playerId === '') {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'change_password_result',
+                'success' => false,
+                'error' => '请先获取身份',
+            ]);
+            return;
+        }
+
+        $oldPassword = (string)($data['old_password'] ?? '');
+        $newPassword = (string)($data['new_password'] ?? '');
+        if ($oldPassword === '') {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'change_password_result',
+                'success' => false,
+                'error' => '旧密码不能为空',
+            ]);
+            return;
+        }
+        if (mb_strlen($newPassword) < 6) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'change_password_result',
+                'success' => false,
+                'error' => '新密码至少 6 位',
+            ]);
+            return;
+        }
+
+        if (!PlayerStatsRepository::changePassword($playerId, $oldPassword, $newPassword)) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'change_password_result',
+                'success' => false,
+                'error' => '旧密码不正确',
+            ]);
+            return;
+        }
+
+        // 密码已改，旧 token 失效：生成新 token 并同步连接上下文的 player_code
+        $newHash  = PlayerStatsRepository::getPasswordHash($playerId);
+        $newToken = $newHash ? GameController::generatePlayerToken($playerId, $newHash) : '';
+        if ($newToken !== '') {
+            GameService::setPlayerCode($fd, $newToken);
+        }
+        $player = PlayerStatsRepository::findById($playerId);
+
+        Logger::info('Player changed password via WS', ['player_id' => $playerId]);
+
+        $this->game->sendToPlayer($server, $fd, [
+            'type'      => 'change_password_result',
+            'success'   => true,
+            'token'     => $newToken,
+            'player_id' => $playerId,
+            'nickname'  => $player['nickname'] ?? '',
+        ]);
+    }
+
+    /**
+     * 通过 WS 首次设置密码（免旧密码验证，与 change_password 同一通道）。
+     * 仅允许 password_set=0 的账号（OAuth 注册 / 系统随机密码）使用；
+     * 已设置过密码的账号会返回错误，应改走 change_password。
+     */
+    public function handleSetPassword(Server $server, int $fd, array $data): void
+    {
+        $playerId = $this->resolvePlayerIdFromMessage($fd, $data);
+        if ($playerId === '') {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'set_password_result',
+                'success' => false,
+                'error' => '请先获取身份',
+            ]);
+            return;
+        }
+
+        $newPassword = (string)($data['new_password'] ?? '');
+        if (mb_strlen($newPassword) < 6) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'set_password_result',
+                'success' => false,
+                'error' => '新密码至少 6 位',
+            ]);
+            return;
+        }
+
+        if (!PlayerStatsRepository::setFirstPassword($playerId, $newPassword)) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'set_password_result',
+                'success' => false,
+                'error' => '你已设置过密码，请使用修改密码',
+            ]);
+            return;
+        }
+
+        // 首次设置成功：旧 token 失效，下发新 token 并同步连接上下文的 player_code
+        $newHash  = PlayerStatsRepository::getPasswordHash($playerId);
+        $newToken = $newHash ? GameController::generatePlayerToken($playerId, $newHash) : '';
+        if ($newToken !== '') {
+            GameService::setPlayerCode($fd, $newToken);
+        }
+        $player = PlayerStatsRepository::findById($playerId);
+
+        Logger::info('Player set first password via WS', ['player_id' => $playerId]);
+
+        $this->game->sendToPlayer($server, $fd, [
+            'type'      => 'set_password_result',
+            'success'   => true,
+            'token'     => $newToken,
+            'player_id' => $playerId,
+            'nickname'  => $player['nickname'] ?? '',
+        ]);
     }
 
     /**

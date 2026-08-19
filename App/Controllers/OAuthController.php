@@ -547,8 +547,8 @@ class OAuthController
             return;
         }
 
-        // 建号（随机密码，OAuth 快捷入口）
-        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, bin2hex(random_bytes(8)));
+        // 建号（随机密码，OAuth 快捷入口；password_set=0，用户可后续免旧密码首次设置）
+        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, bin2hex(random_bytes(8)), false);
         $playerId = $result['id'];
 
         // 记录创建频率（IP 60 秒 / 指纹 10 分钟自动过期）

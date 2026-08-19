@@ -13,6 +13,9 @@ use App\Core\Router;
 use App\Services\Repository\OAuthBindingRepository;
 use App\Services\Repository\PlayerStatsRepository;
 
+// 确保 player_data 表及 password_set 列存在（createPlayer 依赖该列；应用启动时同样会执行此迁移）
+PlayerStatsRepository::initialize();
+
 function test_oauth_initialize_creates_tables(): void
 {
     OAuthBindingRepository::initialize();

@@ -12,11 +12,11 @@ use Swoole\Coroutine\Http\Client;
  * Redis 结构：
  *   tg:lobby:song:pool            → zset   投票池 {songId: votes}
  *   tg:lobby:song:meta:{songId}   → hash   歌曲元数据
- *   tg:lobby:song:voters:{songId} → set    已投票 fd 集合
+ *   tg:lobby:song:voters:{songId} → set    已投票 player_id 集合（跨重连持久，防止退出重进重复投票）
  *   tg:lobby:song:playing         → hash   当前播放状态
  *   tg:lobby:song:cache          → hash   歌曲信息缓存（field=songId, value=JSON, 24h TTL）
- *   tg:lobby:song:req_q:{fd}      → list   点歌频率队列
- *   tg:lobby:song:vote_q:{fd}     → list   投票频率队列
+ *   tg:lobby:song:req_q:{playerId} → list  点歌频率队列
+ *   tg:lobby:song:vote_q:{playerId} → list  投票频率队列
  */
 class SongService
 {
@@ -814,53 +814,6 @@ class SongService
         }
 
         return $removed;
-    }
-
-    /**
-     * 清理断开用户的投票记录和频率队列（掉线处理）
-     * 所有用户标识统一使用 player_data.id，防止用户退出重进后 fd 变化导致旧记录残留
-     */
-    public function cleanupUserData(int $fd, string $playerId = ''): void
-    {
-        $redis  = RedisService::connect();
-        $fdStr  = (string)$fd;
-
-        // 删除频率队列（用 player_data.id 作为 key，退出重进后频率限制仍然生效）
-        if ($playerId !== '') {
-            $redis->del(RedisService::KP_LOBBY_SONG_REQ_Q . $playerId);
-            $redis->del(RedisService::KP_LOBBY_SONG_VOTE_Q . $playerId);
-        }
-
-        // 1. 从投票池所有歌曲的投票人集合中移除（用 player_data.id）
-        $pool = $redis->zRange(RedisService::KP_LOBBY_SONG_POOL, 0, -1) ?: [];
-        foreach ($pool as $songId) {
-            if ($playerId !== '') {
-                $redis->sRem(RedisService::KP_LOBBY_SONG_VOTERS . $songId, $playerId);
-            } else {
-                $redis->sRem(RedisService::KP_LOBBY_SONG_VOTERS . $songId, $fdStr);
-            }
-        }
-
-        // 2. 从播放队列所有歌曲的移除投票人集合中撤回该用户的移除票（用 player_data.id）
-        if ($playerId !== '') {
-            $playlistItems = $redis->lRange(RedisService::KP_LOBBY_SONG_PLAYLIST, 0, -1) ?: [];
-            foreach ($playlistItems as $json) {
-                $song = json_decode($json, true);
-                if ($song && isset($song['id'])) {
-                    $songIdStr = (string)$song['id'];
-                    $redis->sRem(RedisService::KP_LOBBY_SONG_REMOVE_VOTERS . $songIdStr, $playerId);
-                }
-            }
-        }
-
-        // 3. 撤回当前正在播放歌曲的移除票
-        $playing   = $this->getPlaying();
-        $playingId = $playing['id'] ?? '';
-        if ($playingId !== '' && $playerId !== '') {
-            $redis->sRem(RedisService::KP_LOBBY_SONG_REMOVE_VOTERS . $playingId, $playerId);
-        }
-
-        Logger::info('Song user data cleaned', ['fd' => $fd, 'playerId' => $playerId]);
     }
 
     // ==================== 内部工具 ====================

@@ -38,6 +38,7 @@ class PlayerStatsRepository
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_data (
             id VARCHAR(64) PRIMARY KEY,
             password_hash VARCHAR(255) NOT NULL DEFAULT "",
+            password_set TINYINT(1) NOT NULL DEFAULT 1 COMMENT "用户是否已自行设置密码（0=系统随机/OAuth 注册，1=用户设置）",
             nickname VARCHAR(32) NOT NULL DEFAULT "",
             discriminator INT NOT NULL DEFAULT 0,
             ip VARCHAR(45) NOT NULL DEFAULT "",
@@ -51,6 +52,9 @@ class PlayerStatsRepository
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+
+        // 兼容存量表：补 password_set 列（CREATE TABLE IF NOT EXISTS 不会更新已有表）
+        Database::ensureColumn($pdo, 'player_data', 'password_set', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT "用户是否已自行设置密码（0=系统随机/OAuth 注册，1=用户设置）"');
 
         // 对手标签累计表
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_tags (
@@ -306,7 +310,8 @@ class PlayerStatsRepository
     }
 
     /**
-     * 修改密码（需旧密码验证）
+     * 修改密码（需旧密码验证）。
+     * 修改成功后视为"用户已自行设置密码"（password_set=1）。
      */
     public static function changePassword(string $playerId, string $oldPassword, string $newPassword): bool
     {
@@ -316,8 +321,34 @@ class PlayerStatsRepository
         }
         $pdo = Database::connect();
         $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
-        $stmt = $pdo->prepare('UPDATE player_data SET password_hash = ? WHERE id = ?');
+        $stmt = $pdo->prepare('UPDATE player_data SET password_hash = ?, password_set = 1 WHERE id = ?');
         $stmt->execute([$newHash, $playerId]);
+
+        // 同步刷新 Redis 缓存，否则旧缓存会导致新 token 验签失败
+        $redis = \App\Services\Infrastructure\RedisService::connect();
+        $redis->setEx(\App\Services\Infrastructure\RedisService::KP_TOKEN_KEY . $playerId, 3600, $newHash);
+
+        return true;
+    }
+
+    /**
+     * 首次设置密码（免旧密码验证）。
+     * 仅允许 password_set=0 的账号（OAuth 注册 / 系统随机密码）使用；
+     * 设置成功后 password_set 置 1，此后只能走 changePassword 正常改密流程。
+     */
+    public static function setFirstPassword(string $playerId, string $newPassword): bool
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT password_set FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
+        $passwordSet = (int)$stmt->fetchColumn();
+        if ($passwordSet !== 0) {
+            return false;
+        }
+
+        $newHash = password_hash($newPassword, PASSWORD_BCRYPT);
+        $upd = $pdo->prepare('UPDATE player_data SET password_hash = ?, password_set = 1 WHERE id = ?');
+        $upd->execute([$newHash, $playerId]);
 
         // 同步刷新 Redis 缓存，否则旧缓存会导致新 token 验签失败
         $redis = \App\Services\Infrastructure\RedisService::connect();
@@ -383,8 +414,11 @@ class PlayerStatsRepository
 
     /**
      * 创建新玩家
+     *
+     * @param bool $passwordSet 密码是否为用户自行设置（false = OAuth 注册 / 系统随机密码，
+     *                          用户可后续通过"首次设置密码"免旧密码设置）
      */
-    public static function createPlayer(string $nickname, string $ip, string $fp, string $password): array
+    public static function createPlayer(string $nickname, string $ip, string $fp, string $password, bool $passwordSet = true): array
     {
         $id = bin2hex(random_bytes(16));
         $passwordHash = password_hash($password, PASSWORD_BCRYPT);
@@ -393,12 +427,13 @@ class PlayerStatsRepository
 
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'INSERT INTO player_data (id, password_hash, nickname, discriminator, ip, fp, turing_test, created_at, last_played_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO player_data (id, password_hash, password_set, nickname, discriminator, ip, fp, turing_test, created_at, last_played_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $id,
             $passwordHash,
+            $passwordSet ? 1 : 0,
             $nickname,
             $discriminator,
             $ip,

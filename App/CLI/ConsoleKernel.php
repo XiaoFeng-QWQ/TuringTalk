@@ -7,6 +7,7 @@ use App\Core\ErrorHandler;
 use App\Services\Infrastructure\Logger;
 use App\CLI\Commands\CleanupInactivePlayers;
 use App\CLI\Commands\GenerateWeeklyReport;
+use App\CLI\Commands\TagFestivalToday;
 
 /**
  * 命令行接口内核
@@ -27,6 +28,7 @@ class ConsoleKernel
 
         $this->register(new CleanupInactivePlayers());
         $this->register(new GenerateWeeklyReport());
+        $this->register(new TagFestivalToday());
     }
 
     public function register(Command $command): void

@@ -603,8 +603,9 @@ abstract class BaseGameHandler
             return null;
         }
 
+        // 用户填了密码 = 自行设置（password_set=1）；系统随机密码 = 未设置（password_set=0，可后续首次设置）
         $pwd = !empty($password) ? $password : bin2hex(random_bytes(8));
-        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, $pwd);
+        $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, $pwd, !empty($password));
         $playerId = $result['id'];
         // 记录创建时间（IP 60 秒 / 指纹 10 分钟自动过期）
         if ($ip !== '') $redis->setex($regIpKey, 60, (string)time());
