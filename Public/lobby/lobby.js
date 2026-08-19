@@ -6,8 +6,8 @@
 
     const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/lobby';
     const RECONNECT_DELAY = 2000;
-    const HEARTBEAT_INTERVAL = 20000;
-    const PONG_GRACE = 15000;
+    const HEARTBEAT_INTERVAL = 5000;
+    const PONG_GRACE = 5000;
 
     // 全局捕获图片加载错误：任何 <img> 加载失败统一替换为提示文本
     document.addEventListener('error', function (e) {
@@ -30,6 +30,7 @@
     const $hasIdentity = document.getElementById('lobby-has-identity');
     const $noIdentity = document.getElementById('lobby-no-identity');
     const $messages = document.getElementById('lobby-messages');
+    const $btnScrollBottom = document.getElementById('lobby-btn-scroll-bottom');
     const $loading = document.getElementById('lobby-loading');
     const BILI_SPINNER_SVG = '<svg class="bili-spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="31.4 31.4" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>';
     const $chatInput = document.getElementById('lobby-chat-input');
@@ -96,6 +97,7 @@
     let myNickname = '';
     let lastSentStickerId = '';   // 本地渲染去重，防止服务端广播回传导致重复
     let replyTarget = null;      // { id, name, text }
+    let pendingChat = null;      // 待确认的发送内容 { content, reply }，限流/断线失败时回退输入框
     let isLobbyAdmin = false;    // 管理员状态（lobby_admin_verify 验证通过后为 true）
     let stickyScroll = false;
     let onlinePlayers = [];      // [{ fd, nickname }] — 在线玩家列表
@@ -243,6 +245,11 @@
         ws.onclose = function () {
             console.log('[Lobby] WS closed');
             stopHeartbeat();
+            // 断线时若还有未确认的消息（网络问题发送失败），恢复输入框内容
+            if (pendingChat) {
+                showTopToast('连接已断开，消息未发送', true);
+                restorePendingChat();
+            }
             if (!intentionalClose && !banned) {
                 // 断开链接提示
                 showTopToast('连接已断开，正在重连…', true);
@@ -367,6 +374,8 @@
 
             case 'lobby_chat':
                 appendMessage(data);
+                // 服务端广播回传自己的消息 = 发送成功，清除待确认标记
+                if (isMineMessage(data)) pendingChat = null;
                 if (!isMineMessage(data) && document.hidden) {
                     let preview = '';
                     if (data.msg_type === 'markdown' || data.type === 'markdown') {
@@ -408,6 +417,10 @@
 
             case 'lobby_system':
                 appendSystem(data.text);
+                // 发言/操作被限流拒绝：回退输入框内容
+                if (pendingChat && /太频繁|请等待/.test(data.text || '')) {
+                    restorePendingChat();
+                }
                 break;
 
             case 'lobby_online_count':
@@ -1148,15 +1161,15 @@
         let chainEnd = rows.length - 1;
         let chainContent = '';
 
-        // 从最后一条有效文本消息开始
+        // 从最后一条消息开始（任何消息——含表情/无文本——都视为打断点）
         for (let i = rows.length - 1; i >= 0; i--) {
             let row = rows[i];
             let bubble = row.querySelector('.lobby-msg');
             if (!bubble || !bubble.dataset.msgId || bubble.classList.contains('revoked')) continue;
             let textEl = bubble.querySelector('.lobby-msg-text');
-            if (!textEl) continue;
+            if (!textEl) break;
             let content = textEl.textContent.trim();
-            if (!content) continue;
+            if (!content) break;
 
             chainContent = content;
             chainEnd = i;
@@ -1165,7 +1178,7 @@
 
         if (!chainContent) return;
 
-        // 向上扩展链，找到所有连续相同内容的行
+        // 向上扩展链，找到所有连续相同内容的行（任何消息——含表情/无文本——都打断链）
         let chainStart = chainEnd;
         for (let j = chainEnd - 1; j >= 0; j--) {
             let row = rows[j];
@@ -1230,7 +1243,6 @@
         if (!el) return;
         let row = el.closest('.lobby-msg-row');
         if (!row) return;
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
         row.classList.add('mentioned');
         row.style.animation = 'none';
         row.offsetHeight;
@@ -1277,41 +1289,47 @@
     }
 
     function appendJoinLeave(parsed) {
-        let last = $messages.lastElementChild;
+        let rows = $messages.children;
+        // 从后往前找最近的进出消息行；系统消息（撤回提示除外）不打断合并，普通消息/撤回提示才打断
+        let idx = -1;
+        for (let i = rows.length - 1; i >= 0; i--) {
+            let r = rows[i];
+            if (r.getAttribute && r.getAttribute('data-joinleave') === '1') { idx = i; break; }
+            // 撤回提示在原消息位置占位，属独立语义，打断合并
+            if (r.textContent && /撤回了一条消息/.test(r.textContent)) break;
+            if (!r.classList || !r.classList.contains('system')) break;
+        }
 
-        if (last && last.getAttribute && last.getAttribute('data-joinleave') === '1') {
-            let agg;
-            let el;
-            if (last.getAttribute('data-agg') === '1') {
-                // 上一条已是汇总行，直接累加
-                agg = JSON.parse(last.getAttribute('data-agg-data') || '{}');
-                el = last;
-            } else {
-                // 上一条是单条进出消息，吸收进统计并替换为汇总行
-                let prev = parseJoinLeave(last.textContent);
-                agg = {};
-                if (prev) addJoinLeaveAgg(agg, prev.name, prev.enter);
-                last.remove();
-                el = document.createElement('div');
-                el.className = 'lobby-msg system';
-                el.setAttribute('data-joinleave', '1');
-                el.setAttribute('data-agg', '1');
-                $messages.appendChild(el);
-            }
-            addJoinLeaveAgg(agg, parsed.name, parsed.enter);
-            el.setAttribute('data-agg-data', JSON.stringify(agg));
-            el.textContent = renderJoinLeaveSummary(agg);
+        if (idx === -1) {
+            // 区间第一条（或被普通消息打断）：正常显示单条，打上可合并标记
+            let div = document.createElement('div');
+            div.className = 'lobby-msg system';
+            div.textContent = parsed.name + (parsed.enter ? ' 进入了聊天室' : ' 暂时离开了聊天室……');
+            div.setAttribute('data-joinleave', '1');
+            $messages.appendChild(div);
             scrollToBottom();
             trimMessages();
             return;
         }
 
-        // 连续区间的第一条，正常显示单条，并打上可合并标记
-        let div = document.createElement('div');
-        div.className = 'lobby-msg system';
-        div.textContent = parsed.name + (parsed.enter ? ' 进入了聊天室' : ' 暂时离开了聊天室……');
-        div.setAttribute('data-joinleave', '1');
-        $messages.appendChild(div);
+        // 合并到最近的进出消息行（含被系统消息隔开的情况）
+        let last = rows[idx];
+        let agg;
+        if (last.getAttribute('data-agg') === '1') {
+            // 已是汇总行，直接累加
+            agg = JSON.parse(last.getAttribute('data-agg-data') || '{}');
+        } else {
+            // 单条进出消息，吸收进统计并转为汇总行
+            let prev = parseJoinLeave(last.textContent);
+            agg = {};
+            if (prev) addJoinLeaveAgg(agg, prev.name, prev.enter);
+        }
+        addJoinLeaveAgg(agg, parsed.name, parsed.enter);
+        last.setAttribute('data-agg', '1');
+        last.setAttribute('data-agg-data', JSON.stringify(agg));
+        last.textContent = renderJoinLeaveSummary(agg);
+        // 移到末尾，保持时间顺序（被系统消息隔开时汇总行不在末尾）
+        $messages.appendChild(last);
         scrollToBottom();
         trimMessages();
     }
@@ -1870,9 +1888,11 @@
     function parseBoardShapes(shapesStr) {
         let result = [];
         let parts = String(shapesStr || '').split(';');
-        let typeMap = { l:'line', p:'polyline', c:'curve', r:'rect', o:'circle', d:'dot',
-                        t:'triangle', h:'heart', pt:'poly', dl:'diamond', st:'star',
-                        fr:'frame', tx:'text' };
+        let typeMap = {
+            l: 'line', p: 'polyline', c: 'curve', r: 'rect', o: 'circle', d: 'dot',
+            t: 'triangle', h: 'heart', pt: 'poly', dl: 'diamond', st: 'star',
+            fr: 'frame', tx: 'text'
+        };
         for (let i = 0; i < parts.length; i++) {
             let p = parts[i].trim();
             if (!p) continue;
@@ -4017,8 +4037,8 @@
             '<button class="md-modal-close" title="关闭">&times;</button>' +
             '</div>' +
             '<div class="md-modal-body embed-body">' +
-                '<div class="embed-loading">' + BILI_SPINNER_SVG + '<span>加载中…</span></div>' +
-                '<iframe src="' + escapeHtmlAttr(url) + '" loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>' +
+            '<div class="embed-loading">' + BILI_SPINNER_SVG + '<span>加载中…</span></div>' +
+            '<iframe src="' + escapeHtmlAttr(url) + '" loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>' +
             '</div>' +
             '</div>';
         document.body.appendChild(overlay);
@@ -4114,12 +4134,40 @@
     function scrollToBottom() {
         if (stickyScroll) return;
         $messages.scrollTop = $messages.scrollHeight;
+        // 表情等图片异步加载会撑高消息内容：给未加载完成的图片注册 load/error，
+        // 加载完成后再次滚动，避免停在半空
+        $messages.querySelectorAll('img:not([data-scroll-tracked])').forEach(function (img) {
+            if (img.complete) return;
+            img.dataset.scrollTracked = '1';
+            img.addEventListener('load', scrollToBottom, { once: true });
+            img.addEventListener('error', scrollToBottom, { once: true });
+        });
     }
 
     // ==================== 发送消息 ====================
+    // 发送失败（限流/断线）时回退输入框内容与回复引用
+    function restorePendingChat() {
+        if (!pendingChat) return;
+        $chatInput.value = pendingChat.content;
+        $chatInput.style.height = 'auto';
+        $chatInput.style.height = Math.min($chatInput.scrollHeight, 120) + 'px';
+        if (pendingChat.reply) {
+            replyTarget = pendingChat.reply;
+            showReplyPreview();
+        }
+        pendingChat = null;
+        $chatInput.focus();
+    }
+
     function sendMessage() {
         const content = $chatInput.value.trim();
         if (!content) return;
+
+        // 网络未就绪：不清空输入框，保留内容并提示
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            showTopToast('连接已断开，消息未发送', true);
+            return;
+        }
 
         const data = {
             type: 'lobby_chat',
@@ -4127,13 +4175,18 @@
             content: content
         };
 
+        let savedReply = null;
         if (replyTarget) {
             data.reply_to_id = replyTarget.id;
             data.reply_to_name = replyTarget.name;
             data.reply_to_text = replyTarget.text;
+            savedReply = { id: replyTarget.id, name: replyTarget.name, text: replyTarget.text };
             replyTarget = null;
             hideReplyPreview();
         }
+
+        // 记录待确认发送：收到服务端回传前保留，限流/断线失败时回退输入框
+        pendingChat = { content: content, reply: savedReply };
 
         send(data);
         $chatInput.value = '';
@@ -4525,7 +4578,8 @@
         });
     }
 
-    function showMuteDialog(player) {        let overlay = document.createElement('div');
+    function showMuteDialog(player) {
+        let overlay = document.createElement('div');
         overlay.className = 'admin-dialog-overlay';
         overlay.innerHTML =
             '<div class="admin-dialog">' +
@@ -4724,8 +4778,15 @@
     // ==================== 消息滚动 ====================
     let scrollGuard = false;
     let scrollGuardTimer = null;
+    // 距底部超过该距离时显示"返回底部"按钮
+    const SCROLL_BOTTOM_THRESHOLD = 200;
     $messages.addEventListener('scroll', function () {
         stickyScroll = $messages.scrollTop + $messages.clientHeight < $messages.scrollHeight - 40;
+        if ($messages.scrollHeight - ($messages.scrollTop + $messages.clientHeight) > SCROLL_BOTTOM_THRESHOLD) {
+            $btnScrollBottom.classList.add('show');
+        } else {
+            $btnScrollBottom.classList.remove('show');
+        }
         scrollGuard = true;
         if (scrollGuardTimer) clearTimeout(scrollGuardTimer);
         scrollGuardTimer = setTimeout(function () {
@@ -4733,6 +4794,15 @@
             scrollGuardTimer = null;
         }, 150);
     });
+
+    // 一键返回底部（直接瞬间滚动，无平滑动画）
+    if ($btnScrollBottom) {
+        $btnScrollBottom.addEventListener('click', function () {
+            stickyScroll = false;
+            $messages.scrollTop = $messages.scrollHeight;
+            $btnScrollBottom.classList.remove('show');
+        });
+    }
 
     // ==================== 工具 ====================
 
@@ -7002,7 +7072,7 @@
         if ($hasIdentity.style.display !== 'none') {
             stopHeartbeat();
             intentionalClose = true;
-            if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+            if (ws) { try { ws.close(); } catch (e) { } ws = null; }
             e.preventDefault();
             e.returnValue = '';
         }
@@ -7012,14 +7082,14 @@
     window.addEventListener('pagehide', function () {
         stopHeartbeat();
         intentionalClose = true;
-        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+        if (ws) { try { ws.close(); } catch (e) { } ws = null; }
     });
 
     /** 优雅离开聊天室：关闭WS后延迟导航，确保服务端先收到 close 帧 */
     function leaveLobbyGracefully(url) {
         stopHeartbeat();
         intentionalClose = true;
-        if (ws) { try { ws.close(); } catch(e) {} ws = null; }
+        if (ws) { try { ws.close(); } catch (e) { } ws = null; }
         setTimeout(function () { location.href = url; }, 50);
     }
 

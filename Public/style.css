@@ -422,6 +422,13 @@ main {
     box-shadow: 2px 4px 8px var(--shadow-sm);
 }
 
+/* 便签色变体（评价与打分入口等） */
+.game-note.note-pink {
+    background: var(--note-pink);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    cursor: pointer;
+}
+
 .game-note:hover {
     transform: scale(1.04);
     box-shadow: 4px 8px 20px var(--shadow-md);
@@ -719,7 +726,8 @@ main {
 #changelog-overlay,
 #chat-history-detail-overlay,
 #admin-panel-overlay,
-#sticker-manager-overlay {
+#sticker-manager-overlay,
+#comment-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -2520,6 +2528,544 @@ main {
 .worn-tag-chip.special.selected {
     background: #d4a017;
     color: #fff;
+}
+
+/* ==================== 评价与打分（comment-sdk 自定义 UI，doodle 风格） ==================== */
+#comment-overlay .cw-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+#comment-overlay .cw-title-area {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#comment-overlay .cw-title {
+    display: none;   /* 标题由弹窗 drawer-header 承担，避免双重标题 */
+}
+
+#comment-overlay .cw-icp-badge {
+    background: var(--note-yellow);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 20px 6px 18px 6px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--ink-black);
+}
+
+#comment-overlay .cw-hall-link {
+    font-size: 12px;
+    color: var(--ink-blue);
+    font-weight: bold;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+#comment-overlay .cw-hall-link:hover {
+    color: var(--ink-black);
+}
+
+#comment-overlay .cw-section {
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    background: var(--surface-white);
+    box-shadow: 4px 6px 0 var(--shadow-md);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+#comment-overlay .cw-section-title {
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#comment-overlay .cw-section-sub {
+    font-size: 11px;
+    font-weight: normal;
+    color: var(--text-muted);
+}
+
+/* 汇总 */
+#comment-overlay .cw-summary-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+}
+
+#comment-overlay .cw-score-big {
+    font-size: 40px;
+    font-weight: bold;
+    line-height: 1;
+    color: var(--ink-blue);
+}
+
+#comment-overlay .cw-score-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#comment-overlay .cw-stars-row {
+    font-size: 16px;
+    line-height: 1;
+    letter-spacing: 1px;
+}
+
+#comment-overlay .cw-stars-row .on {
+    color: #ffb800;
+}
+
+#comment-overlay .cw-stars-row .off {
+    color: var(--text-aa);
+}
+
+#comment-overlay .cw-count-text {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+#comment-overlay .cw-bars {
+    flex: 1;
+    min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#comment-overlay .cw-bar-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--ink-black);
+}
+
+#comment-overlay .cw-bar-bg {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-input);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+#comment-overlay .cw-bar-fill {
+    height: 100%;
+    background: #ffd54f;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+#comment-overlay .cw-bar-num {
+    width: 30px;
+    text-align: right;
+    color: var(--text-muted);
+}
+
+/* 印章表态 */
+#comment-overlay .cw-stamp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+    gap: 10px;
+}
+
+#comment-overlay .cw-stamp-btn {
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 18px 6px;
+    padding: 8px 12px;
+    font-weight: bold;
+    font-size: 13px;
+    color: var(--ink-black);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 3px 3px 0 var(--shadow-md);
+    transition: all 0.15s ease;
+    font-family: inherit;
+    user-select: none;
+}
+
+#comment-overlay .cw-stamp-btn:hover {
+    background: var(--highlighter);
+    transform: translate(-2px, -2px);
+    box-shadow: 5px 5px 0 var(--shadow-md);
+}
+
+#comment-overlay .cw-stamp-btn:active {
+    transform: translate(1px, 1px);
+    box-shadow: 1px 1px 0 var(--shadow-md);
+}
+
+#comment-overlay .cw-stamp-btn.active {
+    background: var(--note-yellow);
+}
+
+#comment-overlay .cw-stamp-count {
+    background: var(--ink-black);
+    color: var(--surface-white);
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-family: inherit;
+}
+
+#comment-overlay .cw-stamp-btn.active .cw-stamp-count {
+    background: var(--ink-blue);
+    color: #fff;
+}
+
+/* 表单 */
+#comment-overlay .cw-star-select {
+    display: flex;
+    gap: 6px;
+    font-size: 24px;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 12px;
+}
+
+#comment-overlay .cw-star-select span {
+    transition: transform 0.1s ease;
+}
+
+#comment-overlay .cw-star-select span:hover {
+    transform: scale(1.25);
+}
+
+#comment-overlay .cw-star-select .on {
+    color: #ffb800;
+}
+
+#comment-overlay .cw-star-select .off {
+    color: var(--text-aa);
+}
+
+#comment-overlay .cw-star-tip {
+    font-size: 13px;
+    font-weight: bold;
+    margin-left: 8px;
+    color: var(--text-muted);
+    align-self: center;
+}
+
+#comment-overlay .cw-input,
+#comment-overlay .cw-textarea {
+    width: 100%;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 4px 10px 4px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: var(--ink-black);
+    background: var(--bg-input);
+    outline: none;
+    font-family: inherit;
+    transition: border-color 0.15s, background 0.15s;
+    box-sizing: border-box;
+}
+
+#comment-overlay .cw-input:focus,
+#comment-overlay .cw-textarea:focus {
+    border-color: var(--ink-blue);
+    background: var(--surface-white);
+}
+
+#comment-overlay .cw-input::placeholder,
+#comment-overlay .cw-textarea::placeholder {
+    color: var(--text-subtle);
+    font-style: italic;
+}
+
+#comment-overlay .cw-textarea {
+    height: 72px;
+    resize: vertical;
+    margin-bottom: 10px;
+}
+
+#comment-overlay .cw-input-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+#comment-overlay .cw-tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+#comment-overlay .cw-tag-label {
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--ink-black);
+}
+
+#comment-overlay .cw-tag-pill {
+    background: var(--note-blue);
+    border: 1.5px solid var(--ink-blue);
+    border-radius: 20px 6px 18px 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--ink-black);
+    cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+#comment-overlay .cw-tag-pill:hover {
+    transform: scale(1.06) rotate(-1deg);
+    background: var(--highlighter);
+}
+
+#comment-overlay .cw-tag-input {
+    flex: 1;
+    min-width: 140px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+#comment-overlay .cw-form-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+#comment-overlay .cw-msg {
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--danger);
+}
+
+#comment-overlay .cw-btn {
+    background: var(--ink-black);
+    color: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    padding: 8px 18px;
+    font-weight: bold;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+}
+
+#comment-overlay .cw-btn:hover {
+    background: var(--ink-blue);
+    transform: translate(-2px, -2px);
+    box-shadow: 3px 3px 0 var(--shadow-md);
+}
+
+#comment-overlay .cw-btn:active {
+    transform: translate(0, 0);
+    box-shadow: none;
+}
+
+#comment-overlay .cw-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* 评论列表 */
+#comment-overlay .cw-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#comment-overlay .cw-card {
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 18px 6px;
+    background: var(--surface-white);
+    padding: 14px;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+
+#comment-overlay .cw-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+#comment-overlay .cw-user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#comment-overlay .cw-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px 3px 8px 3px;
+    border: 2px solid var(--ink-black);
+}
+
+#comment-overlay .cw-user-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+#comment-overlay .cw-nickname {
+    font-weight: bold;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+#comment-overlay .cw-web-link {
+    color: var(--ink-blue);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: normal;
+}
+
+#comment-overlay .cw-web-link:hover {
+    text-decoration: underline;
+}
+
+#comment-overlay .cw-time {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+#comment-overlay .cw-card-rating {
+    font-size: 14px;
+    letter-spacing: 1px;
+}
+
+#comment-overlay .cw-content {
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-black);
+    word-break: break-word;
+    white-space: pre-wrap;
+    margin: 8px 0;
+}
+
+#comment-overlay .cw-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+#comment-overlay .cw-card-tags span {
+    font-size: 11px;
+    background: var(--note-green);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--ink-black);
+}
+
+#comment-overlay .cw-card-foot {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+}
+
+#comment-overlay .cw-action-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-weight: bold;
+    padding: 0;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#comment-overlay .cw-action-btn:hover {
+    color: var(--ink-blue);
+}
+
+#comment-overlay .cw-replies {
+    margin-top: 10px;
+    padding-left: 14px;
+    border-left: 3px solid var(--note-yellow);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#comment-overlay .cw-reply-card {
+    background: var(--bg-input);
+    border: 1.5px solid var(--border-light);
+    border-radius: 12px 4px 12px 4px;
+    padding: 10px;
+    font-size: 12.5px;
+    color: var(--ink-black);
+}
+
+#comment-overlay .cw-reply-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    gap: 8px;
+}
+
+#comment-overlay .cw-reply-nick {
+    font-weight: bold;
+    font-size: 12.5px;
+}
+
+#comment-overlay .cw-reply-form {
+    margin-top: 10px;
+    background: var(--bg-input);
+    border: 2px dashed var(--ink-blue);
+    border-radius: 12px 4px 12px 4px;
+    padding: 10px;
+}
+
+#comment-overlay .cw-reply-form-title {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 6px;
+}
+
+#comment-overlay .cw-empty,
+#comment-overlay .cw-loading {
+    text-align: center;
+    padding: 26px 10px;
+    color: var(--text-muted);
+    font-size: 13px;
+    border: 2px dashed var(--border-light);
+    border-radius: 12px 4px 12px 4px;
+    font-family: inherit;
 }
 
 

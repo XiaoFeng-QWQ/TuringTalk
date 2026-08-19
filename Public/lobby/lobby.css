@@ -356,6 +356,7 @@
 .lobby-msg.mine {
     background: var(--note-blue);
     border-radius: 14px 14px 4px 14px;
+    animation-name: msgPopInRight;
 }
 
 /* 消息 +1 跟队形徽章（气泡外部） */
@@ -392,12 +393,24 @@
 @keyframes msgPopIn {
     from {
         opacity: 0;
-        transform: translateY(10px) scale(0.96);
+        transform: translate(-6px, -6px) scale(0.98);
     }
 
     to {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: translate(0, 0) scale(1);
+    }
+}
+
+@keyframes msgPopInRight {
+    from {
+        opacity: 0;
+        transform: translate(6px, -6px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
     }
 }
 
@@ -3670,4 +3683,39 @@ main {
     background: rgba(212, 160, 23, 0.15);
     color: #d4a017;
     border: 1px solid #d4a017;
+}
+
+/* ==================== 返回底部按钮 ==================== */
+.lobby-scroll-bottom-btn {
+    position: absolute;
+    right: 18px;
+    bottom: 100px;
+    width: 42px;
+    height: 42px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 18px 6px;
+    box-shadow: 3px 3px 0 var(--shadow-md);
+    color: var(--ink-blue);
+    cursor: pointer;
+    z-index: 30;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.lobby-scroll-bottom-btn svg {
+    width: 20px;
+    height: 20px;
+}
+.lobby-scroll-bottom-btn:hover {
+    background: var(--highlighter);
+    transform: rotate(-3deg) scale(1.05);
+    box-shadow: 4px 5px 0 var(--shadow-md);
+}
+.lobby-scroll-bottom-btn:active {
+    transform: scale(0.95);
+}
+.lobby-scroll-bottom-btn.show {
+    display: flex;
 }
