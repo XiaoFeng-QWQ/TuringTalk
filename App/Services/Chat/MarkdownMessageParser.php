@@ -2,6 +2,8 @@
 
 namespace App\Services\Chat;
 
+use App\Services\Repository\MacroRepository;
+
 /**
  * 聊天室特殊 Markdown 语法解析器（v3）
  *
@@ -55,6 +57,10 @@ class MarkdownMessageParser
         '变量'   => 'var',
         '条件'   => 'if',
         '动作链'   => 'chain',
+        '宏'     => 'macro',
+        '触发宏' => 'trigger',
+        '宏删'   => 'macro_del',
+        '宏列表' => 'macro_list',
     ];
 
     /** v3 动作前缀 → 内部动作类型 */
@@ -272,6 +278,10 @@ class MarkdownMessageParser
         // 画板特殊兼容：v2 双层语法 [!标签](board:尺寸|shapes=...|...) 转换为 v3 单层
         // （仅画板支持 v2+v3，其余组件仍只认 v3）
         $protectedText = $this->convertV2BoardToV3($protectedText);
+
+        // 宏展开：把消息中的 [!触发宏:昵称(:参数值...)] 替换为宏模板内容
+        // （代码块已被保护占位，不会误展开；未找到的宏保留原文由 trigger 节点提示）
+        $protectedText = MacroRepository::expandMacros($protectedText);
 
         $blocks = [];
         $this->scanText($protectedText, 0, $blocks);
@@ -618,6 +628,10 @@ class MarkdownMessageParser
             case 'at':
             case 'gallery':
             case 'chain':
+            case 'macro':
+            case 'trigger':
+            case 'macro_del':
+            case 'macro_list':
                 return $this->buildGenericNode($internal, $raw);
         }
 
@@ -981,6 +995,45 @@ class MarkdownMessageParser
                     'id'    => $id,
                     'bind'  => $bind,
                 ];
+
+            case 'macro':
+                // 宏定义展示卡片：[!宏:名称|昵称(参数)=模板]
+                $def = MacroRepository::parseDefinition($raw);
+                if (!$def['ok']) {
+                    return ['t' => 'macro', 'ok' => false, 'error' => $def['error'] ?? '宏格式错误', 'raw' => $raw];
+                }
+                return [
+                    't'        => 'macro',
+                    'ok'       => true,
+                    'name'     => $def['name'],
+                    'nick'     => $def['nick'],
+                    'params'   => $def['params'],
+                    'template' => $def['template'],
+                ];
+
+            case 'trigger':
+                // 触发宏：已找到的在 parse 入口被展开；到达这里说明宏不存在
+                $key = trim(explode(':', $raw)[0]);
+                return ['t' => 'trigger', 'missing' => $key !== '' ? $key : $raw, 'raw' => $raw];
+
+            case 'macro_del':
+                // 宏删除提示：[!宏删:名称]
+                $del = MacroRepository::parseDelete($raw);
+                return ['t' => 'macro_del', 'name' => $del['name'] ?? trim($raw), 'raw' => $raw];
+
+            case 'macro_list':
+                // 宏列表展示：[!宏列表]
+                $items = [];
+                foreach (MacroRepository::listAll() as $m) {
+                    $items[] = [
+                        'name'     => $m['name'] ?? '',
+                        'nick'     => $m['nick'] ?? '',
+                        'params'   => $m['params'] ?? '',
+                        'template' => $m['template'] ?? '',
+                        'creator'  => $m['creator_name'] ?? '',
+                    ];
+                }
+                return ['t' => 'macro_list', 'items' => $items];
 
             case 'vote':
                 // 投票：[!投票:问题|选项1|选项2|...|多选=N|perm=@名|洗牌|id=..|mode=..]

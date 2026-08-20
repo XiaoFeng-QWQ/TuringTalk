@@ -201,7 +201,7 @@ class GenericOAuthProvider implements OAuthProvider
      * 解析 userinfo 端点响应，归一化为标准字段。
      *
      * @param string $body 响应体。
-     * @return array{provider_id: string, nickname: string, email: string}|null
+     * @return array{provider_id: string, nickname: string, email: string, avatar: string}|null
      */
     private function parseUserInfoResponse(string $body): ?array
     {
@@ -216,13 +216,15 @@ class GenericOAuthProvider implements OAuthProvider
                 $id     = (string)$data['id'];
                 $nick   = $data['name'] ?: $data['login'] ?: 'GitHub User';
                 $email  = $data['email'] ?? '';
-                return ['provider_id' => $id, 'nickname' => $nick, 'email' => $email];
+                $avatar = $data['avatar_url'] ?? '';
+                return ['provider_id' => $id, 'nickname' => $nick, 'email' => $email, 'avatar' => $avatar];
 
             case 'google':
                 $id     = $data['sub'] ?? $data['id'] ?? '';
                 $nick   = $data['name'] ?? 'Google User';
                 $email  = $data['email'] ?? '';
-                return ['provider_id' => (string)$id, 'nickname' => $nick, 'email' => $email];
+                $avatar = $data['picture'] ?? '';
+                return ['provider_id' => (string)$id, 'nickname' => $nick, 'email' => $email, 'avatar' => $avatar];
 
             case 'microsoft':
                 // 微软 userinfo 无 name 字段，用 givenname + familyname 拼昵称
@@ -231,8 +233,9 @@ class GenericOAuthProvider implements OAuthProvider
                 if ($nick === '') {
                     $nick = $data['preferred_username'] ?? $data['email'] ?? 'Microsoft User';
                 }
-                $email = $data['email'] ?? $data['preferred_username'] ?? '';
-                return ['provider_id' => $id, 'nickname' => $nick, 'email' => $email];
+                $email  = $data['email'] ?? $data['preferred_username'] ?? '';
+                $avatar = $data['picture'] ?? '';
+                return ['provider_id' => $id, 'nickname' => $nick, 'email' => $email, 'avatar' => $avatar];
 
             default:
                 // 优先使用 UserinfoMap 配置的自定义字段映射
@@ -249,7 +252,8 @@ class GenericOAuthProvider implements OAuthProvider
                 $id     = (string)($data[$idField] ?? $data['sub'] ?? $data['id'] ?? '');
                 $nick   = $data[$nickField] ?? $data['name'] ?? $data['nickname'] ?? $data['preferred_username'] ?? 'User';
                 $email  = $data[$emailField] ?? $data['email'] ?? '';
-                return ['provider_id' => $id, 'nickname' => $nick, 'email' => $email];
+                $avatar = $data['picture'] ?? $data['avatar'] ?? $data['avatar_url'] ?? '';
+                return ['provider_id' => $id, 'nickname' => $nick, 'email' => $email, 'avatar' => $avatar];
         }
     }
 }

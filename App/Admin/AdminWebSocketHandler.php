@@ -13,13 +13,14 @@ use App\Admin\Handlers\ManageHandler;
 use App\Admin\Handlers\LogHandler;
 use App\Admin\Handlers\LobbyHandler;
 use App\Admin\Handlers\UserHandler;
+use App\Admin\Handlers\BotHandler;
+use App\Admin\Handlers\BotApplyHandler;
+use App\Admin\Handlers\AnnounceHandler;
 use App\Admin\Repository\AdminRepository;
 use App\Core\WebSocket\BaseGameHandler;
 use App\Core\WebSocket\GameWebSocketHandler;
-use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\WebSocket\GomokuWebSocketHandler;
-use App\Core\Sanitizer;
 use App\Controllers\GameController;
 use App\Services\Infrastructure\Logger;
 
@@ -29,7 +30,6 @@ use App\Services\Infrastructure\Logger;
 class AdminWebSocketHandler
 {
     private GameWebSocketHandler $gameHandler;
-    private WhoisAIWebSocketHandler $WhoisAIHandler;
     private LobbyChatWebSocketHandler $lobbyHandler;
     private GomokuWebSocketHandler $gomokuHandler;
     private Tracker $tracker;
@@ -46,6 +46,9 @@ class AdminWebSocketHandler
     private LogHandler       $logHandler;
     private LobbyHandler     $lobbyHandlerInstance;
     private UserHandler      $userHandler;
+    private BotHandler       $botHandler;
+    private BotApplyHandler  $botApplyHandler;
+    private AnnounceHandler  $announceHandler;
 
     /**
      * @param BaseGameHandler[] $gameHandlers 所有游戏模式 Handler
@@ -55,7 +58,6 @@ class AdminWebSocketHandler
         // 从数组中提取对应 Handler（按前缀查找）
         foreach ($gameHandlers as $h) {
             if ($h::routePrefix() === '') $this->gameHandler = $h;
-            if ($h::routePrefix() === 'WhoisAI_') $this->WhoisAIHandler = $h;
             if ($h::routePrefix() === 'lobby_') $this->lobbyHandler = $h;
             if ($h::routePrefix() === 'gomoku_') $this->gomokuHandler = $h;
         }
@@ -73,7 +75,10 @@ class AdminWebSocketHandler
         $this->manageHandler    = new ManageHandler($this->gameHandler, $this->tracker);
         $this->logHandler       = new LogHandler($this->gameHandler, $this->tracker);
         $this->lobbyHandlerInstance = new LobbyHandler($this->lobbyHandler, $this->tracker);
-        $this->userHandler         = new UserHandler([$this->gameHandler, $this->WhoisAIHandler, $this->lobbyHandler, $this->gomokuHandler], $this->tracker);
+        $this->userHandler         = new UserHandler([$this->gameHandler, $this->lobbyHandler, $this->gomokuHandler], $this->tracker);
+        $this->botHandler          = new BotHandler($this->gameHandler, $this->tracker);
+        $this->botApplyHandler     = new BotApplyHandler($this->gameHandler, $this->tracker);
+        $this->announceHandler     = new AnnounceHandler($this->gameHandler, $this->tracker);
     }
 
     public function getTracker(): Tracker
@@ -139,7 +144,6 @@ class AdminWebSocketHandler
         $info = $this->tracker->getAdminInfo($fd);
         if ($info) {
             $this->gameHandler->removeSpectatorFdAll($fd);
-            $this->WhoisAIHandler->removeSpectatorFdAll($fd);
 
             $this->tracker->removeFd($fd);
             $this->tracker->broadcastOnlineList($server);
@@ -258,19 +262,6 @@ class AdminWebSocketHandler
             case 'admin_all_logs':
                 $this->logHandler->handleAllLogs($server, $fd, $data);
                 break;
-            case 'admin_WhoisAI_rooms':
-                $this->handleWhoisAIRooms($server, $fd);
-                break;
-            case 'admin_WhoisAI_spectate':
-                $this->handleWhoisAISpectate($server, $fd, $data);
-                break;
-            case 'admin_WhoisAI_unspectate':
-                $this->handleWhoisAIUnspectate($server, $fd);
-                break;
-            case 'admin_WhoisAI_room_broadcast':
-                $this->withOp($server, $fd, "正在发送房间公告", fn() =>
-                $this->handleWhoisAIRoomBroadcast($server, $fd, $data));
-                break;
             case 'admin_lobby_players':
                 $this->lobbyHandlerInstance->handlePlayers($server, $fd);
                 break;
@@ -327,6 +318,31 @@ class AdminWebSocketHandler
             case 'admin_user_delete_tag':
                 $this->withOp($server, $fd, "正在删除标签", fn() =>
                 $this->userHandler->handleDeleteTag($server, $fd, $data));
+                break;
+            case 'admin_bot_list':
+                $this->botHandler->handleList($server, $fd, $data);
+                break;
+            case 'admin_bot_add':
+                $this->withOp($server, $fd, "正在添加 BOT", fn() =>
+                $this->botHandler->handleAdd($server, $fd, $data));
+                break;
+            case 'admin_bot_set_status':
+                $this->withOp($server, $fd, "正在切换 BOT 状态", fn() =>
+                $this->botHandler->handleSetStatus($server, $fd, $data));
+                break;
+            case 'admin_bot_delete':
+                $this->withOp($server, $fd, "正在删除 BOT", fn() =>
+                $this->botHandler->handleDelete($server, $fd, $data));
+                break;
+            case 'admin_announce_list':
+                $this->announceHandler->handleList($server, $fd, $data);
+                break;
+            case 'admin_bot_apply_list':
+                $this->botApplyHandler->handleList($server, $fd, $data);
+                break;
+            case 'admin_bot_apply_review':
+                $this->withOp($server, $fd, "正在审核 BOT 申请", fn() =>
+                $this->botApplyHandler->handleReview($server, $fd, $data));
                 break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);
@@ -397,177 +413,6 @@ class AdminWebSocketHandler
         ]);
     }
 
-    // ==================== WhoisAI 管理 ====================
-
-    private function handleWhoisAIRooms(Server $server, int $fd): void
-    {
-        $rooms = $this->WhoisAIHandler->getWhoisAIService()->getActiveRooms();
-        $list = [];
-        foreach ($rooms as $r) {
-            if (($r['state'] ?? '') === 'game_over') continue;
-            $players = $this->WhoisAIHandler->getWhoisAIService()->getRoomPlayers($r['id']);
-            $count = count($players);
-
-            $stateLabel = match ($r['state'] ?? '') {
-                'matchmaking'    => '匹配',
-                'connect_check'  => '连接检查',
-                'discussion'     => '讨论中',
-                'voting'         => '投票中',
-                default          => $r['state'] ?? '未知',
-            };
-
-            $list[] = [
-                'id'           => $r['id'],
-                'code'         => $r['code'] ?? '',
-                'state'        => $r['state'] ?? '',
-                'state_label'  => $stateLabel,
-                'round'        => (int)($r['round'] ?? 0),
-                'player_count' => $count,
-                'ai_count'     => (int)($r['ai_count'] ?? 0),
-                'human_count'  => (int)($r['human_count'] ?? 0),
-            ];
-        }
-
-        $this->gameHandler->sendToPlayer($server, $fd, [
-            'type'  => 'WhoisAI_rooms_list',
-            'rooms' => $list,
-        ]);
-    }
-
-    private function handleWhoisAISpectate(Server $server, int $fd, array $data): void
-    {
-        $roomId = $data['room_id'] ?? '';
-        if (empty($roomId)) {
-            $this->sendErr($server, $fd, '未指定房间 ID');
-            return;
-        }
-
-        $room = $this->WhoisAIHandler->getWhoisAIService()->getRoom($roomId);
-        if (!$room) {
-            $this->sendErr($server, $fd, '该 WhoisAI 房间不存在或已结束');
-            return;
-        }
-
-        $players = $this->WhoisAIHandler->getWhoisAIService()->getRoomPlayers($roomId);
-        $playerList = [];
-        foreach ($players as $seat => $p) {
-            $pFd = (int)($p['fd'] ?? 0);
-            // 优先使用实时 clientInfo 中的昵称（防止改名后仍显示旧名）
-            $nickname = $p['nickname'];
-            if ($pFd > 0 && $server->isEstablished($pFd)) {
-                $info = $this->WhoisAIHandler->getClientInfo($pFd);
-                if ($info && !empty($info['nickname'])) {
-                    $nickname = $info['nickname'];
-                }
-            }
-            $playerList[] = [
-                'seat'     => (int)$seat,
-                'nickname' => $nickname,
-                'fd'       => $pFd,
-                'identity' => $p['identity'] ?? '',
-                'is_ai'    => ($p['identity'] ?? '') === 'ai',
-                'alive'    => !empty($p['alive']),
-            ];
-        }
-
-        // 禁止旁观自己的房间（内网 IP 且 DenyMultiConnection=false 时例外）
-        $adminIp = $this->tracker->getAdminIp($fd);
-        if ($adminIp && $this->isOwnWhoisAISession($server, $players, $adminIp)) {
-            if (!BaseGameHandler::canSpectateOwnSession($adminIp)) {
-                $this->sendErr($server, $fd, '不能旁观自己的对局');
-                return;
-            }
-        }
-
-        // 注册旁观者
-        $this->WhoisAIHandler->addSpectatorFd($roomId, $fd);
-
-        // 发送房间完整快照
-        $this->gameHandler->sendToPlayer($server, $fd, [
-            'type'       => 'WhoisAI_spectate_detail',
-            'room_id'    => $roomId,
-            'code'       => $room['code'] ?? '',
-            'state'      => $room['state'] ?? '',
-            'round'      => (int)($room['round'] ?? 0),
-            'players'    => $playerList,
-            'messages'   => $this->WhoisAIHandler->getWhoisAIService()->getRoomMessages($roomId),
-        ]);
-
-        $username = $this->tracker->getUsername($fd);
-        $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog($adminId, $username, 'spectate', 'WhoisAI_room', $roomId, null, $this->tracker->getAdminIp($fd));
-
-        $this->tracker->setOperation($fd, "正在旁观 WhoisAI {$roomId}");
-        $this->tracker->broadcastStatus($server, $fd);
-
-        Logger::info('Admin started spectating WhoisAI room', ['fd' => $fd, 'room_id' => $roomId]);
-    }
-
-    private function handleWhoisAIUnspectate(Server $server, int $fd): void
-    {
-        $this->WhoisAIHandler->removeSpectatorFdAll($fd);
-
-        $this->gameHandler->sendToPlayer($server, $fd, ['type' => 'WhoisAI_unspectated']);
-
-        $this->tracker->setOperation($fd, null);
-        $this->tracker->broadcastStatus($server, $fd);
-
-        Logger::debug('Admin stopped spectating WhoisAI room', ['fd' => $fd]);
-    }
-
-    private function handleWhoisAIRoomBroadcast(Server $server, int $fd, array $data): void
-    {
-        $roomId = $this->WhoisAIHandler->findSpectatorGame($fd);
-        if (!$roomId) {
-            $this->gameHandler->sendError($server, $fd, '你需要先进入一个 WhoisAI 房间的旁观模式');
-            return;
-        }
-
-        $room = $this->WhoisAIHandler->getWhoisAIService()->getRoom($roomId);
-        if (!$room) {
-            $this->gameHandler->sendError($server, $fd, '该房间已不存在');
-            return;
-        }
-
-        $text = Sanitizer::text($data['text'] ?? '', 100);
-        if (empty($text)) {
-            $this->gameHandler->sendError($server, $fd, '房间公告内容不能为空');
-            return;
-        }
-        if (mb_strlen($text) > 100) {
-            $text = mb_substr($text, 0, 100);
-        }
-
-        $payload = ['type' => 'room_announce', 'text' => $text];
-
-        $players = $this->WhoisAIHandler->getWhoisAIService()->getRoomPlayers($roomId);
-        foreach ($players as $p) {
-            $pFd = (int)($p['fd'] ?? 0);
-            if ($pFd > 0) {
-                $this->gameHandler->sendToPlayer($server, $pFd, $payload);
-            }
-        }
-
-        // 也发给其他旁观管理员
-        $this->WhoisAIHandler->sendToSpectators($server, $roomId, $payload);
-
-        $this->gameHandler->sendToPlayer($server, $fd, ['type' => 'system', 'text' => '房间公告已发送给所有玩家']);
-
-        $username = $this->tracker->getUsername($fd);
-        $adminId = $this->tracker->getAdminId($fd);
-        AdminRepository::writeLog(
-            $adminId,
-            $username,
-            'room_broadcast',
-            'WhoisAI_room',
-            $roomId,
-            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE),
-            $this->tracker->getAdminIp($fd)
-        );
-
-        Logger::debug('Admin WhoisAI room broadcast', ['fd' => $fd, 'room_id' => $roomId, 'text' => $text]);
-    }
-
     // ==================== 辅助 ====================
 
     /**
@@ -595,19 +440,4 @@ class AdminWebSocketHandler
         $this->gameHandler->sendError($server, $fd, $msg);
     }
 
-    /**
-     * 判断 WhoisAI 房间中是否有玩家与管理员同 IP
-     */
-    private function isOwnWhoisAISession(Server $server, array $players, string $adminIp): bool
-    {
-        foreach ($players as $p) {
-            $pFd = (int)($p['fd'] ?? 0);
-            if ($pFd <= 0) continue;
-            $info = $server->getClientInfo($pFd);
-            if ($info && ($info['remote_ip'] ?? '') === $adminIp) {
-                return true;
-            }
-        }
-        return false;
     }
-}

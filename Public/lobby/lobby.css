@@ -312,9 +312,31 @@
 }
 
 .lobby-msg-sender {
-    font-size: 13px;
     font-weight: 600;
+    font-size: 13px;
     color: var(--ink-blue);
+}
+
+/* BOT 专属标签（昵称右侧：svg图标 + BOT 文字） */
+.lobby-msg-bot-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: 5px;
+    padding: 1px 7px 1px 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .5px;
+    color: #fff;
+    background: var(--ink-blue);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 20px 6px 18px 6px;
+    box-shadow: 1px 1px 0 var(--shadow-sm);
+    vertical-align: 1px;
+}
+.lobby-msg-bot-tag svg {
+    display: block;
+    flex-shrink: 0;
 }
 
 .lobby-msg-time {
@@ -1067,10 +1089,37 @@
     transition: all 0.15s;
 }
 
-/* 含管理员操作按钮时取消裁剪，保证按钮完整可见 */
+/* 含管理员操作按钮时保持裁剪：昵称过长在名称区省略号截断，按钮常驻右侧不被顶出 */
 .lobby-user-item:has(.user-admin-actions) {
-    overflow: visible;
-    white-space: normal;
+    white-space: nowrap;
+}
+
+.lobby-user-item .user-name {
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 96px;
+}
+
+/* 在线列表 BOT 专属标签（昵称右侧） */
+.lobby-user-bot-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+    padding: 0 5px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--ink-blue);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 14px 4px 14px 4px;
+    flex-shrink: 0;
+}
+.lobby-user-bot-tag svg {
+    display: block;
+    flex-shrink: 0;
 }
 
 .lobby-user-item.you {
@@ -3718,4 +3767,359 @@ main {
 }
 .lobby-scroll-bottom-btn.show {
     display: flex;
+}
+
+/* ==================== 自定义宏（v4） ==================== */
+/* 宏卡片：聊天室消息内展示 */
+.md-macro {
+    display: inline-block;
+    max-width: 100%;
+    background: #fffdf5;
+    border: 2px dashed var(--ink-blue, #334);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin: 2px 0;
+    font-size: 13px;
+    line-height: 1.5;
+    vertical-align: middle;
+}
+.md-macro-head {
+    font-weight: 700;
+    color: var(--ink-blue, #334);
+    margin-bottom: 4px;
+}
+.md-macro-name { color: #d6336c; }
+.md-macro-nick { color: #7048e8; }
+.md-macro-params { color: #0b7285; }
+.md-macro-template {
+    margin: 4px 0;
+    padding: 6px 8px;
+    background: #f1f3f5;
+    border-radius: 6px;
+    border-left: 3px solid #d6336c;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 160px;
+    overflow: auto;
+}
+.md-macro-trigger { font-size: 12px; color: #555; }
+.md-macro-trigger code {
+    background: #e7f5ff;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #1864ab;
+    word-break: break-all;
+}
+.md-macro-err {
+    border-color: #f03e3e;
+    background: #fff5f5;
+    color: #c92a2a;
+}
+.md-macro-del {
+    border-color: #fab005;
+    background: #fff9db;
+    color: #e8590c;
+}
+.md-macro-empty {
+    border-style: solid;
+    color: #868e96;
+    background: #f8f9fa;
+}
+.md-macro-list .md-macro-item {
+    border-top: 1px solid #dee2e6;
+    padding: 6px 0;
+    font-size: 12px;
+}
+.md-macro-list .md-macro-item:first-child { border-top: none; }
+.md-macro-creator { color: #868e96; font-size: 11px; }
+
+/* 我的宏 弹窗（剪贴板抽屉结构） */
+.macro-manager-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 450;
+    background: var(--overlay-bg);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.macro-manager-overlay .macro-manager-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+.macro-manager-overlay .macro-manager-title .icon {
+    width: 16px;
+    height: 16px;
+    color: var(--ink-blue);
+    flex-shrink: 0;
+}
+.macro-manager-overlay .md-modal-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border: none;
+}
+.macro-manager-overlay .md-modal-close .icon {
+    width: 18px;
+    height: 18px;
+}
+.macro-manager-overlay .md-modal-body {
+    /* 内容区由外层 .paper-content 控制滚动，此处仅保留供逻辑引用 */
+    min-height: 200px;
+}
+/* ===== “我的宏”弹窗改为与“在线用户 / 点歌”面板一致 ===== */
+#macro-manager-overlay .clipboard-drawer {
+    width: min(430px, 92vw);
+    max-height: 72vh;
+    background: var(--note-pink);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 20px 6px / 6px 20px 6px 20px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    padding: 16px 14px;
+    overflow-y: auto;
+}
+#macro-manager-overlay .clipboard-drawer::before {
+    /* 隐藏原有的金属夹子 */
+    display: none;
+}
+#macro-manager-overlay .clipboard-drawer .paper-content {
+    background: transparent;
+    border: none;
+    padding: 0;
+    max-height: none;
+    overflow-y: visible;
+}
+#macro-manager-overlay .clipboard-drawer .drawer-header {
+    border-bottom: 2px dashed var(--border-light);
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+}
+.macro-mgr-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+/* ===== 宏管理弹窗按钮（手绘便签风，对齐全局样式） ===== */
+.macro-mgr-toolbar button.md-btn,
+.macro-mgr-item-ops button.md-btn,
+.macro-mgr-ops button.md-btn,
+.macro-mgr-snippets button.md-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--ink-black);
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+    cursor: pointer;
+    transition: transform .06s, box-shadow .06s;
+}
+.macro-mgr-toolbar button.md-btn:hover,
+.macro-mgr-item-ops button.md-btn:hover,
+.macro-mgr-ops button.md-btn:hover,
+.macro-mgr-snippets button.md-btn:hover {
+    transform: translateY(1px);
+    box-shadow: 2px 3px 0 var(--shadow-sm);
+    filter: brightness(0.98);
+}
+.macro-mgr-toolbar button.md-btn:active,
+.macro-mgr-item-ops button.md-btn:active,
+.macro-mgr-ops button.md-btn:active,
+.macro-mgr-snippets button.md-btn:active {
+    transform: translateY(2px);
+    box-shadow: none;
+}
+.macro-mgr-toolbar button.md-btn .icon,
+.macro-mgr-item-ops button.md-btn .icon,
+.macro-mgr-ops button.md-btn .icon,
+.macro-mgr-snippets button.md-btn .icon {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+/* 危险操作（删除）红色便签 */
+.macro-mgr-item-ops button.md-btn.macro-mgr-del,
+.macro-mgr-ops button.md-btn.macro-mgr-del2 {
+    background: var(--note-pink);
+    color: #c0392b;
+}
+/* 组件速查小按钮（紧凑） */
+.macro-mgr-snippets button.md-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    background: var(--note-green);
+}
+.macro-mgr-count { font-size: 12px; color: #868e96; }
+.macro-mgr-empty {
+    background: #fff9db;
+    border: 1px dashed #fab005;
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #5f3dc4;
+}
+.macro-mgr-empty code {
+    background: #e7f5ff;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #1864ab;
+    word-break: break-all;
+}
+.macro-mgr-item {
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: var(--note-yellow);
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+.macro-mgr-item-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 13px;
+}
+.macro-mgr-item-time { margin-left: auto; font-size: 11px; color: var(--ink-black); opacity: .6; }
+.macro-mgr-item-ops {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+.macro-mgr-item-ops code {
+    font-size: 11px;
+    background: var(--note-green);
+    border: 1px solid var(--ink-black);
+    border-radius: 255px 15px 125px 15px / 15px 125px 15px 255px;
+    padding: 2px 8px;
+    color: var(--ink-black);
+    word-break: break-all;
+    flex: 1 1 160px;
+}
+.macro-mgr-form-row {
+    margin-bottom: 12px;
+}
+.macro-mgr-form-row label {
+    display: block;
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: #495057;
+}
+.macro-mgr-form-row label em {
+    font-weight: 400;
+    font-size: 11px;
+    color: #868e96;
+}
+.macro-mgr-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border: 2px dashed var(--ink-black);
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--surface-white);
+    color: var(--ink-black);
+}
+.macro-mgr-input:focus {
+    outline: none;
+    border-color: var(--ink-blue);
+    border-style: solid;
+}
+.macro-mgr-input[disabled] {
+    background: #f1f3f5;
+    color: #868e96;
+}
+.macro-mgr-f-template {
+    font-family: ui-monospace, Consolas, monospace;
+    resize: vertical;
+}
+.macro-mgr-snippets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.macro-mgr-snippets .md-btn {
+    font-size: 12px;
+    padding: 3px 8px;
+}
+.macro-mgr-preview {
+    border: 2px dashed var(--ink-black);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--surface-white);
+    min-height: 40px;
+    font-size: 13px;
+    overflow-x: auto;
+}
+.macro-mgr-hint { color: var(--ink-black); opacity: .55; font-size: 12px; }
+.macro-mgr-ops {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+/* ==================== 临时聊天邀请提示（lobby 页收到邀请时顶部弹出） ==================== */
+.temp-invite-toast {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 4px 6px 0 var(--shadow-md);
+    max-width: min(560px, 92vw);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.temp-invite-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-black);
+}
+
+.temp-invite-yes {
+    padding: 4px 14px;
+    font-size: 13px;
+    background: var(--success);
+    color: #fff;
+    border-color: var(--success);
+}
+
+.temp-invite-no {
+    padding: 4px 14px;
+    font-size: 13px;
+    background: transparent;
+    color: var(--ink-black);
+    border: 2px solid var(--ink-black);
 }

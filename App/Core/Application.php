@@ -13,6 +13,7 @@ use App\Services\Infrastructure\RedisService;
 use App\Services\Repository\BanRepository;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
+use App\Services\Repository\MacroRepository;
 use App\Services\Infrastructure\AsyncDbWriter;
 use App\Services\Infrastructure\StickerService;
 use App\Services\Repository\OnlineCountRepository;
@@ -24,6 +25,13 @@ use App\Services\Repository\OAuthBindingRepository;
  */
 class Application
 {
+    /** 全局 HTTP/WS Server 实例（供 HTTP 控制器跨协议操作 WS，如临时聊天邀请推送） */
+    private static ?\Swoole\WebSocket\Server $staticServer = null;
+
+    public static function server(): ?\Swoole\WebSocket\Server
+    {
+        return self::$staticServer;
+    }
     /** 连接过载时设为 true，WebSocketHandler 据此拒绝新连接 */
     public static bool $connectionPaused = false;
 
@@ -47,6 +55,8 @@ class Application
         BanRepository::initialize();
         PlayerStatsRepository::initialize();
         ChatHistoryRepository::ensureTable();
+        MacroRepository::ensureTable();
+        \App\Services\TempChat\TempChatReportRepository::ensureTable();
         AdminRepository::initialize();
         OAuthBindingRepository::initialize();
 
@@ -58,6 +68,7 @@ class Application
         } else {
             $this->server = new Server($host, $port);
         }
+        self::$staticServer = $this->server;
 
         $serverOptions = Config::get('Server.Options', []);
         $this->server->set($serverOptions);
@@ -153,6 +164,15 @@ class Application
                     }
                 } catch (\Throwable $e) {
                     Logger::error('Lobby scheduled cleanup failed', ['error' => $e->getMessage()]);
+                }
+            });
+
+            // 每 60 秒清理一次临时聊天在线索引中的僵尸记录（fd 失效/超时未活动）
+            \Swoole\Timer::tick(60000, function () use ($server) {
+                try {
+                    \App\Services\TempChat\OnlineRegistry::sweep($server);
+                } catch (\Throwable $e) {
+                    Logger::error('OnlineRegistry sweep failed', ['error' => $e->getMessage()]);
                 }
             });
 

@@ -59,7 +59,7 @@ class BroadcastHandler
             'broadcast',
             null,
             null,
-            json_encode(['text' => $text], JSON_UNESCAPED_UNICODE),
+            json_encode(['text' => $text, 'duration' => $duration], JSON_UNESCAPED_UNICODE),
             $this->tracker->getAdminIp($fd)
         );
 

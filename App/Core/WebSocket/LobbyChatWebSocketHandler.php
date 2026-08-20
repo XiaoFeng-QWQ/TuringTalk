@@ -67,6 +67,12 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         return $this->lobbyService;
     }
 
+    /** 供 BOT 网关刷新心跳活动时间（BOT 连接复用聊天室心跳，65s 无消息会被踢） */
+    public function touchConnection(int $fd): void
+    {
+        $this->touchActivity($fd);
+    }
+
     /** 聊天室没有"对局中"概念（在线数广播由 lobby 自行管理） */
     public function isPlayerInGame(int $fd): bool
     {
@@ -244,8 +250,19 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         try {
             $data = json_decode($frame->data, true);
             if (!$data || empty($data['type'])) return;
+            $this->onMessageArray($server, $fd, $data);
+        } catch (\Throwable $e) {
+            Logger::error('Lobby message error', ['fd' => $fd, 'error' => $e->getMessage()]);
+        }
+    }
 
-            // 禁言：默认全部拦截，仅放行只读/系统/管理消息
+    /**
+     * 以数组消息直接处理（BOT 网关复用聊天室全部消息处理；调用方需保证数据已按需注入）
+     */
+    public function onMessageArray(Server $server, int $fd, array $data): void
+    {
+        if (empty($data['type'])) return;
+
             $muteExempt = [
                 'lobby_join',
                 'lobby_set_fp',
@@ -402,10 +419,8 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 default:
                     break;
             }
-        } catch (\Throwable $e) {
-            Logger::error('Lobby message error', ['fd' => $fd, 'error' => $e->getMessage()]);
-        }
     }
+
 
     // ==================== 广播 / 在线列表（共享能力） ====================
 
@@ -500,6 +515,7 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                 'fd'        => $fd,
                 'nickname'  => $nickname,
                 'player_id' => $playerId,
+                'is_bot'    => $playerId !== '' && \App\Admin\Repository\BotRepository::isBotAccountId($playerId) ? 1 : 0,
                 'muted'     => $playerId !== '' && $this->lobbyService->isMuted($playerId) ? 1 : 0,
                 'isolated'  => $playerId !== '' && $this->lobbyService->isIsolated($playerId) ? 1 : 0,
             ];

@@ -810,8 +810,7 @@ select {
     color: #6b675f;
 }
 
-.spectate-btn,
-.WhoisAI-spectate-btn {
+.spectate-btn {
     font-size: 12px;
     padding: 3px 10px;
     color: var(--ink-blue);
@@ -819,8 +818,7 @@ select {
     box-shadow: none;
 }
 
-.spectate-btn:hover,
-.WhoisAI-spectate-btn:hover {
+.spectate-btn:hover {
     background: var(--ink-blue-bg);
 }
 
@@ -1932,8 +1930,7 @@ select {
 }
 
 /* 旁观横幅：墨黑警示带 */
-#spectate-banner,
-#WhoisAI-spectate-banner {
+#spectate-banner {
     background: var(--ink);
     color: #e9e2d2;
     padding: 12px 16px;
@@ -1944,24 +1941,21 @@ select {
     border-bottom: 3px solid #d4a017;
 }
 
-#spectate-banner .spec-row,
-#WhoisAI-spectate-banner .spec-row {
+#spectate-banner .spec-row {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
 }
 
-#spectate-banner .spec-row.spec-header,
-#WhoisAI-spectate-banner .spec-row.spec-header {
+#spectate-banner .spec-row.spec-header {
     font-size: 11px;
     letter-spacing: .06em;
     opacity: .75;
     font-weight: 600;
 }
 
-#spectate-banner .spec-player,
-#WhoisAI-spectate-banner .spec-player {
+#spectate-banner .spec-player {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -1972,13 +1966,11 @@ select {
     font-size: 12.5px;
 }
 
-#spectate-banner .spec-player b,
-#WhoisAI-spectate-banner .spec-player b {
+#spectate-banner .spec-player b {
     color: #ffd54a;
 }
 
-#spectate-banner .doodle-btn,
-#WhoisAI-spectate-banner .doodle-btn {
+#spectate-banner .doodle-btn {
     border-color: rgba(255, 255, 255, .5);
     background: transparent;
     color: #fff;
@@ -1987,19 +1979,16 @@ select {
     font-size: 12px;
 }
 
-#spectate-banner .doodle-btn:hover,
-#WhoisAI-spectate-banner .doodle-btn:hover {
+#spectate-banner .doodle-btn:hover {
     background: rgba(255, 255, 255, .15);
 }
 
-#spectate-banner .spec-warn-row,
-#WhoisAI-spectate-banner .spec-warn-row {
+#spectate-banner .spec-warn-row {
     border-top: 1px solid rgba(255, 255, 255, .18);
     padding-top: 8px;
 }
 
-#spectate-banner .spec-warn-row input,
-#WhoisAI-spectate-banner .spec-warn-row input {
+#spectate-banner .spec-warn-row input {
     background: rgba(255, 255, 255, .1);
     border: 1px solid rgba(255, 255, 255, .28);
     border-radius: 3px;
@@ -2011,8 +2000,7 @@ select {
     min-width: 140px;
 }
 
-#spectate-banner .spec-warn-row input::placeholder,
-#WhoisAI-spectate-banner .spec-warn-row input::placeholder {
+#spectate-banner .spec-warn-row input::placeholder {
     color: rgba(255, 255, 255, .45);
 }
 

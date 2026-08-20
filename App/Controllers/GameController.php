@@ -7,8 +7,11 @@ use App\Core\Response;
 use App\Core\Sanitizer;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
+use App\Services\Repository\MacroRepository;
+use App\Services\Repository\OAuthBindingRepository;
 use App\Admin\Repository\AdminRepository;
 use App\Config\Config;
+use App\Services\Infrastructure\AvatarService;
 use App\Services\Infrastructure\StickerService;
 
 /**
@@ -37,12 +40,16 @@ class GameController
         '/gomoku/gomoku.js'       => ['gomoku/gomoku.js',             'application/javascript'],
         '/weekly-report/weekly-report.css' => ['weekly-report/weekly-report.css', 'text/css'],
         '/weekly-report/weekly-report.js'  => ['weekly-report/weekly-report.js',  'application/javascript'],
+        '/temp-chat/temp-chat.css' => ['temp-chat/temp-chat.css', 'text/css'],
+        '/temp-chat/temp-chat.js'  => ['temp-chat/temp-chat.js',  'application/javascript'],
+        '/temp-invite.js'          => ['temp-invite.js',          'application/javascript'],
+        '/bot-panel/bot-panel.js'  => ['bot-panel/bot-panel.js',  'application/javascript'],
     ];
 
     public function index(Request $request, Response $response): void
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
-        $files = ['/style.css', '/shared.js', '/script.js'];
+        $files = ['/style.css', '/shared.js', '/script.js', '/temp-invite.js'];
         foreach ($files as $file) {
             $html = str_replace(
                 $file . '?v=',
@@ -87,7 +94,22 @@ class GameController
     public function lobbyIndex(Request $request, Response $response): void
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'lobby/index.html');
-        $files = ['/style.css', '/lobby/lobby.css', '/shared.js', '/lobby/lobby.js'];
+        $files = ['/style.css', '/lobby/lobby.css', '/shared.js', '/lobby/lobby.js', '/temp-invite.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
+        $response->setContent($html);
+        $response->send();
+    }
+
+    public function tempChatIndex(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'temp-chat/index.html');
+        $files = ['/style.css', '/lobby/lobby.css', '/temp-chat/temp-chat.css', '/shared.js', '/temp-chat/temp-chat.js', '/temp-invite.js'];
         foreach ($files as $file) {
             $html = str_replace(
                 $file . '?v=',
@@ -157,7 +179,6 @@ class GameController
         }
 
         $response->setHeader('Content-Type', $contentType);
-        $response->setHeader('Content-Length', (string)strlen($content));
         $response->setHeader('Cache-Control', 'public, max-age=' . self::CACHE_MAX_AGE . ', immutable');
         $response->setHeader('ETag', $etag);
         $response->setHeader('Last-Modified', gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
@@ -243,6 +264,51 @@ class GameController
                 'nickname' => $existing['nickname'],
                 'stats'    => $stats,
             ]));
+            $response->send();
+            return;
+        }
+
+        // 注册（无需开局，首页"保存"直接创建账号；防线与 WS 注册一致）
+        if ($action === 'register' && !empty($nickname) && !empty($password)) {
+            if (mb_strlen($password) < 6) {
+                $response->setContent(json_encode(['error' => '密码至少 6 位'], JSON_UNESCAPED_UNICODE));
+                $response->send();
+                return;
+            }
+            if (PlayerStatsRepository::findByNickname($nickname)) {
+                $response->setContent(json_encode(['error' => '昵称已被占用，请换一个'], JSON_UNESCAPED_UNICODE));
+                $response->send();
+                return;
+            }
+            // 同 IP / 同指纹最多 3 个账号
+            if ((!empty($ip) && PlayerStatsRepository::countByIp($ip) >= 3)
+                || (!empty($fp) && PlayerStatsRepository::countByFp($fp) >= 3)) {
+                $response->setContent(json_encode(['error' => '不允许创建多个账号'], JSON_UNESCAPED_UNICODE));
+                $response->send();
+                return;
+            }
+            // 创建频率限制：同 IP 60 秒 / 同指纹 10 分钟
+            $redis = \App\Services\Infrastructure\RedisService::connect();
+            $regIpKey = \App\Services\Infrastructure\RedisService::KP_LOBBY_REG_LIMIT . ':ip:' . $ip;
+            $regFpKey = \App\Services\Infrastructure\RedisService::KP_LOBBY_REG_LIMIT . ':fp:' . $fp;
+            if (($ip !== '' && (int)$redis->get($regIpKey) > 0) || ($fp !== '' && (int)$redis->get($regFpKey) > 0)) {
+                $response->setContent(json_encode(['error' => '账号创建过于频繁，请稍后再试'], JSON_UNESCAPED_UNICODE));
+                $response->send();
+                return;
+            }
+            // 创建（用户填了密码 = password_set=1）
+            $result = PlayerStatsRepository::createPlayer($nickname, $ip, $fp, $password, true);
+            $playerId = $result['id'];
+            if ($ip !== '') $redis->setex($regIpKey, 60, (string)time());
+            if ($fp !== '') $redis->setex($regFpKey, 600, (string)time());
+            $hash = PlayerStatsRepository::getPasswordHash($playerId);
+            $token = $hash ? self::generatePlayerToken($playerId, $hash) : '';
+            $response->setContent(json_encode([
+                'ok'        => true,
+                'token'     => $token,
+                'nickname'  => $nickname,
+                'player_id' => $playerId,
+            ], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
@@ -368,6 +434,397 @@ class GameController
         } catch (\Throwable $e) {
             $response->setContent(json_encode(['error' => '上传失败: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE));
         }
+        $response->send();
+    }
+
+    // ==================== 聊天室自定义宏 ====================
+
+    /**
+     * GET /api/macros
+     * 获取房间全部宏（登录时附带 mine 标记，区分"我的宏"）
+     */
+    public function macrosList(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = null;
+        $auth = $request->getHeader('Authorization');
+        if ($auth && preg_match('/^Bearer\s+(.+)$/i', $auth, $m)) {
+            $payload = self::verifyPlayerToken(trim($m[1]));
+            if ($payload) $playerId = $payload['player_id'];
+        }
+        $list = MacroRepository::listAll();
+        $items = [];
+        foreach ($list as $m) {
+            $items[] = [
+                'name'        => $m['name'] ?? '',
+                'nick'        => $m['nick'] ?? '',
+                'params'      => $m['params'] ?? '',
+                'template'    => $m['template'] ?? '',
+                'creator_id'  => $m['creator_id'] ?? '',
+                'creator'     => $m['creator_name'] ?? '',
+                'mine'        => $playerId !== null && ($m['creator_id'] ?? '') === $playerId,
+                'updated_at'  => $m['updated_at'] ?? '',
+            ];
+        }
+        $response->setContent(json_encode(['success' => true, 'macros' => $items], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/macros
+     * 保存宏（新建/覆盖更新），需登录
+     * body: { name, nick, params, template }
+     */
+    public function macrosSave(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $body = $request->getJsonBody();
+        // 创建者昵称回源 DB（不信任请求体，防伪造显示）
+        $player = PlayerStatsRepository::findById($playerId);
+        $nickname = $player['nickname'] ?? '';
+        $name     = Sanitizer::text($body['name'] ?? '', 20);
+        $nick     = Sanitizer::text($body['nick'] ?? '', 32);
+        $params   = Sanitizer::text($body['params'] ?? '', 128);
+        $template = Sanitizer::text($body['template'] ?? '', MacroRepository::MAX_TEMPLATE_LEN + 10);
+
+        if ($name === '') {
+            $response->setContent(json_encode(['error' => '缺少宏名称'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $res = MacroRepository::save($name, $nick, $params, $template, $playerId, $nickname);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error'] ?? '保存失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true, 'macro' => $res['macro']], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/macros/delete
+     * 删除宏（仅创建者可删），需登录
+     * body: { name }
+     */
+    public function macrosDelete(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $body = $request->getJsonBody();
+        $name = Sanitizer::text($body['name'] ?? '', 20);
+        if ($name === '') {
+            $response->setContent(json_encode(['error' => '缺少宏名称'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $res = MacroRepository::delete($name, $playerId);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error'] ?? '删除失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    // ==================== 临时聊天邀请（全站 HTTP API：首页/聊天室等任意页面发起邀请） ====================
+
+    /**
+     * GET /api/temp/users?keyword=&token=
+     * 搜索用户（仅搜内存在线索引 OnlineRegistry，不查 DB 全量注册用户，全站任意页面可用）
+     */
+    public function tempUsers(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $keyword = Sanitizer::text($request->get('keyword', ''), 20);
+        // 邀请对象 = 在线玩家（临时聊天本质是邀请线上玩家），离线用户不展示、不查库
+        $selfPid = '';
+        $auth = $request->getHeader('Authorization');
+        if ($auth && preg_match('/^Bearer\s+(.+)$/i', $auth, $m)) {
+            $payload = self::verifyPlayerToken(trim($m[1]));
+            if ($payload) $selfPid = (string)$payload['player_id'];
+        }
+        // 昵称按 player_id 实时查 player_data（索引不存昵称，避免改名不同步）
+        $nicknameMap = \App\Services\Repository\PlayerStatsRepository::findNicknamesByIds(array_keys(\App\Services\TempChat\OnlineRegistry::all()));
+        $users = \App\Services\TempChat\OnlineRegistry::search($keyword, $selfPid, \App\Core\Application::server(), $nicknameMap);
+        $response->setContent(json_encode(['success' => true, 'users' => $users], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/temp/invite
+     * 发起临时聊天邀请（全站任意页面可用；邀请方需保持在线）
+     * body: { token, target_player_id }
+     */
+    public function tempInvite(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $body = $request->getJsonBody();
+        $targetPid = Sanitizer::identifier($body['target_player_id'] ?? '');
+        $fromName = Sanitizer::text($body['from_name'] ?? '', 16);
+        if ($targetPid === '') {
+            $response->setContent(json_encode(['error' => '缺少目标用户'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if ($targetPid === $playerId) {
+            $response->setContent(json_encode(['error' => '不能邀请自己'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $server = \App\Core\Application::server();
+        $tempHandler = \App\Core\WebSocket\WebSocketHandler::instance()?->getTempChatHandler();
+        if ($server === null || $tempHandler === null) {
+            $response->setContent(json_encode(['error' => '服务未就绪'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        // 昵称回源（token 对应账号）
+        $row = PlayerStatsRepository::findById($playerId);
+        $fromName = $fromName !== '' ? $fromName : ($row['nickname'] ?? '游客');
+
+        $res = $tempHandler->createInviteFromHttp($server, $playerId, $fromName, $targetPid);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error'] ?? '邀请失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true, 'invite_id' => $res['invite_id']], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    // ==================== BOT 申请（首页开放BOT申请） ====================
+
+    /**
+     * GET /api/bot/stickers?player_id=
+     * BOT 网关 HTTP 接口：player_id 在 URL，KEY 在请求头 Authorization: Bearer <key>
+     */
+    public function botStickers(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = Sanitizer::identifier($request->get('player_id', ''));
+        $key = self::bearerKey($request);
+
+        $bot = $playerId !== '' ? \App\Admin\Repository\BotRepository::findByPlayerId($playerId) : null;
+        if (!$bot || !hash_equals((string)$bot['bot_key'], $key) || (int)$bot['status'] !== 1) {
+            $response->setContent(json_encode(['error' => '鉴权失败：玩家ID或KEY不正确'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $stickers = \App\Services\Infrastructure\StickerService::list();
+        $response->setContent(json_encode(['stickers' => $stickers], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /** 从 Authorization: Bearer <key> 请求头解析 KEY */
+    private static function bearerKey(Request $request): string
+    {
+        $auth = $request->getHeader('Authorization');
+        if ($auth && preg_match('/^Bearer\s+(.+)$/i', $auth, $m)) {
+            return Sanitizer::identifier(trim($m[1]));
+        }
+        return '';
+    }
+
+    // ==================== BOT 用户面板 ====================
+
+    /** 获取 BOT 管理面板（玩家ID + KEY 鉴权） */
+    public function botPanelPage(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'bot-panel/index.html');
+        $files = ['/style.css', '/shared.js', '/bot-panel/bot-panel.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash(ltrim($file, '/')),
+                $html
+            );
+        }
+        $response->setContent($html);
+        $response->send();
+    }
+
+    /** GET /api/bot/panel 面板数据（玩家 token 鉴权，验证 BOT 绑定） */
+    public function botPanel(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $bot = \App\Admin\Repository\BotRepository::findByPlayerId($playerId);
+        if (!$bot || (int)$bot['status'] !== 1) {
+            $response->setContent(json_encode(['error' => '该账号未绑定 BOT 或 BOT 已被禁用'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $response->setContent(json_encode([
+            'success'  => true,
+            'nickname' => (string)$bot['nickname'],
+            'bot_key'  => (string)$bot['bot_key'],
+            'account_id' => (string)$bot['account_id'],
+            'status'   => (int)$bot['status'],
+            'status_text' => (int)$bot['status'] === 1 ? '启用' : '已禁用',
+            'created_at' => date('Y-m-d H:i:s', (int)$bot['created_at']),
+        ], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /** POST /api/bot/panel/key 轮换（重新生成）BOT KEY（玩家 token 鉴权，验证 BOT 绑定） */
+    public function botPanelRotateKey(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $bot = \App\Admin\Repository\BotRepository::findByPlayerId($playerId);
+        if (!$bot || (int)$bot['status'] !== 1) {
+            $response->setContent(json_encode(['error' => '该账号未绑定 BOT 或 BOT 已被禁用'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $res = \App\Admin\Repository\BotRepository::rotateKey($playerId);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error']], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true, 'bot_key' => $res['bot_key']], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /** POST /api/bot/panel/nickname 修改 BOT 昵称（玩家 token 鉴权，验证 BOT 绑定） */
+    public function botPanelNickname(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $body = $request->getJsonBody();
+        $nickname = Sanitizer::text($body['nickname'] ?? '', 32);
+
+        $bot = \App\Admin\Repository\BotRepository::findByPlayerId($playerId);
+        if (!$bot || (int)$bot['status'] !== 1) {
+            $response->setContent(json_encode(['error' => '该账号未绑定 BOT 或 BOT 已被禁用'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if (mb_strlen($nickname) < 1 || mb_strlen($nickname) > 12) {
+            $response->setContent(json_encode(['error' => '昵称需 1~12 个字符'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $res = \App\Admin\Repository\BotRepository::updateNickname($playerId, $nickname);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error']], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true, 'nickname' => $nickname], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/bot/apply
+     * 玩家提交 BOT 申请（邮箱 + 理由；一人仅可申请一次）
+     * body: { email, reason }
+     */
+    public function botApply(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $body = $request->getJsonBody();
+        $email = Sanitizer::text($body['email'] ?? '', 64);
+        $reason = Sanitizer::text($body['reason'] ?? '', 500);
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $response->setContent(json_encode(['error' => '邮箱格式不正确'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if (mb_strlen($reason) < 10) {
+            $response->setContent(json_encode(['error' => '申请理由至少 10 个字'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        if (mb_strlen($reason) > 500) {
+            $reason = mb_substr($reason, 0, 500);
+        }
+
+        $player = PlayerStatsRepository::findById($playerId);
+        $nickname = $player['nickname'] ?? '';
+
+        // 一人仅可申请一次（任意状态）
+        if (\App\Admin\Repository\BotApplicationRepository::hasApplied($playerId)) {
+            $response->setContent(json_encode(['error' => '您已提交过申请，不可重复申请'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $res = \App\Admin\Repository\BotApplicationRepository::apply($playerId, $nickname, $email, $reason);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error'] ?? '申请失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode([
+            'success' => true,
+            'message' => '申请已提交，请等待管理员审核',
+            'id'      => $res['id'],
+        ], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/temp/invite/decline
+     * 拒绝临时聊天邀请（原地拒绝，不跳转临时聊天页）
+     * body: { invite_id }
+     */
+    public function tempInviteDecline(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $body = $request->getJsonBody();
+        $inviteId = Sanitizer::identifier($body['invite_id'] ?? '');
+        if ($inviteId === '') {
+            $response->setContent(json_encode(['error' => '缺少邀请ID'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $server = \App\Core\Application::server();
+        $tempHandler = \App\Core\WebSocket\WebSocketHandler::instance()?->getTempChatHandler();
+        if ($server === null || $tempHandler === null) {
+            $response->setContent(json_encode(['error' => '服务未就绪'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $res = $tempHandler->declineInviteFromHttp($server, $inviteId, $playerId);
+        if (!$res['ok']) {
+            $response->setContent(json_encode(['error' => $res['error'] ?? '拒绝失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
         $response->send();
     }
 
@@ -824,7 +1281,7 @@ class GameController
 
         $userStickers = \App\Services\Repository\StickerRepository::getUserStickers($playerId);
         if (count($userStickers) >= 100) {
-            $response->setContent(json_encode(['error' => '自定义表情已达上限（50个），请先删除旧表情'], JSON_UNESCAPED_UNICODE));
+            $response->setContent(json_encode(['error' => '自定义表情已达上限（100个），请先删除旧表情'], JSON_UNESCAPED_UNICODE));
             $response->send();
             return;
         }
@@ -871,13 +1328,67 @@ class GameController
     public function viewPublicCollection(Request $request, Response $response): void
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'index.html');
-        $files = ['/style.css', '/shared.js', '/script.js'];
+        $files = ['/style.css', '/shared.js', '/script.js', '/temp-invite.js'];
         foreach ($files as $file) {
             $hash = $this->getFileVersionHash(ltrim($file, '/'));
             $html = str_replace($file . '?v=', $file . '?v=' . $hash, $html);
         }
         $response->setHeader('Content-Type', 'text/html; charset=utf-8');
         $response->setContent($html);
+        $response->send();
+    }
+
+    // ==================== 头像服务 ====================
+
+    /**
+     * 返回玩家 OAuth 头像图片（GET /api/avatar/{player_id}）。
+     * 无头像时返回 404，前端降级为首字符渲染。
+     */
+    public function avatar(Request $request, Response $response): void
+    {
+        $path = $request->getPath();
+        if (!preg_match('#^/api/avatar/([a-zA-Z0-9_-]+)$#', $path, $m)) {
+            $response->setStatusCode(404);
+            $response->setContent('Not Found');
+            $response->send();
+            return;
+        }
+        $playerId = $m[1];
+
+        if (!AvatarService::exists($playerId)) {
+            $response->setStatusCode(404);
+            $response->setContent('Not Found');
+            $response->send();
+            return;
+        }
+
+        $filePath = AvatarService::getPath($playerId);
+        $mtime    = filemtime($filePath);
+        $etag     = '"' . md5($filePath . $mtime) . '"';
+
+        // 304 缓存协商
+        $ifNoneMatch = $request->getHeader('if-none-match');
+        if ($ifNoneMatch !== null && $ifNoneMatch === $etag) {
+            $response->setStatusCode(304);
+            $response->setHeader('ETag', $etag);
+            $response->send();
+            return;
+        }
+        $ifModifiedSince = $request->getHeader('if-modified-since');
+        if ($ifModifiedSince !== null && strtotime($ifModifiedSince) >= $mtime) {
+            $response->setStatusCode(304);
+            $response->setHeader('ETag', $etag);
+            $response->setHeader('Last-Modified', gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
+            $response->send();
+            return;
+        }
+
+        $content = file_get_contents($filePath);
+        $response->setHeader('Content-Type', 'image/webp');
+        $response->setHeader('Cache-Control', 'public, max-age=3600');
+        $response->setHeader('ETag', $etag);
+        $response->setHeader('Last-Modified', gmdate('D, d M Y H:i:s', $mtime) . ' GMT');
+        $response->setContent($content);
         $response->send();
     }
 

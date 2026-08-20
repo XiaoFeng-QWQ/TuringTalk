@@ -66,7 +66,7 @@ class MatchService
     {
         $redis = RedisService::connect();
 
-        // 1. AI 概率匹配（不经过队列直接匹配 Bot）
+        // 1. AI 概率匹配（不经过队列直接匹配 Bot；BOT 关闭时跳过）
         $aiRate = (float)Config::get('Game.AiMatchRate', 0.05);
         if (mt_rand(1, 10000) / 10000 <= $aiRate) {
             Logger::info('Match: AI probability matched', ['fd' => $fd, 'nickname' => $nickname]);
@@ -170,9 +170,10 @@ class MatchService
         // 4. 设置超时定时器
         $matchTimeout = Config::get('Game.MatchTimeout', 10);
         $timerKey = RedisService::KP_MATCH_TIMER . $fd;
+        $redis = RedisService::connect();
         $redis->setEx($timerKey, $matchTimeout + 5, (string)$fd);
 
-        $timerId = Timer::after($matchTimeout * 1000, function () use ($fd, $nickname, $duration, $timerKey) {
+        Timer::after($matchTimeout * 1000, function () use ($fd, $nickname, $duration, $timerKey) {
             $redis = RedisService::connect();
 
             // 检查定时器标记是否仍在（未被 cancelTimeout 删除）

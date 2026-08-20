@@ -53,7 +53,7 @@ class SongHandler
                 return;
             }
 
-            $result = $this->game->songService()->request($fd, $songId, $playerId, $nickname);
+            $result = $this->game->songService()->request($fd, $songId, $playerId, $nickname, count($this->game->getOnlinePlayers($server)));
             if (isset($result['error'])) {
                 $this->game->sendToPlayer($server, $fd, [
                     'type' => 'lobby_song_search_result',
@@ -112,7 +112,7 @@ class SongHandler
             return;
         }
 
-        $result = $this->game->songService()->request($fd, $songId, $playerId, $nickname);
+        $result = $this->game->songService()->request($fd, $songId, $playerId, $nickname, count($this->game->getOnlinePlayers($server)));
         if (isset($result['error'])) {
             $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $result['error']]);
             return;

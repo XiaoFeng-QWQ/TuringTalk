@@ -67,8 +67,8 @@ abstract class BaseGameHandler
     /** @var array<string, array> fd => ['ip' => ..., 'fingerprint' => ...] */
     protected array $clientInfo = [];
 
-    /** @var array<string, int> IP → fd 反向索引 */
-    protected array $ipToFd = [];
+    /** @var array<string, int> IP → fd 反向索引（全站共享：跨入口去重，同 IP 全站只保留一个活跃连接） */
+    protected static array $ipToFd = [];
 
     /** @var array<string, int[]> 旁观者：gameId => [admin_fd, ...] */
     protected array $spectators = [];
@@ -111,6 +111,26 @@ abstract class BaseGameHandler
     // ==================== 连接生命周期（子类 onOpen / onClose 调用） ====================
 
     /**
+     * BOT 网关连接集合（跳过同 IP 去重/占位，BOT 接口不受同 IP 登录限制）
+     */
+    private static array $botGatewayFds = [];
+
+    public static function markBotGatewayFd(int $fd): void
+    {
+        self::$botGatewayFds[$fd] = true;
+    }
+
+    public static function unmarkBotGatewayFd(int $fd): void
+    {
+        unset(self::$botGatewayFds[$fd]);
+    }
+
+    public static function isBotGatewayFd(int $fd): bool
+    {
+        return isset(self::$botGatewayFds[$fd]);
+    }
+
+    /**
      * 连接初始化：IP 记录、去重检查、封禁检查、Redis 公告。
      * 返回 `true` 表示通过检查，子类应继续自己的逻辑；
      * 返回 `false` 表示连接已被拒绝/关闭，子类应 return。
@@ -122,9 +142,12 @@ abstract class BaseGameHandler
 
         $this->clientInfo[(string)$fd] = ['ip' => $clientIp, 'fingerprint' => ''];
 
-        // IP 去重：同一 IP 已存在活跃连接时，踢掉旧连接放行新连接（last-wins）
-        if (Config::get('Server.DenyMultiConnection', true)) {
-            $existingFd = $this->ipToFd[$clientIp] ?? null;
+        // BOT 网关连接：不受同 IP 登录限制（不参与 IP 去重，也不占 ipToFd）
+        $isBotGateway = self::isBotGatewayFd($fd);
+
+        // IP 去重：同一 IP 已存在活跃连接时（任意入口），踢掉旧连接放行新连接（last-wins）
+        if (!$isBotGateway && Config::get('Server.DenyMultiConnection', true)) {
+            $existingFd = self::$ipToFd[$clientIp] ?? null;
             if ($existingFd !== null && $existingFd !== $fd && $server->isEstablished($existingFd)) {
                 Logger::info(static::class . ' WS: kicking stale connection for new one', [
                     'fd' => $fd,
@@ -161,7 +184,9 @@ abstract class BaseGameHandler
             return false;
         }
 
-        $this->ipToFd[$clientIp] = $fd;
+        if (!$isBotGateway) {
+            self::$ipToFd[$clientIp] = $fd;
+        }
 
         Logger::info(static::class . ' WS connected', ['fd' => $fd, 'ip' => $clientIp]);
 
@@ -177,12 +202,12 @@ abstract class BaseGameHandler
      */
     protected function cleanupConnection(Server $server, int $fd): void
     {
-        // IP 反向索引清理
+        // IP 反向索引清理（仅当索引指向当前 fd 时清除，防误删新连接的记录）
         $row = $this->clientInfo[(string)$fd] ?? null;
         if ($row && ($row['ip'] ?? '')) {
-            $idxFd = $this->ipToFd[$row['ip']] ?? null;
+            $idxFd = self::$ipToFd[$row['ip']] ?? null;
             if ($idxFd === $fd) {
-                unset($this->ipToFd[$row['ip']]);
+                unset(self::$ipToFd[$row['ip']]);
             }
         }
         unset($this->clientInfo[(string)$fd]);
@@ -192,6 +217,8 @@ abstract class BaseGameHandler
         $playerId = GameService::getPlayerId($fd);
         if ($playerId) {
             GameService::releasePlayerOnline($playerId, $fd);
+            // 全站在线索引注销（临时聊天邀请搜索用）
+            \App\Services\TempChat\OnlineRegistry::unregister($playerId, $fd);
         }
     }
 
@@ -622,6 +649,10 @@ abstract class BaseGameHandler
      */
     public function claimOnlineLock(Server $server, int $fd, string $playerId): void
     {
+        // BOT 网关连接不占用玩家在线锁：BOT 是 BOT，绑定玩家是绑定玩家，两者可同时在线
+        if (self::isBotGatewayFd($fd)) {
+            return;
+        }
         $row = $this->clientInfo[(string)$fd] ?? [];
         $ip = $row['ip'] ?? '';
         $fp = $row['fingerprint'] ?? '';

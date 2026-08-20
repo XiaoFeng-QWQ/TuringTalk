@@ -52,6 +52,11 @@
                     <path d="M18.36 5.64l1.42-1.42" />
                 </svg>
             </button>
+            <button class="doodle-btn" id="btn-temp-invite" title="临时聊天" style="padding:8px 8px;">
+                <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                </svg>
+            </button>
             <button class="doodle-btn" id="btn-settings" title="设置" style="padding:8px 8px;">
                 <svg class="icon" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="3" />
@@ -93,6 +98,10 @@
                         设置密码（6位以上）：
                     </label>
                     <input id="password-input" type="password" autocomplete="new-password">
+                    <div style="display:flex;gap:6px;margin-top:8px;">
+                        <button class="doodle-btn" id="btn-save-register"
+                            style="flex:1;justify-content:center;font-size:14px;padding:7px 0;">保存账号</button>
+                    </div>
                 </div>
                 <div class="id-card-display" id="id-card-display"
                     style="display:none;text-align:center;padding:16px 0;">
@@ -153,14 +162,21 @@
 
             <p class="section-label">更多玩法</p>
             <div class="game-notes">
-                <a href="/lobby" class="game-note doodle-border" style="background:var(--note-yellow);">
+                <a href="/lobby" class="game-note doodle-border note-yellow" title="进入公共聊天室">
                     <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     </svg>
                     <h3>公共聊天室 <span class="game-note-badge">HOT</span></h3>
                     <p>实时聊天 · 全服公告 · 表情互动</p>
                 </a>
-                <a href="/gomoku" class="game-note doodle-border" style="background:var(--note-green);">
+                <a href="/temp-chat" class="game-note doodle-border note-pink" title="临时聊天（私密房间）">
+                    <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
+                        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                    </svg>
+                    <h3>临时聊天</h3>
+                    <p>私密 · 隐秘空间 · 随时开聊</p>
+                </a>
+                <a href="/gomoku" class="game-note doodle-border note-green" title="五子棋">
                     <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
                         <circle cx="7" cy="7" r="5" fill="currentColor" />
                         <circle cx="17" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
@@ -169,15 +185,6 @@
                     </svg>
                     <h3>五子棋</h3>
                     <p>单机AI · 在线对弈 · 观战聊天</p>
-                </a>
-                <a href="/WhoisAI" class="game-note doodle-border" style="background:var(--note-blue);">
-                    <svg class="icon" viewBox="0 0 24 24" style="width:22px;height:22px;color:var(--ink-black);">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                        <path d="M2 17l10 5 10-5" />
-                        <path d="M2 12l10 5 10-5" />
-                    </svg>
-                    <h3>?! 谁是AI !?</h3>
-                    <p>匹配对战 · 多人混战 · 投票淘汰</p>
                 </a>
             </div>
             <p class="section-label">拓展服务</p>
@@ -221,6 +228,26 @@
                     </h3>
                     <p>
                         给本站打分评价 · 印章表态
+                    </p>
+                </div>
+                <div class="game-note note-green doodle-border" id="btn-bot-apply" role="button" tabindex="0">
+                    <svg class="icon" viewBox="0 0 24 24"
+                        style="width: 28px; height: 28px; color: var(--ink-blue); margin-bottom: 4px; flex-shrink: 0;">
+                        <rect x="4" y="4" width="16" height="16" rx="2" fill="none"
+                            stroke="currentColor" stroke-width="2" />
+                        <rect x="9" y="9" width="6" height="6" fill="none"
+                            stroke="currentColor" stroke-width="2" />
+                        <line x1="9" y1="1" x2="9" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <line x1="15" y1="1" x2="15" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <line x1="9" y1="20" x2="9" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                        <line x1="15" y1="20" x2="15" y2="23" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                    <h3>
+                        BOT
+                        <span class="game-note-badge">NEW</span>
+                    </h3>
+                    <p>
+                        申请或管理你的BOT账号
                     </p>
                 </div>
             </div>
@@ -564,6 +591,18 @@
                     </div>
                 </div>
 
+                <div class="setting-row">
+                    <h4>
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="3" y="11" width="18" height="11" rx="2" />
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                        </svg>
+                        我的玩家ID
+                    </h4>
+                    <p>你的唯一玩家ID，可复制用于绑定BOT等场景</p>
+                    <button class="doodle-btn" id="btn-copy-player-id" style="font-size:12px;padding:4px 12px;">复制我的玩家ID</button>
+                </div>
+
                 <div class="setting-row" id="leaderboard-section">
                     <h4>
                         <svg class="icon" viewBox="0 0 24 24">
@@ -631,6 +670,12 @@
                     </h4>
                     <p style="font-size:12px;">绑定第三方平台后可用它快捷登录。<b
                             style="color:var(--danger);">解绑后若浏览器缓存被清除，将无法再通过该平台登录</b>（仍可用昵称+密码）。</p>
+                    <div id="oauth-avatar-bar"
+                        style="display:flex;align-items:center;gap:12px;margin:8px 0 10px;padding:10px;border:2px solid var(--ink-black);border-radius:8px;">
+                        <div id="avatar-preview"
+                            style="width:44px;height:44px;border-radius:50%;border:2px solid var(--ink-black);background:#e0e0e0;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;overflow:hidden;flex-shrink:0;"></div>
+                        <div style="font-size:12px;color:#888;line-height:1.5;">点各平台行右侧的「同步头像」<br />即可拉取该平台最新头像（无需重新登录）</div>
+                    </div>
                     <div id="oauth-binding-list" style="max-height:260px;overflow-y:auto;margin-top:6px;"></div>
                     <div id="oauth-bind-add" style="margin-top:8px;"></div>
                 </div>
@@ -899,7 +944,7 @@
                 <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
                     <button class="doodle-btn" id="btn-sticker-upload"
                         style="padding:4px 12px;font-size:12px;">上传表情</button>
-                    <input type="file" id="sticker-upload-input" accept="image/png,image/jpeg,image/gif,image/webp"
+                    <input type="file" id="sticker-upload-input" accept="image/png,image/jpeg,image/gif,image/webp" multiple
                         style="display:none;">
                     <span id="sticker-manager-status" style="font-size:12px;color:var(--text-subtle);"></span>
                 </div>
@@ -1239,6 +1284,126 @@
     <script src="https://testingcf.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
     <script src="/shared.js?v="></script>
     <script src="/script.js?v="></script>
+    <script src="/temp-invite.js?v="></script>
+    <script>
+        // 临时聊天邀请（发起入口；复用 /ws 连接接收邀请，script.js 已把 temp_* 消息转发给 TempInvite.handleMessage）
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.TempInvite) {
+                window.TempInvite.init({ autoConnect: false });
+                var btn = document.getElementById('btn-temp-invite');
+                if (btn) btn.addEventListener('click', function () { window.TempInvite.openPanel(); });
+            }
+        });
+    </script>
+
+    <!-- 开放BOT申请弹窗 -->
+    <div id="bot-apply-overlay">
+        <div class="clipboard-drawer">
+            <div class="paper-content doodle-border">
+                <div class="drawer-header">
+                    <h2>开放BOT申请</h2>
+                    <button class="doodle-btn" id="btn-bot-apply-close" title="关闭" style="padding:4px 8px;border:none;">
+                        <svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                    </button>
+                </div>
+                <div class="setting-row">
+                    <h4>联系邮箱</h4>
+                    <p>用于接收审核结果</p>
+                    <input class="doodle-input" id="bot-apply-email" type="email" maxlength="64" autocomplete="off" placeholder="you@example.com">
+                </div>
+                <div class="setting-row">
+                    <h4>申请理由</h4>
+                    <p>至少 10 个字，为什么你想申请一个 BOT 账号？</p>
+                    <textarea class="doodle-input" id="bot-apply-reason" maxlength="500" rows="4" placeholder="为什么你想申请一个BOT账号？"></textarea>
+                </div>
+                <div class="drawer-ops">
+                    <button class="doodle-btn" id="btn-bot-apply-cancel">取消</button>
+                    <button class="doodle-btn" id="btn-bot-apply-confirm" style="background:var(--ink-black);color:#fff;">提交申请</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // 开放BOT申请弹窗逻辑（弹窗DOM已就绪，独立内联，避免依赖 script.js 加载顺序）
+        (function () {
+            var overlay = document.getElementById('bot-apply-overlay');
+            var card = document.getElementById('btn-bot-apply');
+            var emailInput = document.getElementById('bot-apply-email');
+            var reasonInput = document.getElementById('bot-apply-reason');
+            var confirmBtn = document.getElementById('btn-bot-apply-confirm');
+            if (!overlay || !card) return;
+
+            function openApply() {
+                if (!getUserToken()) {
+                    showTopToast('请先注册/登录后再操作', true);
+                    return;
+                }
+                // 先检查是否已有 BOT
+                fetch('/api/bot/panel', {
+                    headers: { 'Authorization': 'Bearer ' + getUserToken() }
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.success) {
+                            // 已有 BOT → 跳转管理面板
+                            window.location.href = '/bot-panel';
+                        } else {
+                            // 无 BOT → 打开申请弹窗
+                            overlay.style.display = 'flex';
+                            emailInput.focus();
+                        }
+                    })
+                    .catch(function () {
+                        // 网络错误 → 回退到申请弹窗
+                        overlay.style.display = 'flex';
+                        emailInput.focus();
+                    });
+            }
+            function closeApply() {
+                if (typeof closeOverlay === 'function') closeOverlay(overlay);
+                else overlay.style.display = 'none';
+            }
+
+            card.addEventListener('click', openApply);
+            document.getElementById('btn-bot-apply-close').addEventListener('click', closeApply);
+            document.getElementById('btn-bot-apply-cancel').addEventListener('click', closeApply);
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) closeApply();
+            });
+
+            confirmBtn.addEventListener('click', function () {
+                var email = emailInput.value.trim();
+                var reason = reasonInput.value.trim();
+                if (!email || !reason) {
+                    showTopToast('请填写邮箱和申请理由', true);
+                    return;
+                }
+                confirmBtn.disabled = true;
+                fetch('/api/bot/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + getUserToken() },
+                    body: JSON.stringify({ email: email, reason: reason })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        confirmBtn.disabled = false;
+                        if (data.success) {
+                            showTopToast(data.message || '申请已提交', false);
+                            if (typeof closeOverlay === 'function') closeOverlay(overlay);
+                            else overlay.style.display = 'none';
+                            emailInput.value = '';
+                            reasonInput.value = '';
+                        } else {
+                            showTopToast(data.error || '提交失败', true);
+                        }
+                    })
+                    .catch(function () {
+                        confirmBtn.disabled = false;
+                        showTopToast('网络错误，请稍后重试', true);
+                    });
+            });
+        })();
+    </script>
 </body>
 
 </html>

@@ -864,8 +864,11 @@ if (savedNickname) {
     if (recoverLine && getUserToken()) {
         recoverLine.style.display = 'none';
     }
-} else {
-    // 首次访问：显示密码输入框
+}
+
+// 未注册（无 token）：始终显示密码设置区
+// （修复电脑端"无法输入密码"：只要本地没有已注册 token，密码框都可输入，游客也能直接保存注册）
+if (!getUserToken()) {
     const passwordLine = document.getElementById('password-input-line');
     if (passwordLine) passwordLine.style.display = '';
 }
@@ -915,16 +918,67 @@ document.getElementById('recover-input-main').addEventListener('keydown', (e) =>
     if (e.key === 'Enter') document.getElementById('btn-recover-main').click();
 });
 
-// 昵称修改（每月一次限制）
+// 保存账号：无需开局即可注册（调用后端 action=register，与 WS 注册同一套防线）
+const btnSaveRegister = document.getElementById('btn-save-register');
+if (btnSaveRegister) {
+    btnSaveRegister.addEventListener('click', () => {
+        const pwdInput = document.getElementById('password-input');
+        const password = pwdInput ? pwdInput.value.trim() : '';
+        if (!password || password.length < 6) { showTopToast('请设置密码（6位以上）'); return; }
+        // 昵称来源：首次访问用输入框；游客（ID卡模式）用已保存昵称
+        let nickname = '';
+        const nLine = document.getElementById('nickname-input-line');
+        const idCardNick = document.getElementById('id-card-nickname');
+        if (nLine && nLine.style.display !== 'none') {
+            nickname = (nicknameInput.value || '').trim();
+        } else if (idCardNick) {
+            nickname = (idCardNick.textContent || '').trim();
+        }
+        if (!nickname) { showTopToast('请先填写昵称'); return; }
+        btnSaveRegister.disabled = true;
+        fetch('/api/generate-player-id?action=register&nickname=' + encodeURIComponent(nickname) + '&password=' + encodeURIComponent(password) + '&fp=' + encodeURIComponent(browserFingerprint))
+            .then(r => r.json())
+            .then(data => {
+                btnSaveRegister.disabled = false;
+                if (data.error) { showTopToast(data.error); return; }
+                if (data.token) setUserToken(data.token);
+                setUserNickname(data.nickname || nickname);
+                if (pwdInput) pwdInput.value = '';
+                updateLbUI();
+                if (data.stats) { updateLbMyStats(data.stats); mergeServerStats(data.stats); }
+                // 切到 ID 卡模式
+                const nLine2 = document.getElementById('nickname-input-line');
+                const sLine2 = document.getElementById('system-id-line');
+                const idCardDisp2 = document.getElementById('id-card-display');
+                const pwdLine2 = document.getElementById('password-input-line');
+                const recLine2 = document.getElementById('recover-line');
+                if (nLine2) nLine2.style.display = 'none';
+                if (sLine2) sLine2.style.display = 'none';
+                if (idCardDisp2) {
+                    idCardDisp2.style.display = 'block';
+                    document.getElementById('id-card-nickname').textContent = data.nickname || nickname;
+                    document.getElementById('id-card-fingerprint').textContent = browserFingerprint;
+                }
+                if (pwdLine2) pwdLine2.style.display = 'none';
+                if (recLine2) recLine2.style.display = 'none';
+                showTopToast('账号注册成功！', false);
+            })
+            .catch(() => { btnSaveRegister.disabled = false; showTopToast('网络错误，请稍后重试'); });
+    });
+    // 密码框回车直接保存
+    const pwdInput = document.getElementById('password-input');
+    if (pwdInput) {
+        pwdInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') btnSaveRegister.click();
+        });
+    }
+}
+
+// 昵称修改（每月限改一次由后端校验）
 document.getElementById('btn-edit-nickname').addEventListener('click', () => {
     const now = new Date();
     const currentYM = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
     const lastUpdate = getUserNicknameUpdatedAt();
-
-    if (lastUpdate === currentYM) {
-        showTopToast('本月已修改过昵称，每月仅可修改一次');
-        return;
-    }
 
     const newNick = prompt('输入新昵称（每月限改一次，当前：' + getUserNickname() + '）', getUserNickname());
     if (!newNick || !newNick.trim()) return;
@@ -1955,11 +2009,25 @@ btnSettings.addEventListener('click', () => {
     settingsOverlay.style.display = 'flex';
     // 更新战绩记录 UI
     updateLbUI();
+    // 更新 OAuth 头像同步区
+    initAvatarSyncUI();
 });
 
 btnCloseSettings.addEventListener('click', () => {
     closeOverlay(settingsOverlay);
 });
+
+// --- OAuth 头像同步 ---
+// 头像预览条（oauth-avatar-bar），同步成功后由各绑定行的「同步头像」按钮刷新
+const avatarPreview = document.getElementById('avatar-preview');
+
+// 刷新头像预览：初始显示昵称首字符（player_id 需同步后返回，再渲染真实头像）
+function initAvatarSyncUI() {
+    if (!avatarPreview) return;
+    avatarPreview.textContent = (getUserNickname() || '?').charAt(0);
+    avatarPreview.style.backgroundImage = 'none';
+    avatarPreview.style.background = getAvatarColor(getUserNickname() || '?');
+}
 
 settingsOverlay.addEventListener('click', (e) => {
     if (e.target === settingsOverlay) {
@@ -2411,40 +2479,68 @@ btnStickerUpload.addEventListener('click', () => {
 });
 
 stickerUploadInput.addEventListener('change', () => {
-    const file = stickerUploadInput.files[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-        stickerManagerStatus.textContent = '图片大小不能超过 2MB';
+    const files = Array.from(stickerUploadInput.files || []);
+    if (!files.length) return;
+    // 过滤超大文件（>2MB 跳过并提示）
+    const validFiles = files.filter(f => f.size <= 2 * 1024 * 1024);
+    const tooBigCount = files.length - validFiles.length;
+    if (!validFiles.length) {
+        stickerManagerStatus.textContent = '所选图片均超过 2MB，已全部跳过';
         return;
     }
-    const reader = new FileReader();
-    stickerManagerStatus.textContent = '上传中...';
-    reader.onload = function () {
-        const base64 = reader.result;
-        const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-        const tok = getUserToken();
-        fetch('/api/sticker/upload', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + tok
-            },
-            body: JSON.stringify({ image_data: base64, file_ext: ext }),
-        })
-            .then(r => r.json())
-            .then(res => {
-                if (res.error) {
-                    stickerManagerStatus.textContent = res.error;
-                } else {
-                    stickerManagerStatus.textContent = '上传成功';
-                    loadStickerManager();
-                }
-            })
-            .catch(() => { stickerManagerStatus.textContent = '上传失败，请重试'; });
-    };
-    reader.readAsDataURL(file);
+    uploadStickerQueue(validFiles, tooBigCount);
     stickerUploadInput.value = '';
 });
+
+/** 批量上传表情（串行队列 + 进度 + 达到上限自动停止） */
+function uploadStickerQueue(files, tooBigCount) {
+    const total = files.length;
+    let failed = 0;
+    const tok = getUserToken();
+
+    function finish() {
+        let msg = failed > 0
+            ? '完成：成功 ' + (total - failed) + ' 张，失败 ' + failed + ' 张'
+            : '全部上传成功（' + total + ' 张）';
+        if (tooBigCount > 0) msg += '，' + tooBigCount + ' 张超过 2MB 已跳过';
+        stickerManagerStatus.textContent = msg;
+        loadStickerManager();
+    }
+
+    function uploadOne(index) {
+        if (index >= total) { finish(); return; }
+        const file = files[index];
+        const reader = new FileReader();
+        reader.onload = function () {
+            const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+            stickerManagerStatus.textContent = '上传中 ' + (index + 1) + '/' + total + '...';
+            fetch('/api/sticker/upload', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + tok
+                },
+                body: JSON.stringify({ image_data: reader.result, file_ext: ext }),
+            })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.error) {
+                        // 达到上限：停止后续上传
+                        if (/上限/.test(res.error)) {
+                            stickerManagerStatus.textContent = res.error + '（已上传 ' + index + ' 张，剩余未上传）';
+                            loadStickerManager();
+                            return;
+                        }
+                        failed++;
+                    }
+                    uploadOne(index + 1);
+                })
+                .catch(() => { failed++; uploadOne(index + 1); });
+        };
+        reader.readAsDataURL(file);
+    }
+    uploadOne(0);
+}
 
 document.querySelectorAll('.sticker-manager-tab').forEach(tab => {
     tab.addEventListener('click', function () {
@@ -2840,6 +2936,11 @@ WebSocketTransport.prototype.connect = function (nickname, duration, password) {
         } catch (e) {
             DebugLogger.log('error', 'WebSocket JSON解析失败', { raw_len: event.data ? event.data.length : 0, error: e.message });
             console.warn('[WS] JSON parse error, raw data:', event.data);
+            return;
+        }
+        // 临时聊天邀请信令（temp_*）：复用本机 /ws 连接接收，转发给全局 TempInvite 处理
+        if (data && typeof data.type === 'string' && data.type.indexOf('temp_') === 0) {
+            if (window.TempInvite && window.TempInvite.handleMessage) window.TempInvite.handleMessage(data);
             return;
         }
         // 管理员 token 验证回调（admin.js 注入 _adminHandler）
@@ -3578,6 +3679,37 @@ document.getElementById('btn-share-record').addEventListener('click', function (
 });
 
 // 改密码 / 首次设置密码（均走现有 WS，模式由"首次设置"勾选切换）
+// 复制我的玩家ID（player_data.id）
+document.getElementById('btn-copy-player-id').addEventListener('click', () => {
+    const token = getUserToken();
+    if (!token) {
+        showTopToast('请先注册/登录后再复制玩家ID', true);
+        return;
+    }
+    let playerId = '';
+    try {
+        const payload = JSON.parse(atob(token.split('.')[0]));
+        playerId = payload.player_id || '';
+    } catch (e) { playerId = ''; }
+    if (!playerId) {
+        showTopToast('获取玩家ID失败，请重新登录', true);
+        return;
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(playerId).then(() => {
+            showTopToast('玩家ID已复制', false);
+        });
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = playerId;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showTopToast('玩家ID已复制', false);
+    }
+});
+
 document.getElementById('btn-change-password').addEventListener('click', () => {
     const form = document.getElementById('change-password-form');
     form.style.display = form.style.display === 'none' ? '' : 'none';
@@ -4778,6 +4910,18 @@ function loadOAuthBindingsUI() {
         const boundMap = {};
         (bindingsData || []).forEach(function (b) { boundMap[b.provider] = b; });
 
+        // 渲染头像预览：bindings 响应已附带 avatar 路径，有则显示图片
+        if (results[1] && results[1].avatar) {
+            const preview = document.getElementById('avatar-preview');
+            if (preview) {
+                preview.textContent = '';
+                preview.style.background = 'none';
+                preview.style.backgroundImage = 'url("' + results[1].avatar + '")';
+                preview.style.backgroundSize = 'cover';
+                preview.style.backgroundPosition = 'center';
+            }
+        }
+
         const providerName = function (key) {
             for (let i = 0; i < providers.length; i++) {
                 if (providers[i].key === key) return providers[i].name;
@@ -4800,11 +4944,57 @@ function loadOAuthBindingsUI() {
                     ? '<span style="color:#999;font-size:11px;margin-left:6px;">' + escapeHtml(b.email) + '</span>'
                     : '';
                 row.innerHTML = '<span style="font-size:13px;">' + escapeHtml(name) + emailSpan + '</span>';
-                const btn = document.createElement('button');
-                btn.className = 'doodle-btn';
-                btn.textContent = '解绑';
-                btn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e74c3c;border-color:#e74c3c;flex-shrink:0;';
-                btn.addEventListener('click', function () {
+
+                const actions = document.createElement('div');
+                actions.style.cssText = 'display:flex;align-items:center;gap:6px;flex-shrink:0;';
+
+                // 同步头像按钮：用该平台 token 拉取最新头像
+                const syncBtn = document.createElement('button');
+                syncBtn.className = 'doodle-btn';
+                syncBtn.textContent = '同步头像';
+                syncBtn.style.cssText = 'font-size:11px;padding:3px 10px;flex-shrink:0;';
+                syncBtn.addEventListener('click', function () {
+                    const tok = getUserToken();
+                    if (!tok) { if (typeof showTopToast === 'function') showTopToast('请先登录', true); return; }
+                    syncBtn.disabled = true;
+                    syncBtn.textContent = '同步中…';
+                    fetch('/api/oauth/sync-avatar', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + tok,
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: 'provider=' + encodeURIComponent(pKey)
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (data.ok && data.player_id) {
+                                // 预热缓存（绕过 max-age 强缓存，强制重新验证 ETag），再刷新预览
+                                fetch(getAvatarUrl(data.player_id), { cache: 'reload' })
+                                    .then(function () {
+                                        const preview = document.getElementById('avatar-preview');
+                                        if (preview) renderAvatar(preview, data.player_id, getUserNickname() || '?');
+                                    })
+                                    .catch(function () { });
+                                if (typeof showTopToast === 'function') showTopToast(name + ' 头像已同步', false);
+                            } else if (typeof showTopToast === 'function') {
+                                showTopToast(data.error || '同步失败，请重新登录该平台后重试', true);
+                            }
+                        })
+                        .catch(function () { if (typeof showTopToast === 'function') showTopToast('网络错误，请稍后再试', true); })
+                        .finally(function () {
+                            syncBtn.disabled = false;
+                            syncBtn.textContent = '同步头像';
+                        });
+                });
+                actions.appendChild(syncBtn);
+
+                // 解绑按钮
+                const unbindBtn = document.createElement('button');
+                unbindBtn.className = 'doodle-btn';
+                unbindBtn.textContent = '解绑';
+                unbindBtn.style.cssText = 'font-size:11px;padding:3px 10px;color:#e74c3c;border-color:#e74c3c;flex-shrink:0;';
+                unbindBtn.addEventListener('click', function () {
                     if (!confirm('确定解绑 ' + name + ' 吗？\n\n解绑后若浏览器缓存被清除，将无法再通过该平台快捷登录（仍可用昵称+密码登录）。')) return;
                     oauthUnbind(pKey).then(function (data) {
                         if (data.ok) {
@@ -4815,7 +5005,9 @@ function loadOAuthBindingsUI() {
                         }
                     });
                 });
-                row.appendChild(btn);
+                actions.appendChild(unbindBtn);
+
+                row.appendChild(actions);
                 listEl.appendChild(row);
             });
         }

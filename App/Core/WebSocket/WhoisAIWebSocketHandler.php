@@ -210,6 +210,10 @@ class WhoisAIWebSocketHandler extends BaseGameHandler
         // 获取/创建玩家身份（含在线唯一性检查）
         $playerId = $this->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
         if (!$playerId) return;
+        // 全站在线索引注册（多人模式 = ingame，临时聊天不可邀请）——仅账号玩家（游客不注册）
+        if (!empty($valid['token'])) {
+            \App\Services\TempChat\OnlineRegistry::register($playerId, 'whoisai', $fd, 'ingame');
+        }
 
         // 检查匹配池中是否已有同名玩家（防止绕过数据库检查，WhoisAI 特有）
         $pool = $this->WhoisAIService->getPool();

@@ -404,7 +404,7 @@ main {
 /* ---- 游戏入口网格 ---- */
 .game-notes {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 20px;
     width: 100%;
 }
@@ -427,6 +427,16 @@ main {
     background: var(--note-pink);
     border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
     cursor: pointer;
+}
+
+.game-note.note-yellow {
+    background: var(--note-yellow);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+}
+
+.game-note.note-green {
+    background: var(--note-green);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
 }
 
 .game-note:hover {
@@ -727,7 +737,8 @@ main {
 #chat-history-detail-overlay,
 #admin-panel-overlay,
 #sticker-manager-overlay,
-#comment-overlay {
+#comment-overlay,
+#bot-apply-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -1638,6 +1649,67 @@ main {
     padding: 8px;
     overflow-y: auto;
     justify-content: flex-start;
+}
+
+/* 表情面板加载指示器（与 lobby-loading / embed-loading 全局风格一致） */
+.sticker-loading {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 32px 0;
+    color: var(--text-secondary, #888);
+    font-size: 13px;
+}
+
+.sticker-loading .bili-spinner {
+    width: 26px;
+    height: 26px;
+    color: var(--ink-blue);
+}
+
+/* 彩蛋音乐悬浮停止条 */
+.egg-music-bar {
+    position: fixed;
+    right: 14px;
+    bottom: 84px;
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--surface-white, #fff);
+    border: 2px solid var(--ink-black);
+    border-radius: 10px;
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, .15);
+    font-size: 13px;
+    animation: egg-pop .25s ease;
+}
+
+.egg-music-bar .egg-music-title {
+    color: var(--ink-blue);
+}
+
+.egg-music-bar .egg-music-stop {
+    padding: 3px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1.5px solid var(--danger, #e74c3c);
+    background: #fff;
+    color: var(--danger, #e74c3c);
+    cursor: pointer;
+}
+
+.egg-music-bar .egg-music-stop:hover {
+    background: var(--danger, #e74c3c);
+    color: #fff;
+}
+
+@keyframes egg-pop {
+    from { transform: scale(.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
 }
 
 .sticker-picker-body.manage-mode {
@@ -3070,3 +3142,310 @@ main {
 
 
 
+
+/* ==================== BOT 管理面板（bot-panel） ==================== */
+.bot-panel-page .panel-wrap {
+    width: min(720px, 100%);
+    margin: 0 auto;
+    flex: 1;
+}
+.bot-panel-page .panel-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 24px;
+}
+.bot-panel-page .card {
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 5px 6px 0 var(--shadow-md);
+    padding: 22px 20px;
+    margin-bottom: 18px;
+}
+.bot-panel-page .card h3 {
+    margin: 0 0 12px;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.bot-panel-page .card h3 .icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.bot-panel-page .field {
+    margin-bottom: 12px;
+}
+.bot-panel-page .field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+.bot-panel-page .panel-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 4px 10px 4px;
+    background: var(--bg-input);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    color: var(--ink-black);
+}
+.bot-panel-page .btn {
+    display: inline-block;
+    padding: 8px 22px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #fff;
+    background: var(--ink-black);
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    cursor: pointer;
+    transition: transform .06s, box-shadow .06s;
+}
+.bot-panel-page .btn:hover {
+    transform: translateY(1px);
+}
+.bot-panel-page .btn:active {
+    transform: translateY(2px);
+}
+.bot-panel-page .btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+.bot-panel-page .btn-ghost {
+    background: transparent;
+    color: var(--ink-black);
+}
+.bot-panel-page .panel-login-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.bot-panel-page .panel-hint {
+    font-size: 11px;
+    color: var(--text-subtle);
+}
+.bot-panel-page .nick-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.bot-panel-page .nick-row .panel-input {
+    flex: 1;
+}
+.bot-panel-page .nick-row .btn {
+    flex-shrink: 0;
+}
+.bot-panel-page .panel-info {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.7;
+}
+.bot-panel-page .key-row {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border-color, rgba(0,0,0,.12));
+}
+.bot-panel-page .key-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.bot-panel-page .key-value {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    word-break: break-all;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    background: var(--bg-input);
+    border: 2px solid var(--ink-black);
+    border-radius: 8px;
+    color: var(--ink-black);
+    margin-bottom: 8px;
+}
+.bot-panel-page .key-actions {
+    display: flex;
+    gap: 8px;
+}
+.bot-panel-page .key-actions .btn {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 12px;
+}
+.bot-panel-page .key-hint {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 6px;
+}
+.bot-panel-page .panel-ops {
+    text-align: center;
+    margin-top: 6px;
+}
+.bot-panel-page .panel-ops .btn + .btn {
+    margin-left: 8px;
+}
+.bot-panel-page .hidden {
+    display: none !important;
+}
+.bot-panel-page .panel-toast {
+    position: fixed;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 500;
+    padding: 8px 18px;
+    font-size: 13px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    box-shadow: 3px 4px 0 var(--shadow-md);
+}
+.bot-panel-page .panel-toast-success {
+    background: var(--note-green);
+    color: var(--ink-black);
+}
+.bot-panel-page .panel-toast-error {
+    background: var(--note-pink);
+    color: var(--danger-dark);
+}
+
+/* ==================== 临时聊天邀请（temp-invite 全站通用） ==================== */
+.temp-invite-flash {
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 500;
+    background: var(--ink-black); color: #fff; padding: 8px 18px;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    font-size: 13px; box-shadow: 4px 6px 0 var(--shadow-md);
+    max-width: 80vw; text-align: center;
+}
+.temp-invite-toast {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 500;
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: var(--note-yellow); border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 4px 6px 0 var(--shadow-md); max-width: min(560px, 92vw);
+    flex-wrap: wrap; justify-content: center;
+}
+.temp-invite-toast-text { font-size: 14px; font-weight: 600; color: var(--ink-black); }
+.temp-invite-btn-yes, .temp-invite-btn-no {
+    padding: 4px 14px; font-size: 13px;
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    cursor: pointer; font-family: inherit;
+}
+.temp-invite-btn-yes { background: var(--success); color: #fff; border: 2px solid var(--success); }
+.temp-invite-btn-no { background: transparent; color: var(--ink-black); border: 2px solid var(--ink-black); }
+
+.temp-invite-panel { position: fixed; inset: 0; z-index: 450; background: var(--overlay-bg); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; padding: 16px; }
+/* ===== 邀请好友弹窗改为与“在线用户 / 点歌”面板一致 ===== */
+#temp-invite-panel .clipboard-drawer {
+    width: min(430px, 92vw);
+    max-height: 72vh;
+    background: var(--note-pink);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px 6px 20px 6px / 6px 20px 6px 20px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    padding: 16px 14px;
+    overflow-y: auto;
+}
+#temp-invite-panel .clipboard-drawer::before { display: none; }
+#temp-invite-panel .clipboard-drawer .paper-content {
+    background: transparent;
+    border: none;
+    padding: 0;
+    max-height: none;
+    overflow-y: visible;
+}
+#temp-invite-panel .clipboard-drawer .drawer-header {
+    border-bottom: 2px dashed var(--border-light);
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+}
+/* 内部容器复用主站 .clipboard-drawer > .paper-content.doodle-border > .drawer-header（与设置弹层一致） */
+.temp-invite-panel-title { font-size: 17px; font-weight: 700; color: var(--ink-black); }
+.temp-invite-panel-close { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--ink-black); }
+.temp-invite-panel-searchbar { display: flex; gap: 10px; margin-bottom: 6px; }
+.temp-invite-panel-input {
+    flex: 1; min-width: 0; padding: 9px 12px; border: 2px solid var(--ink-black);
+    border-radius: 10px 4px 10px 4px; background: var(--bg-input);
+    font-size: 14px; font-family: inherit; outline: none; color: var(--ink-black);
+}
+.temp-invite-panel-searchbtn {
+    padding: 8px 18px; background: transparent; border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    cursor: pointer; font-family: inherit; font-size: 14px; color: var(--ink-black);
+}
+.temp-invite-panel-hint { font-size: 12px; color: var(--text-subtle); margin-bottom: 10px; text-align: left; }
+
+.temp-invite-empty { font-size: 13px; color: var(--text-subtle); padding: 14px 0; text-align: center; }
+.temp-invite-user {
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    background: var(--surface-white); border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 3px 4px 0 var(--shadow-sm); margin-bottom: 8px;
+}
+.temp-invite-user-avatar {
+    width: 32px; height: 32px; border-radius: 20px 6px 18px 6px;
+    background: var(--ink-blue); color: #fff; display: flex; align-items: center;
+    justify-content: center; font-weight: 700; flex-shrink: 0;
+}
+.temp-invite-user-name {
+    flex: 1; min-width: 0; text-align: left; font-weight: 700; font-size: 14px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-black);
+}
+.temp-invite-user-status { font-size: 11px; padding: 2px 8px; border-radius: 20px 6px 18px 6px; border: 1.5px solid var(--ink-black); flex-shrink: 0; }
+.temp-invite-user-status.online { background: var(--note-green); }
+.temp-invite-user-status.busy { background: var(--note-yellow); }
+.temp-invite-user-invite {
+    padding: 5px 12px; font-size: 13px; background: transparent; border: 2px solid var(--ink-black);
+    border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    cursor: pointer; font-family: inherit; color: var(--ink-black);
+}
+.temp-invite-user-disabled {
+    padding: 5px 12px; font-size: 13px; background: var(--border-lighter); color: var(--text-aa);
+    border: 2px solid var(--border-light); border-radius: 10px 255px 15px 225px / 255px 15px 225px 15px;
+    cursor: not-allowed; font-family: inherit;
+}
+
+/* ==================== 开放BOT申请弹窗（对接剪贴板抽屉结构） ==================== */
+#bot-apply-overlay .doodle-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 4px 10px 4px;
+    background: var(--bg-input);
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--ink-black);
+    outline: none;
+}
+#bot-apply-overlay .doodle-input:focus {
+    border-color: var(--ink-blue);
+    background: var(--surface-white);
+}
+#bot-apply-overlay .doodle-input::placeholder {
+    color: var(--text-subtle);
+    font-style: italic;
+}
+#bot-apply-overlay textarea.doodle-input {
+    resize: vertical;
+}
+#bot-apply-overlay .drawer-ops {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 6px;
+}

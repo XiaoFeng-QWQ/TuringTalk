@@ -251,6 +251,10 @@ class GomokuWebSocketHandler extends BaseGameHandler
             $this->clientInfo[$key]['nickname'] = $nickname;
             $this->clientInfo[$key]['player_id'] = $valid['player_id'];
             $this->claimOnlineLock($server, $fd, $valid['player_id']);
+            // 全站在线索引注册（gomoku = ingame）——仅账号玩家（游客不注册）
+            if (!empty($valid['token'])) {
+                \App\Services\TempChat\OnlineRegistry::register($valid['player_id'], 'gomoku', $fd, 'ingame');
+            }
             $this->sendToPlayer($server, $fd, [
                 'type' => 'gomoku_joined',
                 'data' => ['token' => $valid['token'] ?? null, 'player_id' => $valid['player_id']],

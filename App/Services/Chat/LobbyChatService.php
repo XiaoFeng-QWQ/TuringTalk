@@ -69,7 +69,7 @@ class LobbyChatService
         return $msg;
     }
 
-    public function send(string $senderName, string $senderId, string $content, string $ip = '', string $fingerprint = '', ?int $replyToId = null, ?string $replyToName = null, ?string $replyToText = null, array $titles = [], array $specialTitles = []): array
+    public function send(string $senderName, string $senderId, string $content, string $ip = '', string $fingerprint = '', ?int $replyToId = null, ?string $replyToName = null, ?string $replyToText = null, array $titles = [], array $specialTitles = [], bool $isBot = false): array
     {
         $redis = RedisService::connect();
         $this->syncMsgIdFromDb();
@@ -99,6 +99,7 @@ class LobbyChatService
             'reply_to'    => null,
             'time'        => date('H:i:s'),
             'created_at'  => date('Y-m-d H:i:s'),
+            'is_bot'      => $isBot,
         ];
 
         if ($replyToId) {
@@ -109,13 +110,9 @@ class LobbyChatService
             ];
         }
 
-        if (!empty($titles)) {
-            $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
-        }
-
-        if (!empty($specialTitles)) {
-            $msg['sender_special_titles'] = array_values($specialTitles);
-        }
+        // 标签字段恒定返回（无标签为空数组）：BOT 端可稳定读取 sender_titles / sender_special_titles
+        $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
+        $msg['sender_special_titles'] = array_values($specialTitles);
 
         $json = json_encode($msg, JSON_UNESCAPED_UNICODE);
 
@@ -134,7 +131,7 @@ class LobbyChatService
     /**
      * 发送表情消息：写入 Redis 缓存 + 推送异步写入队列
      */
-    public function sendSticker(string $senderName, string $senderId, string $stickerId, string $stickerName, string $stickerUrl, string $ip = '', string $fingerprint = '', array $titles = [], array $specialTitles = []): array
+    public function sendSticker(string $senderName, string $senderId, string $stickerId, string $stickerName, string $stickerUrl, string $ip = '', string $fingerprint = '', array $titles = [], array $specialTitles = [], bool $isBot = false): array
     {
         $redis = RedisService::connect();
         $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
@@ -150,16 +147,13 @@ class LobbyChatService
             'sticker_name' => mb_substr($stickerName, 0, 32),
             'sticker_url'  => $stickerUrl,
             'time'         => date('H:i:s'),
+            'is_bot'       => $isBot,
             'created_at'   => date('Y-m-d H:i:s'),
         ];
 
-        if (!empty($titles)) {
-            $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
-        }
-
-        if (!empty($specialTitles)) {
-            $msg['sender_special_titles'] = array_values($specialTitles);
-        }
+        // 标签字段恒定返回（无标签为空数组）：BOT 端可稳定读取 sender_titles / sender_special_titles
+        $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
+        $msg['sender_special_titles'] = array_values($specialTitles);
 
         $json = json_encode($msg, JSON_UNESCAPED_UNICODE);
 
@@ -197,13 +191,9 @@ class LobbyChatService
             'created_at'  => date('Y-m-d H:i:s'),
         ];
 
-        if (!empty($titles)) {
-            $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
-        }
-
-        if (!empty($specialTitles)) {
-            $msg['sender_special_titles'] = array_values($specialTitles);
-        }
+        // 标签字段恒定返回（无标签为空数组）：BOT 端可稳定读取 sender_titles / sender_special_titles
+        $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
+        $msg['sender_special_titles'] = array_values($specialTitles);
 
         $json = json_encode($msg, JSON_UNESCAPED_UNICODE);
 

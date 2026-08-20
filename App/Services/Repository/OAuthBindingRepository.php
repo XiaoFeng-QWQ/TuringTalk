@@ -43,6 +43,9 @@ class OAuthBindingRepository
         // player_data 补 email 列（OAuth 快捷登录跨平台合并用）
         Database::ensureColumn($pdo, 'player_data', 'email', 'VARCHAR(128) NOT NULL DEFAULT ""');
 
+        // 绑定表补 avatar_path 列（OAuth 头像本地存储路径）
+        Database::ensureColumn($pdo, 'player_oauth_bindings', 'avatar_path', 'VARCHAR(255) NOT NULL DEFAULT ""');
+
         self::$initialized = true;
     }
 
@@ -74,6 +77,23 @@ class OAuthBindingRepository
         $stmt = $pdo->prepare(
             'SELECT provider, provider_id, email, created_at
              FROM player_oauth_bindings WHERE player_id = :pid ORDER BY id ASC'
+        );
+        $stmt->execute([':pid' => $playerId]);
+        return $stmt->fetchAll() ?: [];
+    }
+
+    /**
+     * 获取玩家所有绑定（含 access_token，仅服务端内部同步头像用，不返回前端）。
+     * 按 created_at DESC，最近登录的绑定优先。
+     *
+     * @return array<int, array{provider: string, provider_id: string, access_token: string}>
+     */
+    public static function getByPlayerIdWithTokens(string $playerId): array
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'SELECT provider, provider_id, access_token
+             FROM player_oauth_bindings WHERE player_id = :pid ORDER BY created_at DESC'
         );
         $stmt->execute([':pid' => $playerId]);
         return $stmt->fetchAll() ?: [];
@@ -163,6 +183,35 @@ class OAuthBindingRepository
         $pdo = Database::connect();
         $pdo->prepare('UPDATE player_data SET email = :e WHERE id = :id')
             ->execute([':e' => $email, ':id' => $playerId]);
+    }
+
+    /**
+     * 更新 OAuth 绑定的头像本地路径（每次登录时刷新）。
+     */
+    public static function updateAvatarPath(string $playerId, string $provider, string $avatarPath): void
+    {
+        if ($avatarPath === '') return;
+        $pdo = Database::connect();
+        $pdo->prepare('UPDATE player_oauth_bindings SET avatar_path = :ap WHERE player_id = :pid AND provider = :p')
+            ->execute([':ap' => $avatarPath, ':pid' => $playerId, ':p' => $provider]);
+    }
+
+    /**
+     * 获取玩家最近登录的绑定中，有头像的那条路径。
+     * 按 created_at DESC 取第一条非空 avatar_path。
+     */
+    public static function getAvatarPath(string $playerId): string
+    {
+        if ($playerId === '') return '';
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare(
+            'SELECT avatar_path FROM player_oauth_bindings
+             WHERE player_id = :pid AND avatar_path != ""
+             ORDER BY created_at DESC LIMIT 1'
+        );
+        $stmt->execute([':pid' => $playerId]);
+        $path = $stmt->fetchColumn();
+        return $path ?: '';
     }
 
     /**

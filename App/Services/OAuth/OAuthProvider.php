@@ -45,7 +45,7 @@ interface OAuthProvider
      * 用 access_token 获取用户信息。
      *
      * @param string $accessToken access_token。
-     * @return array{provider_id: string, nickname: string, email: string}|null
+     * @return array{provider_id: string, nickname: string, email: string, avatar: string}|null
      */
     public function getUserInfo(string $accessToken): ?array;
 }

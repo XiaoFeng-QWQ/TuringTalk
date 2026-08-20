@@ -231,7 +231,8 @@ class JudgeHandler
                         $botGuess = 'human';
                         $botResult = $this->game->gameService()->recordBotGuess($sessionId, $botGuess);
 
-                        $opponentTruth = 'ai';
+                        // 随机揭示对面身份：50% 说真人 / 50% 说 AI（图灵测试迷惑玩法）
+                        $opponentTruth = (random_int(0, 1) === 0) ? 'ai' : 'human';
                         $myName = $session['player' . $index . '_nickname'] ?? '';
                         $this->game->sendToPlayer($server, $fd, [
                             'type' => 'judged',

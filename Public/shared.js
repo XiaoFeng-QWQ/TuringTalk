@@ -2,6 +2,9 @@
  * 共享工具：顶部 toast 通知 + 用户数据存储（script.js / whoisai_script.js 共用）
  */
 
+// 清理历史残留：某旧版本曾把主题数据写入 key="undefined"
+try { if (localStorage.getItem('undefined')) localStorage.removeItem('undefined'); } catch (e) { }
+
 // ---- Toast ----
 
 function showTopToast(message, isError = true) {
@@ -326,33 +329,44 @@ function renderSharedStickerPicker(bodyEl, stickerMap, onClickSticker) {
         return;
     }
 
+    // 一次性构建 HTML 再注入（避免逐个 appendChild 触发多次 reflow，表情多时卡顿）
+    let html = '';
     ids.forEach((id) => {
         let s = stickerMap[id];
-        let item = document.createElement('div');
-        item.className = 'sticker-picker-item';
-        if (favs.indexOf(id) !== -1) item.classList.add('favorited');
-        item.title = s.name;
-        item.innerHTML = '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">';
-
-        // 表情图加载失败时，直接从列表中移除该项（不展示）
-        let img = item.querySelector('img');
-        img.addEventListener('error', function () {
-            item.remove();
-        });
-
-        item.addEventListener('contextmenu', function (e) {
-            e.preventDefault();
-        });
-        item.addEventListener('selectstart', function (e) {
-            e.preventDefault();
-        });
-
-        item.addEventListener('click', function () {
-            onClickSticker(id, s);
-        });
-
-        bodyEl.appendChild(item);
+        let favCls = favs.indexOf(id) !== -1 ? ' favorited' : '';
+        html += '<div class="sticker-picker-item' + favCls + '" data-sid="' + escapeHtmlAttr(id) + '" title="' + escapeHtmlAttr(s.name) + '">' +
+            '<img src="' + escapeHtmlAttr(s.url) + '" alt="' + escapeHtmlAttr(s.name) + '" loading="lazy">' +
+            '</div>';
     });
+    bodyEl.innerHTML = html;
+
+    // 事件委托：点击/右键/图片错误 统一处理（避免为每个表情绑定监听器）
+    let sidMap = stickerMap;
+    let onItemClick = function (ev) {
+        let item = ev.target && ev.target.closest ? ev.target.closest('.sticker-picker-item') : null;
+        if (!item || !bodyEl.contains(item)) return;
+        let id = item.getAttribute('data-sid');
+        if (id && sidMap[id]) {
+            onClickSticker(id, sidMap[id]);
+        }
+    };
+    let onItemCtx = function (ev) {
+        let item = ev.target && ev.target.closest ? ev.target.closest('.sticker-picker-item') : null;
+        if (item && bodyEl.contains(item)) ev.preventDefault();
+    };
+    let onItemSelect = function (ev) { ev.preventDefault(); };
+    // 全局事件委托（每次渲染只绑定一次到 bodyEl 自身；用标志防重复绑定）
+    if (!bodyEl.dataset.pickerDelegate) {
+        bodyEl.dataset.pickerDelegate = '1';
+        bodyEl.addEventListener('click', onItemClick);
+        bodyEl.addEventListener('contextmenu', onItemCtx);
+        bodyEl.addEventListener('selectstart', onItemSelect);
+    }
+    // 图片加载失败：移除该项（用事件委托监听 error 冒泡）
+    bodyEl.addEventListener('error', function (ev) {
+        let item = ev.target && ev.target.closest ? ev.target.closest('.sticker-picker-item') : null;
+        if (item && bodyEl.contains(item)) item.remove();
+    }, true);
 }
 
 // 统一解析表情 URL：优先用服务端下发的 url，回退查本地 stickerMap
@@ -568,6 +582,81 @@ function oauthCleanUrlParams() {
     const qs = params.toString();
     const newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
     window.history.replaceState(null, '', newUrl);
+}
+
+// ================================================================
+// 头像渲染工具（各页面共用）
+// ================================================================
+
+/**
+ * 获取头像 API URL。
+ * @param {string} playerId
+ * @returns {string}
+ */
+function getAvatarUrl(playerId) {
+    return '/api/avatar/' + encodeURIComponent(playerId);
+}
+
+/**
+ * 根据昵称计算背景色（与各页面 getAvatarColor 算法保持一致）。
+ * @param {string} name
+ * @returns {string}
+ */
+function getAvatarColor(name) {
+    if (!name) return '#d1f2d3';
+    const colors = [
+        '#d1f2d3', '#d3e2ed', '#fdf5c9', '#fde2e4',
+        '#c8ead1', '#d0ddf0', '#f6ecc0', '#f8d5da',
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+}
+
+/**
+ * 渲染头像元素到指定容器。
+ *
+ * 有 playerId 时尝试加载 OAuth 头像，失败降级为昵称首字符。
+ * 降级时不写内联背景色，保留容器自身 class 的默认背景与文字色
+ * （如 .lobby-avatar 的 var(--note-green) / 自己消息 var(--note-blue)）。
+ *
+ * @param {HTMLElement} container 头像容器 DOM 元素。
+ * @param {string}      playerId  玩家 ID，用于构造头像 API URL。
+ * @param {string}      nickname  玩家昵称，用于降级渲染。
+ */
+function renderAvatar(container, playerId, nickname) {
+    if (!container) return;
+
+    if (playerId) {
+        const img = new Image();
+        img.onload = function () {
+            container.textContent = '';
+            container.style.backgroundImage = 'url(' + getAvatarUrl(playerId) + ')';
+            container.style.backgroundSize = 'cover';
+            container.style.backgroundPosition = 'center';
+        };
+        img.onerror = function () {
+            container.style.backgroundImage = 'none';
+            container.textContent = (nickname || '?').charAt(0);
+        };
+        img.src = getAvatarUrl(playerId);
+    } else {
+        container.textContent = (nickname || '?').charAt(0);
+    }
+}
+
+/**
+ * 快速创建头像 DOM 元素。
+ * @param {string} playerId
+ * @param {string} nickname
+ * @returns {HTMLElement}
+ */
+function createAvatarElement(playerId, nickname) {
+    const el = document.createElement('div');
+    renderAvatar(el, playerId, nickname);
+    return el;
 }
 
 /**

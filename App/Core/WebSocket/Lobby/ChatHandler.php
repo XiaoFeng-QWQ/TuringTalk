@@ -4,6 +4,7 @@ namespace App\Core\WebSocket\Lobby;
 
 use Swoole\WebSocket\Server;
 use App\Core\Sanitizer;
+use App\Core\WebSocket\BaseGameHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Enums\LobbyMessageType;
 use App\Services\Chat\LobbyChatService;
@@ -12,8 +13,10 @@ use App\Services\Game\GameService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Repository\BanRepository;
+use App\Services\Repository\MacroRepository;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ReportRepository;
+use App\Services\TempChat\OnlineRegistry;
 
 /**
  * 聊天室聊天域处理器：加入、发言、表情、拍一拍、按钮、投票、举报、撤回、
@@ -41,15 +44,38 @@ class ChatHandler
             return;
         }
 
-        // 统一身份验证（Token/密码验证，cross模式共用）
-        $valid = $this->game->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
-        if (!$valid['success']) {
-            $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $valid['error']]);
-            $server->close($fd);
-            return;
+        // BOT 网关直绑身份（BotGateway 已在 /bot/ 连接时校验 player_id+key）
+        // 必须校验连接来源：只有 BOT 网关 fd 可携带 bot_player_id，普通连接伪造一律拒绝
+        $botPlayerId = Sanitizer::identifier($data['bot_player_id'] ?? '');
+        if ($botPlayerId !== '') {
+            if (!BaseGameHandler::isBotGatewayFd($fd)) {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => '非法请求']);
+                $server->close($fd);
+                return;
+            }
+            // BOT 使用独立账户ID（bot_account_id，复用玩家身份体系），绑定玩家仅作归属标记
+            // BOT 账户昵称由 BotGateway 注入（bot_list.nickname），不依赖 player_data
+            $nickname = Sanitizer::nickname($data['nickname'] ?? $nickname);
+            if ($nickname === '') {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => 'BOT 昵称不能为空']);
+                $server->close($fd);
+                return;
+            }
+            $playerId = $botPlayerId;
+            GameService::setPlayerId($fd, $playerId);
+            $this->game->claimOnlineLock($server, $fd, $playerId); // BOT 网关 fd 内部豁免在线锁
+            $valid = ['nickname' => $nickname, 'player_id' => $playerId, 'token' => null];
+        } else {
+            // 统一身份验证（Token/密码验证，cross模式共用）
+            $valid = $this->game->validatePlayerIdentity($fd, $nickname, Sanitizer::identifier($data['password'] ?? ''), Sanitizer::identifier($data['player_token'] ?? ''));
+            if (!$valid['success']) {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => $valid['error']]);
+                $server->close($fd);
+                return;
+            }
+            $nickname = $valid['nickname'];
+            $playerId = $valid['player_id'] ?? null;
         }
-        $nickname = $valid['nickname'];
-        $playerId = $valid['player_id'] ?? null;
 
         // 新玩家：立即创建 player_data 记录（聊天室没有"对局结束"时机）
         if (!$playerId) {
@@ -80,6 +106,10 @@ class ChatHandler
             'nickname'  => $nickname,
             'player_id' => $playerId,
         ]);
+        // 全站在线索引注册（临时聊天邀请搜索用）——仅注册有账号身份的玩家（游客不注册，防碎片化残留/重复显示）
+        if ($playerId && !empty($valid['token'])) {
+            OnlineRegistry::register((string)$playerId, 'lobby', $fd, 'online');
+        }
 
         // 作废佩戴标签缓存：重连/重新 join 后首次发消息直接回源 DB，避免命中旧缓存导致标签短暂消失
         if ($playerId !== null && $playerId !== '') {
@@ -89,7 +119,10 @@ class ChatHandler
         $this->game->sendToPlayer($server, $fd, [
             'type'          => 'lobby_joined',
             'nickname'      => $nickname,
+            'player_id'     => (string)$playerId,
             'token'         => $valid['token'] ?? GameService::getPlayerCode($fd) ?? null,
+            'sender_titles' => $playerId ? PlayerStatsRepository::getWornTags($playerId) : [],
+            'sender_special_titles' => $playerId ? PlayerStatsRepository::getWornSpecialTags($playerId) : [],
         ]);
 
         // 身份验证通过后再下发历史消息与在线列表（防止 token 失效用户直接读取）
@@ -169,6 +202,9 @@ class ChatHandler
         // 清洗 @@ 音效链接和 ![图片](url) 链接：非法 URL 去除前缀变为纯文本
         $content = $this->sanitizeMediaUrls($content);
 
+        // 宏操作：定义/删除（带发送者身份注册到宏库）
+        $this->handleMacroOps($server, $fd, $content, $playerId, $nickname);
+
         // 引用消息
         $replyToId = null;
         $replyToName = null;
@@ -220,10 +256,10 @@ class ChatHandler
             $replyToName,
             $replyToText,
             $titles,
-            $specialTitles
+            $specialTitles,
+            !empty($data['_bot'])
         );
-
-        // 广播给所有在线用户
+        $isBot = !empty($data['_bot']); // BOT 接口自动注入的隐藏标记
         $broadcastData = [
             'type'        => 'lobby_chat',
             'id'          => $msg['id'],
@@ -231,6 +267,7 @@ class ChatHandler
             'sender_id'   => $msg['sender_id'] ?? '',
             'content'     => $msg['content'],
             'msg_type'    => $msg['type'] ?? '', // markdown
+            'is_bot'      => $isBot,
             'sender_titles' => $msg['sender_titles'] ?? [],
             'sender_special_titles' => $msg['sender_special_titles'] ?? [],
             'reply_to'    => $msg['reply_to'],
@@ -261,6 +298,79 @@ class ChatHandler
     }
 
     /**
+     * 宏操作：检测消息中的 [!宏:...]（定义）与 [!宏删:...]（删除），带发送者身份注册到宏库。
+     * 消息本身仍正常走解析渲染（宏定义显示为展示卡片）。
+     */
+    private function handleMacroOps(Server $server, int $fd, string $content, string $playerId, string $nickname): void
+    {
+        if ($playerId === '') return;
+        // 代码块保护：``` fenced 与 `内联` 内的宏语法仅作展示，不注册（与解析器一致）
+        $scanContent = preg_replace('/```[\s\S]*?```|`[^`\n]*`/', "\x00", $content);
+
+        // 宏删除：[!宏删:名称]
+        $raw = $this->extractMdComponentRaw($scanContent, '宏删');
+        if ($raw !== null) {
+            $del = MacroRepository::parseDelete($raw);
+            if (!$del['ok']) {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => $del['error'] ?? '删除格式错误']);
+                return;
+            }
+            $res = MacroRepository::delete($del['name'], $playerId);
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => $res['ok'] ? '宏「' . $del['name'] . '」已删除' : ($res['error'] ?? '删除失败'),
+            ]);
+            return;
+        }
+
+        // 宏定义：[!宏:名称|昵称(参数)=模板]
+        $raw = $this->extractMdComponentRaw($scanContent, '宏');
+        if ($raw !== null) {
+            $def = MacroRepository::parseDefinition($raw);
+            if (!$def['ok']) {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => $def['error'] ?? '宏格式错误']);
+                return;
+            }
+            $res = MacroRepository::save($def['name'], $def['nick'], $def['params'], $def['template'], $playerId, $nickname);
+            if (!$res['ok']) {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_system', 'text' => $res['error'] ?? '保存失败']);
+                return;
+            }
+            $triggerKey = $def['nick'] !== '' ? $def['nick'] : $def['name'];
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '宏「' . $def['name'] . '」已保存，用 [!触发宏:' . $triggerKey . '] 触发',
+            ]);
+        }
+    }
+
+    /**
+     * 深度感知提取文本中指定类型的组件 raw 内容（[!类型:raw]），返回 raw 或 null。
+     */
+    private function extractMdComponentRaw(string $text, string $type): ?string
+    {
+        $needle = '[!' . $type . ':';
+        $pos = mb_strpos($text, $needle);
+        if ($pos === false) return null;
+
+        $rawStart = $pos + mb_strlen($needle); // ':' 之后
+        $depth = 0;
+        $len = mb_strlen($text);
+        for ($i = $rawStart; $i < $len; $i++) {
+            $ch = mb_substr($text, $i, 1);
+            if ($ch === '[') {
+                $depth++;
+            } elseif ($ch === ']') {
+                if ($depth === 0) {
+                    return mb_substr($text, $rawStart, $i - $rawStart);
+                }
+                $depth--;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 发送表情：校验 sticker ID，广播专用类型（非文本嵌入）
      */
     public function handleSticker(Server $server, int $fd, array $data): void
@@ -283,6 +393,7 @@ class ChatHandler
                 'sticker_url' => $sticker['url'] ?? '',
                 'sender_name' => $info['nickname'],
                 'sender_id'   => $playerId,
+                'is_bot'      => !empty($data['_bot']),
                 'time'        => date('H:i:s'),
                 'created_at'  => date('Y-m-d H:i:s'),
             ]);
@@ -301,10 +412,14 @@ class ChatHandler
             $info['ip'] ?? '',
             $info['fingerprint'] ?? '',
             $titles,
-            $specialTitles
+            $specialTitles,
+            !empty($data['_bot'])
         );
 
         // 实时广播完整消息给所有在线用户（含消息ID/时间，供撤回与回复使用）
+        // 广播不下发 sender_ip/sender_fp（隐私 + 减流量）
+        unset($msg['sender_ip'], $msg['sender_fp']);
+        $msg['is_bot'] = !empty($data['_bot']);
         $this->game->broadcastLobby($server, 0, $msg);
     }
 

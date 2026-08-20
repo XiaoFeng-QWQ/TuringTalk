@@ -1,0 +1,453 @@
+/* ==================== 临时聊天（补充样式，主体布局完全复用 lobby.css） ==================== */
+
+/* 邀请页容器居中（lobby-match-panel 默认 700px 靠左，这里覆盖为居中，仅影响临时聊天页） */
+#lobby-match-panel {
+    margin: 0 auto;
+}
+
+/* ---- 邀请页（便签卡） ---- */
+.temp-invite-wrap {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    padding: 32px 16px;
+    box-sizing: border-box;
+}
+
+.temp-card {
+    width: min(520px, 94vw);
+    padding: 28px 24px 24px;
+    text-align: center;
+    box-shadow: 4px 6px 0 var(--shadow-md);
+}
+
+.temp-card.note-yellow {
+    background: var(--note-yellow);
+}
+
+.temp-card-title {
+    font-size: 20px;
+    margin: 0 0 8px;
+    color: var(--ink-black);
+}
+
+.temp-card-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0 0 18px;
+}
+
+.temp-search-hint {
+    font-size: 12px;
+    color: var(--text-subtle);
+    margin-bottom: 12px;
+    text-align: left;
+}
+
+/* ---- 邀请页搜索 ---- */
+.temp-search-bar {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+
+.temp-search-input {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 12px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 4px 10px 4px;
+    background: var(--bg-input);
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--ink-black);
+    outline: none;
+}
+
+.temp-search-input:focus {
+    border-color: var(--ink-blue);
+    background: var(--surface-white);
+}
+
+.temp-search-input::placeholder {
+    color: var(--text-subtle);
+    font-style: italic;
+}
+
+.temp-search-results {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+    width: 100%;
+}
+
+.temp-user-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+
+.temp-user-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 20px 6px 18px 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: #fff;
+    background: var(--ink-blue);
+    flex-shrink: 0;
+}
+
+.temp-user-name {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    font-weight: 700;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.temp-user-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px 6px 18px 6px;
+    border: 1.5px solid var(--ink-black);
+    flex-shrink: 0;
+}
+
+.temp-user-status.online {
+    background: var(--note-green);
+}
+
+.temp-user-status.ingame {
+    background: var(--note-yellow);
+}
+
+.temp-invite-btn {
+    padding: 5px 12px;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.temp-search-empty {
+    font-size: 13px;
+    color: var(--text-subtle);
+    padding: 16px 0;
+}
+
+/* ---- 房间顶部条（对方昵称 + 退出） ---- */
+.temp-peer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 2px solid var(--ink-black);
+    background: var(--note-blue);
+    gap: 10px;
+}
+
+.temp-peer-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.temp-peer-label {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.temp-peer-name {
+    font-weight: 700;
+    font-size: 15px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--ink-blue);
+}
+
+/* 房间顶部条：对方头像 */
+.temp-peer-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--ink-black);
+    background: var(--ink-blue);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+    overflow: hidden;
+    background-position: center;
+    background-size: cover;
+}
+
+/* temp-msg-system 样式删除，系统消息使用 lobby-msg system 类（由 lobby.css 提供） */
+
+/* ---- 顶部邀请提示 ---- */
+.temp-invite-toast {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 400;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 4px 6px 0 var(--shadow-md);
+    max-width: min(560px, 92vw);
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.temp-invite-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-black);
+}
+
+.temp-invite-yes {
+    padding: 4px 14px;
+    font-size: 13px;
+    background: var(--success);
+    color: #fff;
+    border-color: var(--success);
+}
+
+.temp-invite-no {
+    padding: 4px 14px;
+    font-size: 13px;
+    background: transparent;
+    color: var(--ink-black);
+    border: 2px solid var(--ink-black);
+}
+
+/* ---- 举报弹窗 ---- */
+.temp-report-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    background: var(--overlay-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.temp-report-box {
+    width: min(420px, 92vw);
+    padding: 20px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+}
+
+.temp-report-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+.temp-report-reason {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 90px;
+    padding: 8px 10px;
+    border: 2px solid var(--ink-black);
+    border-radius: 10px 4px 10px 4px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    background: var(--bg-input);
+    outline: none;
+}
+
+.temp-report-ops {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    justify-content: flex-end;
+}
+
+@media (max-width: 600px) {
+    .temp-search-bar {
+        flex-direction: column;
+    }
+    .temp-search-btn {
+        width: 100%;
+    }
+}
+
+/* ==================== 响应式适配（手机 / 平板 / 电脑） ==================== */
+
+/* ---- 平板（≤900px） ---- */
+@media (max-width: 900px) {
+    .temp-invite-wrap {
+        padding: 24px 12px;
+    }
+    .temp-peer-name {
+        font-size: 14px;
+    }
+}
+
+/* ---- 手机（≤600px） ---- */
+@media (max-width: 600px) {
+    .temp-invite-wrap {
+        padding: 16px 10px;
+    }
+    .temp-card {
+        width: 100%;
+        padding: 20px 14px 16px;
+    }
+    .temp-card-title {
+        font-size: 17px;
+    }
+    .temp-card-desc {
+        font-size: 12px;
+        margin-bottom: 14px;
+    }
+    .temp-search-bar {
+        flex-direction: column;
+        gap: 8px;
+    }
+    .temp-search-btn {
+        width: 100%;
+        padding: 9px 18px;
+    }
+    .temp-search-hint {
+        font-size: 11px;
+    }
+    .temp-user-item {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+    .temp-user-avatar {
+        width: 30px;
+        height: 30px;
+        font-size: 13px;
+    }
+    .temp-user-name {
+        font-size: 13px;
+    }
+    .temp-user-status {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
+    .temp-invite-btn {
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+    /* 房间顶部条 */
+    .temp-peer-bar {
+        padding: 6px 10px;
+        gap: 6px;
+    }
+    .temp-peer-label {
+        font-size: 11px;
+    }
+    .temp-peer-left {
+        gap: 4px;
+    }
+    .temp-peer-bar .doodle-btn {
+        padding: 5px 10px;
+        font-size: 12px;
+    }
+    /* 邀请提示 */
+    .temp-invite-toast {
+        top: 8px;
+        padding: 8px 12px;
+        gap: 8px;
+        max-width: 96vw;
+    }
+    .temp-invite-text {
+        font-size: 13px;
+    }
+    .temp-invite-yes,
+    .temp-invite-no {
+        padding: 4px 10px;
+        font-size: 12px;
+    }
+    /* 举报弹窗 */
+    .temp-report-box {
+        padding: 16px 14px;
+    }
+}
+
+/* ---- 超小屏（≤380px） ---- */
+@media (max-width: 380px) {
+    .temp-user-status {
+        display: none; /* 状态徽章让位给邀请按钮 */
+    }
+    .temp-peer-bar .doodle-btn svg {
+        display: none; /* 退出按钮只留文字 */
+    }
+}
+
+/* ---- 大屏（≥1400px） ---- */
+@media (min-width: 1400px) {
+    .temp-card {
+        width: min(560px, 94vw);
+    }
+}
+
+/* ==================== 消息长按功能菜单（手绘风） ==================== */
+.temp-msg-menu {
+    position: fixed;
+    z-index: 900;
+    min-width: 150px;
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 4px 5px 0 var(--shadow-md);
+    padding: 6px;
+    font-family: Menlo, Consolas, "Courier New", monospace;
+}
+.temp-msg-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--ink-black);
+    border-radius: 10px 4px 10px 4px;
+    cursor: pointer;
+    user-select: none;
+}
+.temp-msg-menu-item:hover {
+    background: var(--note-green);
+}
+.temp-msg-menu-item svg {
+    flex-shrink: 0;
+}
+
+/* ==================== 静态样式收编（原 JS 内联，转 class） ==================== */
+.temp-toast {
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 400;
+    background: var(--ink-black); color: #fff; padding: 8px 18px;
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    font-size: 13px; box-shadow: 4px 6px 0 rgba(0,0,0,.2);
+    max-width: 80vw; text-align: center;
+}
+.temp-msg-overlay { position: fixed; inset: 0; z-index: 800; background: transparent; }
+.temp-sticker-placeholder { color: var(--text-muted); font-style: italic; }
+.temp-sticker-empty { text-align: center; color: var(--text-muted); padding: 20px; font-size: 13px; }
+.temp-msg-menu-icon { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }

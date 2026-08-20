@@ -9,6 +9,10 @@
     const HEARTBEAT_INTERVAL = 5000;
     const PONG_GRACE = 5000;
 
+    // v3 动作：中文动作名列表 + 后端英文 action_type → 中文动作映射（渲染/执行共用）
+    const V3_ACTION_CN = ['发送', '复制', '弹窗', '跳转', '开关', '显示', '隐藏', '倒计时', '变量', '循环', '洗牌', '计时', '音乐', '随机', '等待', '分支', '动作链'];
+    const V3_ACTION_MAP = { send: '发送', copy: '复制', modal: '弹窗', url: '跳转', switch: '开关', get: '显示', hide: '隐藏', timer: '倒计时', stopwatch: '计时', var: '变量', loop: '循环', shuffle: '洗牌', music: '音乐', rand: '随机', wait: '等待', branch: '分支', chain: '动作链' };
+
     // 全局捕获图片加载错误：任何 <img> 加载失败统一替换为提示文本
     document.addEventListener('error', function (e) {
         const t = e.target;
@@ -58,6 +62,8 @@
     const $btnSong = document.getElementById('lobby-btn-song');
     // MD 语法教程（跳转网站新窗口）
     const $btnMdHelp = document.getElementById('lobby-btn-md-help');
+    // 我的宏（自定义 MD 组件模板管理）
+    const $btnMyMacros = document.getElementById('btn-my-macros');
     // 系统消息显示设置
     const $btnSysMsg = document.getElementById('lobby-btn-sysmsg');
     const $sysMsgPanel = document.getElementById('lobby-sysmsg-panel');
@@ -65,6 +71,7 @@
     const $sysMsgJoinLeave = document.getElementById('lobby-sysmsg-joinleave');
     const $sysMsgRevoke = document.getElementById('lobby-sysmsg-revoke');
     const $sysMsgOther = document.getElementById('lobby-sysmsg-other');
+    const $sysMsgEgg = document.getElementById('lobby-sysmsg-egg');
     const $btnMore = document.getElementById('lobby-btn-more');
     const $headerMoreMenu = document.getElementById('lobby-header-more-menu');
     const $songPanel = document.getElementById('lobby-song-panel');
@@ -95,6 +102,9 @@
     let intentionalClose = false;
     let banned = false;
     let myNickname = '';
+    let myPlayerId = '';           // 自己的玩家ID（lobby_joined 下发），用于本地即时渲染头像
+    let myWornTitles = [];        // 缓存的自己的标签（重连后补全用）
+    let myWornSpecialTitles = []; // 缓存的自己的特殊标签
     let lastSentStickerId = '';   // 本地渲染去重，防止服务端广播回传导致重复
     let replyTarget = null;      // { id, name, text }
     let pendingChat = null;      // 待确认的发送内容 { content, reply }，限流/断线失败时回退输入框
@@ -126,7 +136,7 @@
     let notifyEnabled = getUserdata().lobby_notify ?? false;
 
     // ==================== 系统消息显示设置 ====================
-    const SYS_MSG_DEFAULT = { joinLeave: true, revoke: true, other: true };
+    const SYS_MSG_DEFAULT = { joinLeave: true, revoke: true, other: true, egg: false };
     let sysMsgSettings = Object.assign({}, SYS_MSG_DEFAULT, getUserdata().lobby_sys_msg || {});
 
     function saveSysMsgSettings() {
@@ -270,8 +280,7 @@
     }
 
     // ==================== 身份检测与面板切换 ====================
-    function showIdentityState() {
-        let nickname = getUserNickname();
+    function showIdentityState() {        let nickname = getUserNickname();
         let token = getUserToken();
 
         if (nickname && token) {
@@ -313,9 +322,13 @@
             myNickname = data.nickname;
             setUserNickname(myNickname);
         }
+        if (data.player_id) myPlayerId = data.player_id;
         if (!getUserNickname()) {
             setUserNickname(myNickname);
         }
+        // 保存自己的标签（重连/新连接后本地缓存，用于渲染补全）
+        if (Array.isArray(data.sender_titles)) myWornTitles = data.sender_titles;
+        if (Array.isArray(data.sender_special_titles)) myWornSpecialTitles = data.sender_special_titles;
         $hasIdentity.style.display = 'flex';
         $noIdentity.style.display = 'none';
         send({ type: 'lobby_song_current' });
@@ -331,6 +344,49 @@
     $btnGoHome.addEventListener('click', function () {
         leaveLobbyGracefully('/');
     });
+
+    // ==================== 临时聊天邀请提示 ====================
+    function showTempInviteToast(data) {
+        if (document.getElementById('temp-invite-toast')) return;
+        let toast = document.createElement('div');
+        toast.id = 'temp-invite-toast';
+        toast.className = 'temp-invite-toast';
+        toast.innerHTML = '<span class="temp-invite-text">' + escapeHtml(data.from_name || '') + ' 邀请你进入临时聊天</span>' +
+            '<button class="doodle-btn temp-invite-yes">同意</button>' +
+            '<button class="doodle-btn temp-invite-no">拒绝</button>';
+        document.body.appendChild(toast);
+        toast.dataset.inviteId = data.invite_id || '';
+        toast.querySelector('.temp-invite-yes').addEventListener('click', function () {
+            let iid = toast.dataset.inviteId;
+            hideTempInviteToast();
+            location.href = '/temp-chat?invite=' + encodeURIComponent(iid);
+        });
+        toast.querySelector('.temp-invite-no').addEventListener('click', function () {
+            let iid = toast.dataset.inviteId;
+            hideTempInviteToast();
+            // 原地拒绝（HTTP API），不跳转临时聊天页
+            let headers = { 'Content-Type': 'application/json' };
+            let body = { invite_id: iid };
+            try {
+                let t = getUserToken();
+                if (t) headers.Authorization = 'Bearer ' + t;
+            } catch (e) { }
+            fetch('/api/temp/invite/decline', { method: 'POST', headers: headers, body: JSON.stringify(body) })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data.success) showTopToast(data.error || '拒绝失败', true);
+                })
+                .catch(function () { });
+        });
+        toast._t = setTimeout(function () {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, (data.timeout || 60) * 1000);
+    }
+
+    function hideTempInviteToast() {
+        let el = document.getElementById('temp-invite-toast');
+        if (el) { clearTimeout(el._t); if (el.parentNode) el.parentNode.removeChild(el); }
+    }
 
     // ==================== 心跳 ====================
     function startHeartbeat() {
@@ -399,6 +455,28 @@
                     break;
                 }
                 appendStickerMessage(data);
+                break;
+
+            // ==================== 临时聊天邀请（被邀请时顶部弹出） ====================
+            case 'temp_invite':
+                showTempInviteToast(data);
+                break;
+
+            case 'temp_invite_expired':
+                hideTempInviteToast();
+                showTopToast(data.text || '邀请已过期', false);
+                break;
+
+            case 'temp_invite_result':
+                hideTempInviteToast();
+                showTopToast(data.ok ? '对方接受了邀请' : (data.error || '邀请失败'), !data.ok);
+                break;
+
+            // 对方同意邀请：邀请方跳转临时聊天页接管房间
+            case 'temp_room_created':
+                if (data.room_id && data.pending_join) {
+                    location.href = '/temp-chat?room=' + encodeURIComponent(data.room_id) + '&nick=' + encodeURIComponent(myNickname || '');
+                }
                 break;
 
             case 'lobby_joined':
@@ -478,6 +556,8 @@
 
             case 'stickers_list':
                 stickerMap = handleStickersList(data);
+                stickerLoaded = true;
+                if (stickerLoadTimer) { clearTimeout(stickerLoadTimer); stickerLoadTimer = null; }
                 // 表情选择器打开时自动刷新显示（修复首次加载需多次点击的问题）
                 if ($stickerPicker && $stickerPicker.style.display === 'flex') {
                     renderStickerPicker();
@@ -486,6 +566,8 @@
 
             case 'stickers_unchanged':
                 stickerMap = loadStickerCache();
+                stickerLoaded = true;
+                if (stickerLoadTimer) { clearTimeout(stickerLoadTimer); stickerLoadTimer = null; }
                 break;
 
             case 'broadcast':
@@ -630,7 +712,7 @@
         return colors[Math.abs(hash) % colors.length];
     }
 
-    function insertMention(name) {
+    function insertMentionAtCursor(name) {
         if (!name || !$chatInput) return;
         let at = '@' + name + ' ';
         if (document.activeElement === $chatInput) {
@@ -800,8 +882,12 @@
         // 头像
         let avatar = document.createElement('div');
         avatar.className = 'lobby-avatar';
-        avatar.textContent = getAvatarChar(senderName);
-        avatar.style.background = isMine ? 'let(--note-blue)' : getAvatarColor(senderName);
+        if (data.sender_id) {
+            renderAvatar(avatar, data.sender_id, senderName);
+        } else {
+            avatar.textContent = getAvatarChar(senderName);
+            avatar.style.background = isMine ? 'let(--note-blue)' : getAvatarColor(senderName);
+        }
 
         // 长按头像 → @昵称
         (function (av, name) {
@@ -814,7 +900,7 @@
                 timer = setTimeout(function () {
                     started = true;
                     av.classList.add('longpress');
-                    insertMention(name);
+                    insertMentionAtCursor(name);
                 }, 500);
             }
 
@@ -856,6 +942,13 @@
         timeSpan.textContent = data.time || '';
 
         meta.appendChild(nameSpan);
+        // BOT 专属标签（昵称右侧）
+        if (data.is_bot) {
+            let botTag = document.createElement('span');
+            botTag.className = 'lobby-msg-bot-tag';
+            botTag.innerHTML = '<svg viewBox="0 0 24 24" style="width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>BOT';
+            meta.appendChild(botTag);
+        }
         meta.appendChild(timeSpan);
         content.appendChild(meta);
 
@@ -1033,8 +1126,12 @@
 
         let avatar = document.createElement('div');
         avatar.className = 'lobby-avatar';
-        avatar.textContent = getAvatarChar(senderName);
-        avatar.style.background = isMine ? 'let(--note-blue)' : getAvatarColor(senderName);
+        if (data.sender_id) {
+            renderAvatar(avatar, data.sender_id, senderName);
+        } else {
+            avatar.textContent = getAvatarChar(senderName);
+            avatar.style.background = isMine ? 'let(--note-blue)' : getAvatarColor(senderName);
+        }
 
         // 拍一拍：双击头像
         addAvatarNudgeHandler(avatar, senderName);
@@ -1051,6 +1148,13 @@
         timeSpan.className = 'lobby-msg-time';
         timeSpan.textContent = data.time || '';
         meta.appendChild(nameSpan);
+        // BOT 专属标签（昵称右侧）
+        if (data.is_bot) {
+            let botTag = document.createElement('span');
+            botTag.className = 'lobby-msg-bot-tag';
+            botTag.innerHTML = '<svg viewBox="0 0 24 24" style="width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>BOT';
+            meta.appendChild(botTag);
+        }
         meta.appendChild(timeSpan);
         content.appendChild(meta);
 
@@ -1133,6 +1237,11 @@
     }
 
     function appendMessage(data) {
+        // 重连/首次渲染时，若自己的消息缺标签，用本地缓存补全（来自 lobby_joined）
+        if (data.sender_name === myNickname) {
+            if (!Array.isArray(data.sender_titles) && myWornTitles.length) data.sender_titles = myWornTitles;
+            if (!Array.isArray(data.sender_special_titles) && myWornSpecialTitles.length) data.sender_special_titles = myWornSpecialTitles;
+        }
         let bubble = makeBubble(data, isMineMessage(data));
         $messages.appendChild(bubble);
         resolveBilibiliEmbeds(bubble);
@@ -1670,20 +1779,25 @@
     }
 
     // 每人模式：localStorage 已用次数
+    // 点击次数限制：内存存储（页面刷新重置；不写 localStorage，避免残留数据）
+    const btnClickStore = {};
+
     function getLocalClickUsed(key, userName) {
-        try {
-            let map = JSON.parse(localStorage.getItem('lobby_btn_clicks') || '{}');
-            return map[key + '|' + userName] || 0;
-        } catch (e) { return 0; }
+        return btnClickStore[key + '|' + userName] || 0;
     }
 
     function recordLocalClick(key, userName) {
-        try {
-            let map = JSON.parse(localStorage.getItem('lobby_btn_clicks') || '{}');
-            map[key + '|' + userName] = (map[key + '|' + userName] || 0) + 1;
-            localStorage.setItem('lobby_btn_clicks', JSON.stringify(map));
-        } catch (e) { }
+        btnClickStore[key + '|' + userName] = (btnClickStore[key + '|' + userName] || 0) + 1;
     }
+
+    // 一次性清理历史 localStorage 残留（点击限制/投票持久化已改为内存存储）
+    try {
+        for (let li = localStorage.length - 1; li >= 0; li--) {
+            const lk = localStorage.key(li);
+            if (!lk) continue;
+            if (lk === 'lobby_btn_clicks' || lk.indexOf('lobby_vote_') === 0) localStorage.removeItem(lk);
+        }
+    } catch (e) { }
 
     // 执行按钮动作（音效 + 各动作类型）
     function executeBtn(btn) {
@@ -1829,23 +1943,6 @@
         return result;
     }
 
-    // 解析 switch 的值列表：值1|值2|...|id=xxx|c=1|cc=颜色1/颜色2/...
-    function parseSwitchParams(content) {
-        let parts = String(content || '').split('|');
-        let values = [];
-        let colors = [];
-        let id = '';
-        let color = false;
-        for (let i = 0; i < parts.length; i++) {
-            let p = parts[i];
-            if (p.indexOf('id=') === 0) { id = p.slice(3); }
-            else if (p.indexOf('cc=') === 0) { colors = p.slice(3).split('/'); }
-            else if (p.indexOf('c=') === 0) { color = (p.slice(2) === '1'); }
-            else { values.push(p); }
-        }
-        return { values: values, colors: colors, id: id, color: color };
-    }
-
     // 简单 XOR + hex 编码加密（渲染时加密内容，避免 F12 直接看到明文；不依赖 btoa 更兼容）
     function mdEncrypt(text, key) {
         let k = String(key || 'md');
@@ -1867,19 +1964,6 @@
             }
             return out;
         } catch (e) { return ''; }
-    }
-
-    // 解析表格参数：col=N|单元格...（第一行 N 个为表头）
-    function parseTableParams(content) {
-        let parts = String(content || '').split('|');
-        let cols = 2;
-        let cells = [];
-        for (let i = 0; i < parts.length; i++) {
-            let p = parts[i].trim();
-            if (p.indexOf('col=') === 0) { cols = parseInt(p.slice(4), 10) || 2; }
-            else { cells.push(p); }
-        }
-        return { cols: cols, cells: cells };
     }
 
     // ==================== 画板 ====================
@@ -2539,7 +2623,9 @@
             }
             picked.push(idx);
         }
-        try { localStorage.setItem('lobby_vote_' + storageKey, JSON.stringify(picked)); } catch (e) { }
+        try { votePickStore[storageKey] = picked; } catch (e) { }
+        // 清理历史 localStorage 残留（旧版投票持久化）
+        try { localStorage.removeItem('lobby_vote_' + storageKey); } catch (e) { }
         renderVote(voteEl);
         // 消息内的投票：上报服务端做匿名计票并实时广播
         if (isServer) {
@@ -2551,10 +2637,12 @@
         }
     }
 
+    // 投票本地选择：内存存储（页面刷新重置；不写 localStorage，避免残留数据）
+    const votePickStore = {};
+
     function getVotePicked(storageKey) {
-        let picked = [];
-        try { picked = JSON.parse(localStorage.getItem('lobby_vote_' + storageKey) || '[]'); } catch (e) { picked = []; }
-        return Array.isArray(picked) ? picked : [];
+        let picked = votePickStore[storageKey];
+        return Array.isArray(picked) ? picked.slice() : [];
     }
 
     // 重渲染投票：已选状态来自本地，票数来自服务端（消息内）或本地（弹窗/详情演示）
@@ -3156,11 +3244,21 @@
     // ==================== v3.5 动作串 / 条件动作 ====================
     // 动作串拆分：按顶层 & 分隔（HTML 实体 &lt; 等不拆；\& 转义为字面 &）
     // 判断当前累积片段是否处于 URL 查询串中（已含 :// 且其 ? 之后的 & 属于查询参数，不参与动作串拆分）
-    function isInUrlQuery(cur) {
+    // 修复（对齐 MDv3 分享站）：& 后若是动作前缀或新 URL → 视为下一个动作，应拆分（避免动作被 URL 参数吞并）
+    function isInUrlQuery(cur, nextChunk) {
         let proto = cur.lastIndexOf('://');
         if (proto < 0) return false;
         let q = cur.indexOf('?', proto + 3);
-        return q >= 0;
+        if (q < 0) return false;
+        if (nextChunk) {
+            // 中文动作前缀
+            if (/^(发送|复制|弹窗|跳转|开关|显示|隐藏|倒计时|变量|循环|洗牌|计时|音乐|随机|等待|分支|动作链|定时):/.test(nextChunk)) return false;
+            // v2 英文动作前缀（兼容历史消息）
+            if (/^(copy|hide|show|switch|timer\.start|timer\.stop|reset|close|incr|decr|bar\.(add|set|sub)|set|for|send):/i.test(nextChunk)) return false;
+            // 新 URL 开头（如 &https://...）
+            if (/^https?:\/\//i.test(nextChunk)) return false;
+        }
+        return true;
     }
     function splitMdActions(action) {
         let parts = [], cur = '', i = 0;
@@ -3171,7 +3269,7 @@
                 let rest = action.slice(i, i + 6);
                 if (/^&(lt|gt|amp|quot|#39);/.test(rest)) { cur += ch; i++; continue; }
                 // URL 查询参数中的 & 是字面量（发送:/跳转:/复制:/弹窗: 等含 https://...?...&... 时不拆分）
-                if (isInUrlQuery(cur)) { cur += ch; i++; continue; }
+                if (isInUrlQuery(cur, action.slice(i + 1))) { cur += ch; i++; continue; }
                 parts.push(cur); cur = ''; i++; continue;
             }
             cur += ch; i++;
@@ -3268,6 +3366,13 @@
                 }
             }
         }
+        // v2 英文动作归一化 → v3 中文动作（行为一致，兼容历史消息）
+        if (action.indexOf('send:') === 0) action = '发送:' + action.slice(5);
+        else if (action.indexOf('copy:') === 0) action = '复制:' + action.slice(5);
+        else if (action.indexOf('switch:') === 0) action = '开关:' + action.slice(7);
+        else if (action.indexOf('timer.start:') === 0) action = '倒计时:' + action.slice(11);
+        else if (action.indexOf('show:') === 0) action = '显示:' + action.slice(5);
+        else if (action.indexOf('hide:') === 0) action = '隐藏:' + action.slice(5);
         // v3 中文动作（发送:/复制:/弹窗:/跳转:/开关:/显示:/隐藏:/倒计时:/变量:/循环:/洗牌:）
         if (action.indexOf('发送:') === 0) {
             $chatInput.value = resolveMdPlaceholders(action.slice(3), msgEl);
@@ -3394,13 +3499,6 @@
             let cId = comma > 0 ? rest.slice(0, comma).trim() : rest.trim();
             let cOp = comma > 0 ? rest.slice(comma + 1).trim() : '开始';
             controlMdChain(cId, cOp, msgEl);
-        } else if (action.indexOf('send:') === 0) {
-            $chatInput.value = resolveMdPlaceholders(action.slice(5), msgEl);
-            $chatInput.style.height = 'auto';
-            sendMessage();
-        } else if (action.indexOf('copy:') === 0) {
-            copyToClipboard(resolveMdPlaceholders(action.slice(5), msgEl));
-            showTopToast('已复制', false);
         } else if (action.indexOf('reset:') === 0) {
             let id = action.slice(6).trim();
             let state = getMsgUIState(msgEl);
@@ -3408,10 +3506,6 @@
             let inp = msgEl ? msgEl.querySelector('.md-input[data-input-id="' + id + '"]') : null;
             if (inp) inp.value = '';
             refreshMsgGets(msgEl);
-        } else if (action.indexOf('switch:') === 0) {
-            let id = action.slice(7).trim();
-            let btn = msgEl ? msgEl.querySelector('.md-btn-switch[data-switch-id="' + id + '"]') : null;
-            if (btn) switchMdValue(btn, msgEl);
         } else if (action.indexOf('close:') === 0) {
             let id = action.slice(6).trim();
             if (!msgEl) return;
@@ -3476,29 +3570,11 @@
                 let val = parseInt(resolveMdPlaceholders(rest.slice(eq + 1), msgEl), 10) || 0;
                 updateMdBar(id, val, msgEl);
             }
-        } else if (action.indexOf('timer.start:') === 0) {
-            // 启动倒计时：timer.start:id
-            let id = action.slice(11).trim();
-            startMdTimer(id, msgEl);
         } else if (action.indexOf('timer.stop:') === 0) {
             // 停止倒计时：timer.stop:id
             let id = action.slice(10).trim();
             let state = getMsgUIState(msgEl);
             if (state.timers[id]) { clearInterval(state.timers[id]); delete state.timers[id]; }
-        } else if (action.indexOf('show:') === 0) {
-            // 显示组件：show:画板id（或 data-ui-id 组件）
-            let id = action.slice(5).trim();
-            if (msgEl) {
-                let el = msgEl.querySelector('.md-board[data-board-id="' + id + '"], [data-ui-id="' + id + '"]');
-                if (el) { el.style.display = ''; renderBoard(msgEl, el); }
-            }
-        } else if (action.indexOf('hide:') === 0) {
-            // 隐藏组件：hide:画板id（或 data-ui-id 组件）
-            let id = action.slice(5).trim();
-            if (msgEl) {
-                let el = msgEl.querySelector('.md-board[data-board-id="' + id + '"], [data-ui-id="' + id + '"]');
-                if (el) el.style.display = 'none';
-            }
         } else if (action.indexOf('for:') === 0) {
             // for 循环：for:变量=起始;条件;步进;循环体（最高 300 次，禁止嵌套，仅按钮触发）
             let rest = action.slice(4);
@@ -4159,8 +4235,100 @@
         $chatInput.focus();
     }
 
+    // ==================== 彩蛋（默认关闭：右上角系统消息面板"彩蛋"开关） ====================
+    const EGG_MUSIC_URL = 'https://yuju.99kpk.top:81/pan/1375/%E9%9F%B3%E6%99%B6%E7%88%86%E7%82%B8%E4%BA%86.mp3';
+    let eggAudio = null; // 彩蛋音乐独立 Audio 实例（不干扰点歌系统）
+    let eggMusicBar = null; // 彩蛋音乐悬浮停止条
+
+    function eggEnabled() {
+        return !!sysMsgSettings.egg;
+    }
+
+    // 显示彩蛋音乐停止条
+    function showEggMusicBar() {
+        if (!eggMusicBar) {
+            eggMusicBar = document.createElement('div');
+            eggMusicBar.className = 'egg-music-bar';
+            eggMusicBar.innerHTML = '<span class="egg-music-title">♪ 彩蛋音乐</span>' +
+                '<button type="button" class="egg-music-stop">停止</button>';
+            eggMusicBar.querySelector('.egg-music-stop').addEventListener('click', stopEggMusic);
+            document.body.appendChild(eggMusicBar);
+        }
+        eggMusicBar.style.display = 'flex';
+    }
+
+    // 停止彩蛋音乐并隐藏停止条
+    function stopEggMusic() {
+        if (eggAudio) { try { eggAudio.pause(); } catch (e) { } eggAudio = null; }
+        if (eggMusicBar) eggMusicBar.style.display = 'none';
+    }
+
+    // 彩蛋1：x x xxx 节奏点击 → 发送"x x xxx" + 关闭听歌 + 播放彩蛋音乐
+    function triggerEggBili() {
+        if (!eggEnabled()) return;
+        // 发送节奏标记消息（不刷 B 站分享，避免刷屏）
+        $chatInput.value = 'x x xxx';
+        $chatInput.style.height = 'auto';
+        sendMessage();
+        // 自动关闭听歌（若已开启）
+        if (songListen) toggleSongListen();
+        // 独立播放彩蛋音乐
+        try {
+            if (eggAudio) { eggAudio.pause(); eggAudio = null; }
+            eggAudio = new Audio(EGG_MUSIC_URL);
+            eggAudio.addEventListener('ended', function () { stopEggMusic(); });
+            eggAudio.addEventListener('error', function () { stopEggMusic(); });
+            // 播放（若被浏览器 autoplay 策略拦截，eggPendingPlay 置位，下次点击自动重试）
+            eggAudio.play().then(function () { eggPendingPlay = false; }).catch(function () { eggPendingPlay = true; });
+            showEggMusicBar();
+        } catch (e) { }
+    }
+
+    // x[空]x[空]xxx 节奏点击检测：
+    // 节奏 = 点、空、点、空、三点（共5次点击）
+    // 判定：前两个间隔（空）中等 250~2000ms（可稍长），后两个间隔（xxx内部）很短 <200ms
+    // 胡乱乱点/快速连点（所有间隔都短）不会触发
+    const eggClickTimes = [];
+    let eggPendingPlay = false; // 彩蛋音乐被浏览器拦截后，等待下次用户手势重试
+
+    // 彩蛋点击统一处理（兼容电脑鼠标/手机触摸；仅排除表单交互元素）
+    const eggOnDown = function (e) {
+        if (!eggEnabled()) return;
+        // 有被拦截待播放的彩蛋音乐 → 趁这次用户手势重试
+        if (eggPendingPlay && eggAudio) {
+            eggAudio.play().then(function () { eggPendingPlay = false; }).catch(function () { });
+        }
+        // 排除表单/按钮等交互元素，避免误触发
+        const et = e.target;
+        if (et && et.closest && et.closest('input, textarea, button, a, select, label')) return;
+        const now = performance.now();
+        eggClickTimes.push(now);
+        if (eggClickTimes.length > 8) eggClickTimes.shift();
+        if (eggClickTimes.length < 5) return;
+        const last5 = eggClickTimes.slice(-5);
+        const total = last5[4] - last5[0];
+        if (total > 4500) return; // 整体节奏太慢不算
+        const d1 = last5[1] - last5[0];
+        const d2 = last5[2] - last5[1];
+        const d3 = last5[3] - last5[2];
+        const d4 = last5[4] - last5[3];
+        // x 空 x 空 xxx：d1/d2 是"空"（中等间隔，可稍长），d3/d4 是 xxx 内部（很短）
+        if (d1 >= 250 && d1 <= 2000 && d2 >= 250 && d2 <= 2000 && d3 < 200 && d4 < 200) {
+            eggClickTimes.length = 0; // 防连触发
+            triggerEggBili();
+        }
+    };
+    // 现代浏览器 pointerdown 全覆盖（鼠标+触摸）；老环境用 mousedown+touchstart 兜底
+    document.addEventListener('pointerdown', eggOnDown, true);
+    if (!window.PointerEvent) {
+        document.addEventListener('mousedown', eggOnDown, true);
+        document.addEventListener('touchstart', eggOnDown, { capture: true, passive: true });
+    }
+
+    // 彩蛋2：已删除（原"奶龙"替换彩蛋，2026-08-19 移除）
+
     function sendMessage() {
-        const content = $chatInput.value.trim();
+        let content = $chatInput.value.trim();
         if (!content) return;
 
         // 网络未就绪：不清空输入框，保留内容并提示
@@ -4458,7 +4626,20 @@
             avatar.textContent = getAvatarChar(p.nickname || '?');
             avatar.style.background = getAvatarColor(p.nickname || '');
             item.appendChild(avatar);
-            item.appendChild(document.createTextNode(p.nickname || '匿名'));
+            let nameSpan = document.createElement('span');
+            nameSpan.className = 'user-name';
+            nameSpan.textContent = p.nickname || '匿名';
+            nameSpan.title = p.nickname || '匿名';
+            item.appendChild(nameSpan);
+
+            // BOT 专属标签（在线列表）
+            if (p.is_bot) {
+                let botTag = document.createElement('span');
+                botTag.className = 'lobby-user-bot-tag';
+                botTag.innerHTML = '<svg viewBox="0 0 24 24" style="width:9px;height:9px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>BOT';
+                botTag.title = 'BOT 账号';
+                item.appendChild(botTag);
+            }
 
             // 管理员操作：除自己外显示 禁言/解禁 + 封禁 按钮
             if (isLobbyAdmin && !isMe) {
@@ -4605,17 +4786,37 @@
 
     // ==================== 表情 ====================
     let stickerMap = loadStickerCache();
+    let stickerLoaded = false;      // 是否已收到过服务端表情响应（收到后即使为空也显示空态，不再转圈）
+    let stickerLoadTimer = null;    // 加载超时兜底（防 WS 无响应时无限转圈）
 
     function renderStickerPicker() {
         const fresh = loadStickerCache();
         if (Object.keys(fresh).length > 0) stickerMap = fresh;
 
+        // 尚未加载完成且无任何缓存：显示加载指示器（风格与全局一致）
+        if (!stickerLoaded && Object.keys(stickerMap).length === 0) {
+            $stickerPickerBody.innerHTML = '<div class="sticker-loading">' + BILI_SPINNER_SVG + '<span>加载中…</span></div>';
+            // 超时兜底：2.5 秒未收到响应视为已加载（空态），避免无限转圈
+            if (!stickerLoadTimer) {
+                stickerLoadTimer = setTimeout(function () {
+                    stickerLoadTimer = null;
+                    stickerLoaded = true;
+                    renderStickerPicker();
+                }, 2500);
+            }
+            return;
+        }
+
+        // 已加载或缓存非空：正常渲染（无表情时 renderSharedStickerPicker 显示"暂无表情"）
         renderSharedStickerPicker($stickerPickerBody, stickerMap, function (id, st) {
             send({ type: 'lobby_sticker', id: id });
             // 立即本地渲染，不等服务端广播回传（防止表情被吞）
             appendStickerMessage({
                 id: id, url: st ? st.url : '', name: st ? st.name : '',
-                sender: myNickname
+                sender: myNickname,
+                sender_id: myPlayerId,
+                sender_titles: myWornTitles,
+                sender_special_titles: myWornSpecialTitles
             });
             // 记录已渲染的表情，防止服务端广播回报时重复追加
             lastSentStickerId = id;
@@ -4678,6 +4879,7 @@
         if ($sysMsgJoinLeave) $sysMsgJoinLeave.checked = !!sysMsgSettings.joinLeave;
         if ($sysMsgRevoke) $sysMsgRevoke.checked = !!sysMsgSettings.revoke;
         if ($sysMsgOther) $sysMsgOther.checked = !!sysMsgSettings.other;
+        if ($sysMsgEgg) $sysMsgEgg.checked = !!sysMsgSettings.egg;
     }
 
     function repositionSysMsgPanel() {
@@ -4717,6 +4919,12 @@
         sysMsgSettings.other = $sysMsgOther.checked;
         saveSysMsgSettings();
     });
+    if ($sysMsgEgg) {
+        $sysMsgEgg.addEventListener('change', function () {
+            sysMsgSettings.egg = $sysMsgEgg.checked;
+            saveSysMsgSettings();
+        });
+    }
 
     document.addEventListener('click', function (e) {
         if ($sysMsgPanel.style.display === 'block' &&
@@ -4750,6 +4958,13 @@
     });
 
     // ==================== 用户列表切换 ====================
+    // 我的宏管理弹窗
+    $btnMyMacros.addEventListener('click', function (e) {
+        if (e) e.stopPropagation();
+        $headerMoreMenu.classList.remove('open');
+        openMacroManager();
+    });
+
     $btnToggleUsers.addEventListener('click', function (e) {
         if (e) e.stopPropagation();
         // 点击在线列表：自动关闭右上角多功能小弹窗
@@ -4795,12 +5010,23 @@
         }, 150);
     });
 
-    // 一键返回底部（直接瞬间滚动，无平滑动画）
+    // 一键返回底部（快速滚动动画：easeOutCubic，200~400ms）
     if ($btnScrollBottom) {
         $btnScrollBottom.addEventListener('click', function () {
             stickyScroll = false;
-            $messages.scrollTop = $messages.scrollHeight;
-            $btnScrollBottom.classList.remove('show');
+            const el = $messages;
+            const start = el.scrollTop;
+            const end = el.scrollHeight - el.clientHeight;
+            const dist = Math.max(0, end - start);
+            const duration = Math.min(400, Math.max(200, dist / 6));
+            const t0 = performance.now();
+            (function step(now) {
+                const p = Math.min(1, (now - t0) / duration);
+                const ease = 1 - Math.pow(1 - p, 3);
+                el.scrollTop = start + dist * ease;
+                if (p < 1) requestAnimationFrame(step);
+                else $btnScrollBottom.classList.remove('show');
+            })(t0);
         });
     }
 
@@ -4981,12 +5207,6 @@
         return { allowed: allowed, content: content };
     }
 
-    // 判断文本是否包含聊天室特殊语法（[!类型:... v3 自定义组件）
-    function hasSpecialMdSyntax(content) {
-        if (!content) return false;
-        return /\[!/u.test(content);
-    }
-
     // ==================== blocks 渲染器（后端解析后的结构化消息） ====================
 
     // 解析 markdown 消息 content 为 blocks 数组；失败或版本不识别返回 null
@@ -5094,13 +5314,15 @@
     function renderComponentHtml(block) {
         let html = renderComponentHtmlInner(block);
         if (!html) return html;
+        // v3.5 统一 ID：组件 id=名 注入 data-ui-id（已带 data-ui-id 的跳过）
         if (block.id && html.indexOf('data-ui-id') < 0) {
             html = html.replace(/^<([a-zA-Z][a-zA-Z0-9]*)(\s|>)/, '<$1 data-ui-id="' + escapeHtmlAttr(String(block.id)) + '"$2');
         }
-        if (block.x !== undefined || block.y !== undefined) {
+        // 组件 x/y 定位：弹窗内 position:relative left/top（与 transform 动画互不干扰）
+        if (block && (block.x !== undefined || block.y !== undefined)) {
             let sty = '';
-            if (block.x !== undefined) sty += 'left:' + (parseFloat(block.x) || 0) + 'px;';
-            if (block.y !== undefined) sty += 'top:' + (parseFloat(block.y) || 0) + 'px;';
+            if (block.x !== undefined) sty += 'left:' + parseFloat(block.x) + 'px;';
+            if (block.y !== undefined) sty += 'top:' + parseFloat(block.y) + 'px;';
             if (sty) {
                 if (html.indexOf('style="') >= 0) html = html.replace(/style="/, 'style="position:relative;' + sty);
                 else html = html.replace(/^<([a-zA-Z][a-zA-Z0-9]*)(\s|>)/, '<$1 style="position:relative;' + sty + '"$2');
@@ -5108,6 +5330,361 @@
         }
         return html;
     }
+
+    // ==================== 自定义宏（v4） ====================
+    // 本地宏缓存：服务端 API 拉取，TTL 60s；宏展开先于转义执行，保证模板内 [! 组件可被解析
+    let mdMacrosCache = { list: [], fetchedAt: 0, loading: false };
+    const MD_MACROS_TTL = 60000;
+
+    function fetchMdMacros(force) {
+        if (mdMacrosCache.loading) return;
+        if (!force && Date.now() - mdMacrosCache.fetchedAt < MD_MACROS_TTL) return;
+        if (typeof fetch !== 'function') return; // 非浏览器环境（测试/降级）跳过
+        mdMacrosCache.loading = true;
+        let headers = {};
+        try { if (getUserToken()) headers.Authorization = 'Bearer ' + getUserToken(); } catch (e) { }
+        fetch('/api/macros', { headers: headers })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data && data.success && Array.isArray(data.macros)) {
+                    mdMacrosCache.list = data.macros;
+                    mdMacrosCache.fetchedAt = Date.now();
+                }
+            })
+            .catch(function () { })
+            .finally(function () { mdMacrosCache.loading = false; });
+    }
+
+    // 按昵称优先、名称其次查找宏
+    function findMdMacro(key) {
+        let list = mdMacrosCache.list || [];
+        for (let i = 0; i < list.length; i++) if (list[i].nick && list[i].nick === key) return list[i];
+        for (let i = 0; i < list.length; i++) if (list[i].name === key) return list[i];
+        return null;
+    }
+
+    // 本地宏展开：[!触发宏:昵称(:参数值|参数值...)] → 模板（{参数名} 替换），嵌套递归深度≤3
+    function expandMdMacrosLocal(text, depth) {
+        depth = depth || 0;
+        if (depth > 3 || String(text).indexOf('[!触发宏:') < 0) return text;
+        return String(text).replace(/\[!触发宏:([^\]|:]+)(?::([^\]]*))?\]/gu, function (m0, key, argStr) {
+            let macro = findMdMacro(String(key).trim());
+            if (!macro) return m0; // 未找到：保留原文，渲染时提示
+            let template = String(macro.template || '');
+            let paramNames = String(macro.params || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+            let argValues = argStr ? String(argStr).split('|').map(function (s) { return s.trim(); }) : [];
+            paramNames.forEach(function (pn, i) {
+                template = template.split('{' + pn + '}').join(argValues[i] || '');
+            });
+            let expanded = expandMdMacrosLocal(template, depth + 1);
+            if (expanded.length > 2000) return '[宏展开超限]';
+            return expanded;
+        });
+    }
+
+    // 前端解析宏定义 [!宏:名称|昵称(参数)=模板]（与后端 MacroRepository::parseDefinition 一致）
+    function parseMacroDefinitionLocal(raw) {
+        raw = String(raw || '').trim();
+        let eq = raw.indexOf('=');
+        if (eq < 0) return { ok: false, error: '缺少 = 模板（格式：[!宏:名称|昵称(参数)=模板]）' };
+        let head = raw.slice(0, eq).trim();
+        let template = raw.slice(eq + 1).trim();
+        if (!template) return { ok: false, error: '模板不能为空' };
+        let params = '';
+        let pm = head.match(/\(([^)]*)\)$/);
+        if (pm) {
+            params = pm[1].trim();
+            head = head.slice(0, head.length - pm[0].length).trim();
+        }
+        let name = head, nick = '';
+        if (head.indexOf('|') >= 0) {
+            let parts = head.split('|');
+            name = parts[0].trim();
+            nick = parts.slice(1).join('|').trim();
+        }
+        if (!name) return { ok: false, error: '缺少宏名称' };
+        if (!/^[A-Za-z0-9_\u4e00-\u9fa5]{1,20}$/.test(name)) return { ok: false, error: '宏名称不合法（1-20位中文/字母/数字/下划线）' };
+        if (template.length > 500) return { ok: false, error: '模板过长（上限 500 字符）' };
+        return { ok: true, name: name, nick: nick, params: params, template: template };
+    }
+
+    // 宏卡片/提示渲染
+    function renderMacroCardHtml(b) {
+        if (!b || !b.ok) return '<div class="md-macro md-macro-err">' + escapeHtml((b && b.error) || '宏格式错误') + '</div>';
+        let nick = b.nick ? ' | <span class="md-macro-nick">' + escapeHtml(b.nick) + '</span>' : '';
+        let params = b.params ? '(<span class="md-macro-params">' + escapeHtml(b.params) + '</span>)' : '';
+        let triggerKey = b.nick || b.name;
+        let triggerExample = '[!触发宏:' + triggerKey + (b.params ? ':值1|值2' : '') + ']';
+        return '<div class="md-macro">' +
+            '<div class="md-macro-head"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px;vertical-align:-2px;"><rect x="3" y="4" width="18" height="16" rx="1"/><line x1="7" y1="8" x2="7" y2="10"/><line x1="11" y1="8" x2="11" y2="10"/><line x1="15" y1="8" x2="15" y2="10"/><line x1="7" y1="14" x2="7" y2="16"/><line x1="11" y1="14" x2="11" y2="16"/><line x1="15" y1="14" x2="15" y2="16"/></svg> <span class="md-macro-name">' + escapeHtml(b.name) + '</span>' + nick + params + '</div>' +
+            '<pre class="md-macro-template">' + escapeHtml(b.template) + '</pre>' +
+            '<div class="md-macro-trigger">触发：<code>' + escapeHtml(triggerExample) + '</code></div>' +
+            '</div>';
+    }
+    function renderMacroMissingHtml(key) {
+        let hint = (mdMacrosCache.list.length === 0) ? '（宏库未加载，稍后自动重试）' : '，去"更多→我的宏"注册一个吧';
+        return '<div class="md-macro md-macro-err">宏「' + escapeHtml(key) + '」不存在' + hint + '</div>';
+    }
+    function renderMacroDelHtml(name) {
+        return '<div class="md-macro md-macro-del">删除宏「' + escapeHtml(name) + '」</div>';
+    }
+    function renderMacroListHtml(items) {
+        items = items || [];
+        if (!items.length) return '<div class="md-macro md-macro-empty">📭 暂无已注册的宏</div>';
+        let html = '<div class="md-macro md-macro-list"><div class="md-macro-head">📚 房间宏库（' + items.length + '）</div>';
+        for (let i = 0; i < items.length; i++) {
+            let m = items[i];
+            let nick = m.nick ? '『' + escapeHtml(m.nick) + '』' : '';
+            let params = m.params ? '(' + escapeHtml(m.params) + ')' : '';
+            html += '<div class="md-macro-item"><span class="md-macro-name">' + escapeHtml(m.name) + '</span>' + nick + params +
+                ' <span class="md-macro-creator">by ' + escapeHtml(m.creator || '') + '</span>' +
+                '<pre class="md-macro-template">' + escapeHtml(m.template) + '</pre></div>';
+        }
+        return html + '</div>';
+    }
+
+    // ==================== 我的宏 弹窗管理器 ====================
+    const MACRO_SNIPPETS = [
+        ['文本', '[!文本:内容]'],
+        ['按钮', '[!按钮:文字|动作]'],
+        ['发送', '[!发送:文字|要发送的内容]'],
+        ['复制', '[!复制:文字|要复制的内容]'],
+        ['弹窗', '[!弹窗:按钮文字|弹窗内容|标题=标题]'],
+        ['输入', '[!输入:占位|id=名|ok=答案]'],
+        ['条件', '[!条件:{变量}=值|执行动作|否则动作]'],
+        ['变量', '[!变量:名=值]'],
+        ['进度', '[!进度:值/上限|颜色=#f00]'],
+        ['投票', '[!投票:问题|选项1|选项2]'],
+        ['画板', '[!画板:20|r:x,y:半径]'],
+        ['动作链', '[!动作链:发送:你好&等待:1&发送:再见]'],
+    ];
+
+    function openMacroManager() {
+        if (document.getElementById('macro-manager-overlay')) return;
+        let hasToken = false;
+        try { hasToken = !!getUserToken(); } catch (e) { }
+        if (!hasToken) { showTopToast('请先登录后再管理宏', true); return; }
+        fetchMdMacros(true);
+        let overlay = document.createElement('div');
+        overlay.id = 'macro-manager-overlay';
+        overlay.className = 'macro-manager-overlay';
+        overlay.innerHTML =
+            '<div class="clipboard-drawer">' +
+            '<div class="paper-content doodle-border">' +
+            '<div class="drawer-header">' +
+            '<span class="macro-manager-title">' +
+            '我的宏</span>' +
+            '<button class="doodle-btn md-modal-close" title="关闭" style="padding:4px 8px;border:none;">' +
+            '<svg class="icon" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+            '</button>' +
+            '</div>' +
+            '<div class="md-modal-body"></div>' +
+            '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+        overlay.querySelector('.md-modal-close').addEventListener('click', function () {
+            closeMacroManager(overlay);
+        });
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) closeMacroManager(overlay);
+        });
+        renderMacroManagerList(overlay);
+    }
+
+    /** 关闭"我的宏"弹窗（播放抽屉淡出动画后移除） */
+    function closeMacroManager(overlay) {
+        let drawer = overlay.querySelector('.clipboard-drawer');
+        overlay.style.animation = 'fadeOut 0.2s ease forwards';
+        if (drawer) drawer.style.animation = 'fadeScaleOut 0.2s ease forwards';
+        setTimeout(function () {
+            if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        }, 200);
+    }
+
+    // 列表视图
+    function renderMacroManagerList(overlay) {
+        let body = overlay.querySelector('.md-modal-body');
+        let mine = (mdMacrosCache.list || []).filter(function (m) { return m.mine; });
+        let html = '<div class="macro-mgr-toolbar">' +
+            '<button type="button" class="md-btn md-btn-action macro-mgr-new"><svg class="icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>新建宏</button>' +
+            '<span class="macro-mgr-count">已注册 ' + mine.length + ' 个</span>' +
+            '<button type="button" class="md-btn md-btn-action macro-mgr-refresh"><svg class="icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>刷新</button>' +
+            '</div>';
+        if (!mine.length) {
+            html += '<div class="macro-mgr-empty">还没有注册宏。点击「新建宏」，或直接在聊天室发送 <code>[!宏:名称|昵称(参数)=模板]</code> 定义。<br>' +
+                '之后用 <code>[!触发宏:昵称:值1|值2]</code> 触发。</div>';
+        } else {
+            html += '<div class="macro-mgr-list">';
+            for (let i = 0; i < mine.length; i++) {
+                let m = mine[i];
+                let nick = m.nick ? '｜昵称 <span class="md-macro-nick">' + escapeHtml(m.nick) + '</span>' : '';
+                let params = m.params ? '｜参数 <span class="md-macro-params">' + escapeHtml(m.params) + '</span>' : '';
+                let triggerKey = m.nick || m.name;
+                let triggerExample = '[!触发宏:' + triggerKey + (m.params ? ':值1|值2' : '') + ']';
+                html += '<div class="macro-mgr-item" data-name="' + escapeHtmlAttr(m.name) + '">' +
+                    '<div class="macro-mgr-item-head"><span class="md-macro-name">' + escapeHtml(m.name) + '</span>' + nick + params +
+                    '<span class="macro-mgr-item-time">' + escapeHtml((m.updated_at || '').slice(5, 16)) + '</span></div>' +
+                    '<pre class="md-macro-template">' + escapeHtml(m.template) + '</pre>' +
+                    '<div class="macro-mgr-item-ops">' +
+                    '<code>' + escapeHtml(triggerExample) + '</code>' +
+                    '<button type="button" class="md-btn md-btn-action macro-mgr-edit"><svg class="icon" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>编辑</button>' +
+                    '<button type="button" class="md-btn md-btn-action macro-mgr-copy" data-copy="' + escapeHtmlAttr('[!宏:' + m.name + (m.nick ? '|' + m.nick : '') + (m.params ? '(' + m.params + ')' : '') + '=' + m.template + ']') + '"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>复制代码</button>' +
+                    '<button type="button" class="md-btn md-btn-action macro-mgr-del"><svg class="icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>删除</button>' +
+                    '</div></div>';
+            }
+            html += '</div>';
+        }
+        body.innerHTML = html;
+
+        body.querySelector('.macro-mgr-new').addEventListener('click', function () {
+            openMacroEditor(overlay, null);
+        });
+        body.querySelector('.macro-mgr-refresh').addEventListener('click', function () {
+            fetchMdMacros(true);
+            setTimeout(function () { renderMacroManagerList(overlay); }, 300);
+        });
+        let items = body.querySelectorAll('.macro-mgr-item');
+        for (let i = 0; i < items.length; i++) {
+            (function (item) {
+                let name = item.getAttribute('data-name');
+                item.querySelector('.macro-mgr-edit').addEventListener('click', function () {
+                    let macro = null;
+                    for (let j = 0; j < mdMacrosCache.list.length; j++) {
+                        if (mdMacrosCache.list[j].name === name && mdMacrosCache.list[j].mine) { macro = mdMacrosCache.list[j]; break; }
+                    }
+                    openMacroEditor(overlay, macro);
+                });
+                item.querySelector('.macro-mgr-copy').addEventListener('click', function () {
+                    let cp = this.getAttribute('data-copy') || '';
+                    copyToClipboard(cp);
+                    showTopToast('宏代码已复制');
+                });
+                item.querySelector('.macro-mgr-del').addEventListener('click', function () {
+                    deleteMacroByName(overlay, name);
+                });
+            })(items[i]);
+        }
+    }
+
+    // 编辑器视图
+    function openMacroEditor(overlay, macro) {
+        let body = overlay.querySelector('.md-modal-body');
+        let editing = !!macro;
+        let html = '<div class="macro-mgr-editor">' +
+            '<div class="macro-mgr-form-row"><label>宏名称 <em>（唯一，1-20位中文/字母/数字/下划线）</em></label>' +
+            '<input type="text" class="macro-mgr-input macro-mgr-f-name" maxlength="20" placeholder="例如：点歌卡" value="' + escapeHtmlAttr(macro ? macro.name : '') + '"' + (editing ? ' disabled' : '') + '></div>' +
+            '<div class="macro-mgr-form-row"><label>宏昵称 <em>（触发别名，可空；用 [!触发宏:昵称] 触发）</em></label>' +
+            '<input type="text" class="macro-mgr-input macro-mgr-f-nick" maxlength="32" placeholder="例如：点歌" value="' + escapeHtmlAttr(macro ? (macro.nick || '') : '') + '"></div>' +
+            '<div class="macro-mgr-form-row"><label>参数 <em>（逗号分隔，模板内用 {参数名} 占位）</em></label>' +
+            '<input type="text" class="macro-mgr-input macro-mgr-f-params" maxlength="128" placeholder="例如：歌名,歌手" value="' + escapeHtmlAttr(macro ? (macro.params || '') : '') + '"></div>' +
+            '<div class="macro-mgr-form-row"><label>模板 <em>（≤500字符，任意 MD 组件语法）</em></label>' +
+            '<div class="macro-mgr-snippets">' +
+            MACRO_SNIPPETS.map(function (s) {
+                return '<button type="button" class="md-btn md-btn-action macro-mgr-snip" data-snippet="' + escapeHtmlAttr(s[1]) + '">' + escapeHtml(s[0]) + '</button>';
+            }).join('') +
+            '</div>' +
+            '<textarea class="macro-mgr-input macro-mgr-f-template" maxlength="510" rows="5" placeholder="[!文本:你好]">' + escapeHtml(macro ? (macro.template || '') : '') + '</textarea></div>' +
+            '<div class="macro-mgr-form-row"><label>预览</label><div class="macro-mgr-preview md-chat-preview"></div></div>' +
+            '<div class="macro-mgr-ops">' +
+            '<button type="button" class="md-btn md-btn-action macro-mgr-save"><svg class="icon" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>保存</button>' +
+            (editing ? '<button type="button" class="md-btn md-btn-action macro-mgr-del2"><svg class="icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>删除</button>' : '') +
+            '<button type="button" class="md-btn md-btn-action macro-mgr-back">← 返回列表</button>' +
+            '</div></div>';
+        body.innerHTML = html;
+
+        // 组件速查插入
+        let snips = body.querySelectorAll('.macro-mgr-snip');
+        for (let i = 0; i < snips.length; i++) {
+            (function (btn) {
+                btn.addEventListener('click', function () {
+                    let ta = body.querySelector('.macro-mgr-f-template');
+                    let snippet = btn.getAttribute('data-snippet') || '';
+                    let pos = ta.selectionStart || ta.value.length;
+                    ta.value = ta.value.slice(0, pos) + snippet + ta.value.slice(ta.selectionEnd || pos);
+                    ta.focus();
+                    ta.selectionStart = ta.selectionEnd = pos + snippet.length;
+                    refreshMacroPreview(body);
+                });
+            })(snips[i]);
+        }
+
+        // 实时预览
+        let tplInput = body.querySelector('.macro-mgr-f-template');
+        tplInput.addEventListener('input', function () { refreshMacroPreview(body); });
+        let paramsInput = body.querySelector('.macro-mgr-f-params');
+        paramsInput.addEventListener('input', function () { refreshMacroPreview(body); });
+        refreshMacroPreview(body);
+
+        // 返回
+        body.querySelector('.macro-mgr-back').addEventListener('click', function () {
+            renderMacroManagerList(overlay);
+        });
+        // 保存
+        body.querySelector('.macro-mgr-save').addEventListener('click', function () {
+            let name = (body.querySelector('.macro-mgr-f-name').value || '').trim();
+            let nick = (body.querySelector('.macro-mgr-f-nick').value || '').trim();
+            let params = (body.querySelector('.macro-mgr-f-params').value || '').trim();
+            let template = body.querySelector('.macro-mgr-f-template').value.trim();
+            if (!/^[A-Za-z0-9_\u4e00-\u9fa5]{1,20}$/.test(name)) { showTopToast('宏名称不合法', true); return; }
+            if (!template) { showTopToast('模板不能为空', true); return; }
+            if (template.length > 500) { showTopToast('模板过长（上限500字符）', true); return; }
+            let payload = { name: name, nick: nick, params: params, template: template };
+            try { payload.nickname = myNickname; } catch (e) { }
+            fetch('/api/macros', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + getUserToken(), 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            }).then(function (r) { return r.json(); }).then(function (data) {
+                if (data.success) {
+                    fetchMdMacros(true);
+                    showTopToast('宏「' + name + '」已保存');
+                    renderMacroManagerList(overlay);
+                } else {
+                    showTopToast(data.error || '保存失败', true);
+                }
+            }).catch(function () { showTopToast('保存失败，网络错误', true); });
+        });
+        // 删除（编辑器内）
+        let del2 = body.querySelector('.macro-mgr-del2');
+        if (del2) {
+            del2.addEventListener('click', function () {
+                deleteMacroByName(overlay, macro.name);
+            });
+        }
+    }
+
+    // 预览刷新：模拟触发（参数用占位值）
+    function refreshMacroPreview(body) {
+        let tpl = (body.querySelector('.macro-mgr-f-template').value || '').trim();
+        let params = (body.querySelector('.macro-mgr-f-params').value || '').trim();
+        if (!tpl) { body.querySelector('.macro-mgr-preview').innerHTML = '<span class="macro-mgr-hint">输入模板后实时预览</span>'; return; }
+        let previewTpl = tpl;
+        let pnames = params.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        pnames.forEach(function (pn, i) {
+            previewTpl = previewTpl.split('{' + pn + '}').join('示例' + (i + 1));
+        });
+        body.querySelector('.macro-mgr-preview').innerHTML = mdFormat(previewTpl, { allowImg: true });
+        let pv = body.querySelector('.macro-mgr-preview');
+        if (pv) initMdComponents(pv);
+    }
+
+    function deleteMacroByName(overlay, name) {
+        if (!window.confirm('确定删除宏「' + name + '」？删除后不可恢复。')) return;
+        fetch('/api/macros/delete', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + getUserToken(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (data.success) {
+                fetchMdMacros(true);
+                showTopToast('宏「' + name + '」已删除');
+                renderMacroManagerList(overlay);
+            } else {
+                showTopToast(data.error || '删除失败', true);
+            }
+        }).catch(function () { showTopToast('删除失败，网络错误', true); });
+    }
+
     function renderComponentHtmlInner(block) {
         let ab = blockToAb(block);
         let label = escapeHtml(ab.label);
@@ -5305,8 +5882,7 @@
             let hContent = block.action || '';
             if (hType) {
                 let actText = hContent;
-                let V3_ACT2 = { 'send': '发送', 'copy': '复制', 'modal': '弹窗', 'url': '跳转', 'switch': '开关', 'get': '显示', 'hide': '隐藏', 'timer': '倒计时', 'stopwatch': '计时', 'var': '变量', 'loop': '循环', 'shuffle': '洗牌', 'music': '音乐', 'rand': '随机', 'wait': '等待', 'branch': '分支', 'chain': '动作链' };
-                if (V3_ACT2[hType]) actText = V3_ACT2[hType] + ':' + hContent;
+                if (V3_ACTION_MAP[hType]) actText = V3_ACTION_MAP[hType] + ':' + hContent;
                 return '<span class="md-hide" data-action="' + escapeHtmlAttr(encodeURIComponent(actText)) + '">' + label + '</span>';
             }
             return '<span class="md-hide">' + label + '</span>';
@@ -5361,6 +5937,18 @@
             let cBind = block.bind === '1' ? '1' : '0';
             return '<span class="md-chain" data-chain-id="' + escapeHtmlAttr(cId) + '" data-chain-steps="' + escapeHtmlAttr(encodeURIComponent(cSteps)) + '" data-chain-loop="' + escapeHtmlAttr(cLoop) + '" data-chain-bind="' + cBind + '" style="display:none"></span>';
         }
+        if (t === 'macro') {
+            return renderMacroCardHtml(block);
+        }
+        if (t === 'trigger') {
+            return renderMacroMissingHtml(block.missing || '');
+        }
+        if (t === 'macro_del') {
+            return renderMacroDelHtml(block.name || '');
+        }
+        if (t === 'macro_list') {
+            return renderMacroListHtml(block.items || []);
+        }
         if (t === 'vote') {
             let vId = block.id || 'v0';
             let vQuestion = block.question || '';
@@ -5393,7 +5981,6 @@
             // v3 按钮：动作按钮（action_type/action）或跳转按钮
             let bActionType = block.action_type || '';
             let bAction = block.action || '';
-            let V3_ACT = { 'send': '发送', 'copy': '复制', 'modal': '弹窗', 'url': '跳转', 'switch': '开关', 'get': '显示', 'hide': '隐藏', 'timer': '倒计时', 'stopwatch': '计时', 'var': '变量', 'loop': '循环', 'shuffle': '洗牌', 'music': '音乐', 'rand': '随机', 'wait': '等待', 'branch': '分支', 'chain': '动作链' };
             if (bActionType === 'url') {
                 return '<a class="md-btn' + ghostClass + disClass + '" href="' + escapeHtmlAttr(bAction) + '" target="_blank" rel="noopener noreferrer"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
             }
@@ -5411,8 +5998,8 @@
                     escapeHtmlAttr(encodeURIComponent(mTitle)) + '" data-modal-content="' +
                     escapeHtmlAttr(encodeURIComponent(mContent)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
             }
-            if (bActionType && V3_ACT[bActionType]) {
-                let actText = V3_ACT[bActionType] + ':' + bAction;
+            if (bActionType && V3_ACTION_MAP[bActionType]) {
+                let actText = V3_ACTION_MAP[bActionType] + ':' + bAction;
                 return '<a class="md-btn md-btn-action' + ghostClass + disClass + '" href="#" data-action="' + escapeHtmlAttr(encodeURIComponent(actText)) + '"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
             }
             return '<a class="md-btn' + ghostClass + disClass + '" href="#"' + abStyle + disAttr + soundAttr + animAttr + clickAttr + '>' + label + '</a>';
@@ -5463,7 +6050,7 @@
             }).join('');
             let raw = String((block && block.raw) || '');
             // 复制原文按钮（原始文本用 base64 编码放进 data 属性，避免引号/换行破坏属性）
-            let copyBtn = raw ? '<button type="button" class="md-error-copy" data-raw="' + btoa(unescape(encodeURIComponent(raw))) + '">📋 复制原文</button>' : '';
+            let copyBtn = raw ? '<button type="button" class="md-error-copy" data-raw="' + btoa(unescape(encodeURIComponent(raw))) + '"><svg class="icon" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>复制原文</button>' : '';
             return lines + copyBtn;
         }
         return renderComponentHtml(block);
@@ -5483,6 +6070,8 @@
     function mdFormat(content, opts) {
         opts = opts || {};
         let allowImg = !!opts.allowImg; // 弹窗内允许图片，消息内禁止（防流量攻击）
+        // 宏展开（先于转义，保证模板内 [! 组件可被解析；未找到的宏保留原文由渲染层提示）
+        content = expandMdMacrosLocal(content);
         let text = escapeHtml(content);
         // 保护代码块（fenced / 内联代码）：防止其中的自定义语法（B站链接、动作按钮）被误解析
         let codeProtect = protectMarkdownCode(text);
@@ -5631,8 +6220,6 @@
             let btnHtml = '';
             let bp = parseNewMdParams(ab.raw);
             let bpParts = splitTopLevelByPipe(ab.raw);
-            // v3 动作前缀（中文）
-            let V3_ACTIONS = ['发送', '复制', '弹窗', '跳转', '开关', '显示', '隐藏', '倒计时', '变量', '循环', '洗牌', '计时', '音乐', '随机', '等待', '分支', '动作链'];
             // 通用动作按钮：data-action 存完整 v3 动作文本，点击时 executeMdAction 执行
             let actionBtnHtml = function (actionText, extraCls) {
                 return '<a class="md-btn md-btn-action' + (extraCls || '') + ghostClass + disClass + '" href="#" data-action="' +
@@ -5771,8 +6358,8 @@
                 let bLabel = abParams.label || bp.value || '按钮';
                 let bAct = (bpParts[1] || '').trim();
                 let bActType = '', bActContent = bAct;
-                for (let ai = 0; ai < V3_ACTIONS.length; ai++) {
-                    let ap = V3_ACTIONS[ai];
+                for (let ai = 0; ai < V3_ACTION_CN.length; ai++) {
+                    let ap = V3_ACTION_CN[ai];
                     if (bAct.indexOf(ap + ':') === 0) { bActType = ap; bActContent = bAct.slice(ap.length + 1); break; }
                 }
                 if (!bActType && /^https?:\/\//i.test(bAct)) { bActType = '跳转'; bActContent = bAct; }
@@ -5997,6 +6584,20 @@
                     }
                 }
                 btnHtml = '<span class="md-chain" data-chain-id="' + escapeHtmlAttr(chainId) + '" data-chain-steps="' + escapeHtmlAttr(encodeURIComponent(chainSteps)) + '" data-chain-loop="' + escapeHtmlAttr(chainLoop) + '" data-chain-bind="' + chainBind + '" style="display:none"></span>';
+            } else if (ab.type === '宏') {
+                // 宏定义卡片：[!宏:名称|昵称(参数)=模板]
+                let mb = parseMacroDefinitionLocal(ab.raw);
+                btnHtml = renderMacroCardHtml(mb);
+            } else if (ab.type === '触发宏') {
+                // 触发宏：已展开的不会到这里；到达即未找到
+                let mkey = (ab.raw.split(':')[0] || '').trim();
+                btnHtml = renderMacroMissingHtml(mkey || ab.raw);
+            } else if (ab.type === '宏删') {
+                // 宏删除提示
+                btnHtml = renderMacroDelHtml((ab.raw.split('|')[0] || '').trim());
+            } else if (ab.type === '宏列表') {
+                // 宏列表（本地预览用缓存）
+                btnHtml = renderMacroListHtml(mdMacrosCache.list);
             } else {
                 // 未知类型（含 v2 废弃语法）：按普通文本显示
                 btnHtml = escapeHtml('[!' + ab.type + (ab.raw ? ':' + ab.raw : '') + ']');
@@ -6179,30 +6780,6 @@
             });
     }
 
-    /**
-     * 自动检测已转义文本中的 URL 并转为可点击链接
-     * 先 escape 再匹配，杜绝 XSS 风险。
-     */
-    function autoLink(text) {
-        // 匹配 http/https URL，以及 www. 开头的域名
-        return text.replace(
-            /(https?:\/\/[^\s<>"'，。！？、；：》\)\]]+)|(?<!\w)www\.[^\s<>"'，。！？、；：》\)\]]+/gi,
-            function (match) {
-                let href = match;
-                // www. 开头没有协议 → 补 https://
-                if (/^www\./i.test(href)) {
-                    href = 'https://' + href;
-                }
-                return '<a href="' + href + '" target="_blank" rel="noopener noreferrer" class="auto-link">' + match + '</a>';
-            }
-        );
-    }
-
-    function parseStickerId(text) {
-        const m = text.match(/^\[sticker:([^\]]+)\]/);
-        return m ? m[1] : null;
-    }
-
     // ==================== 点歌系统 ====================
 
     function formatDuration(ms) {
@@ -6219,58 +6796,6 @@
         } else {
             $btnSong.classList.remove('playing');
         }
-    }
-
-    function openSongInfo(e, song) {
-        if (!$songInfo) return;
-        // 填充内容
-        $songInfoCover.src = song.picurl || '';
-        $songInfoName.textContent = song.name || '';
-        $songInfoArtist.textContent = song.artist || '';
-        $songInfoAdder.textContent = song.adder ? '点歌人: ' + song.adder : '';
-        // 计算进度（音频实际播放进度优先，与服务端时间推算一致）
-        let elapsed = (songCurAudio && songCurAudio.src && !songCurAudio.paused &&
-            isFinite(songCurAudio.currentTime) && songCurAudio.currentTime > 0)
-            ? songCurAudio.currentTime
-            : (Date.now() / 1000) - (song.start_time || 0);
-        let total = (song.duration || 0) / 1000;
-        let pct = total > 0 ? Math.min(100, Math.max(0, (elapsed / total) * 100)) : 0;
-        $songInfoProgressBar.style.width = pct + '%';
-        $songInfoTime.textContent = formatDuration(elapsed * 1000) + ' / ' + formatDuration(song.duration);
-        // 下一首（循环队列）
-        let nextText = '';
-        if (songList.length > 0) {
-            let curIdx = -1;
-            for (let k = 0; k < songList.length; k++) {
-                if (String(songList[k].id) === String(song.id)) { curIdx = k; break; }
-            }
-            let nextIdx = (curIdx >= 0) ? (curIdx + 1) % songList.length : 0;
-            if (songList[nextIdx]) {
-                nextText = '下一首: ' + songList[nextIdx].name + ' (' + songList[nextIdx].votes + '票)';
-            }
-        } else {
-            nextText = '投票池为空';
-        }
-        $songInfoNext.textContent = nextText;
-        // 定位
-        let target = e.target;
-        let rect = target.getBoundingClientRect();
-        let left = rect.left;
-        let top = rect.bottom + 6;
-        // 防止超出右边界
-        if (left + 280 > window.innerWidth - 16) {
-            left = window.innerWidth - 296;
-        }
-        if (left < 12) left = 12;
-        // 防止超出下边界
-        if (top + 160 > window.innerHeight - 16) {
-            top = rect.top - 166;
-        }
-        $songInfo.style.left = left + 'px';
-        $songInfo.style.top = top + 'px';
-        $songInfo.style.display = 'flex';
-        // 启动实时进度更新
-        startSongProgress(song);
     }
 
     function closeSongInfo() {
@@ -6783,7 +7308,7 @@
                 }
                 // 管理员：直接移除歌曲（替代原 \removesong 指令）
                 if (isLobbyAdmin) {
-                    html += '<button class="song-admin-remove" data-admin-remove-id="' + escapeHtmlAttr(s.id) + '" title="管理员移除">🗑</button>';
+                    html += '<button class="song-admin-remove" data-admin-remove-id="' + escapeHtmlAttr(s.id) + '" title="管理员移除"><svg class="icon" viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
                 }
                 html += '</div>';
             }
@@ -6800,7 +7325,7 @@
                     '<div class="song-meta">' + escapeHtml(s.artist || '') + ' · ' + (s.voter_count || 0) + '人已投' + (s.adder ? ' · ' + escapeHtml(s.adder) : '') + '</div>' +
                     '</span>' +
                     '<button class="song-vote-btn" data-song-id="' + escapeHtmlAttr(s.id) + '">投票</button>' +
-                    (isLobbyAdmin ? '<button class="song-admin-remove" data-admin-remove-id="' + escapeHtmlAttr(s.id) + '" title="管理员移除">🗑</button>' : '') +
+                    (isLobbyAdmin ? '<button class="song-admin-remove" data-admin-remove-id="' + escapeHtmlAttr(s.id) + '" title="管理员移除"><svg class="icon" viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>' : '') +
                     '</div>';
             }
         }
@@ -7049,6 +7574,8 @@
     autoUpgradeOldUserdata();
     showIdentityState();
     updateNotifyUI();
+    // 预加载宏库缓存（用于 [!触发宏:昵称] 本地预览展开）
+    fetchMdMacros();
     if (notifyEnabled && 'Notification' in window && Notification.permission !== 'granted') {
         requestNotifyPermission();
     }

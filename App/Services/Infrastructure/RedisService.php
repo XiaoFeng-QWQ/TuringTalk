@@ -85,6 +85,9 @@ class RedisService
     public const KP_OAUTH_STATE    = self::PREFIX . 'oauth:state:';              // oauth:state:{state} → JSON {verifier,provider,bind_player_id,redirect} TTL 600s
     public const KP_OAUTH_CODE     = self::PREFIX . 'oauth:code:';               // oauth:code:{code}   → JSON {token,nickname,player_id} TTL 60s（一次性）
     public const KP_OAUTH_PENDING  = self::PREFIX . 'oauth:pending:';            // oauth:pending:{code} → JSON 建号确认数据 TTL 600s（一次性）
+
+    // ==================== 临时聊天 ====================
+    public const KP_TEMPCHAT_MSG   = self::PREFIX . 'tempchat:msg:';             // tempchat:msg:{roomId} → list 房间消息 JSON（保留最近 500 条，TTL 2h）
     public const STICKER_CACHE_TTL  = 3600;
 
     /**

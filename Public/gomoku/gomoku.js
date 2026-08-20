@@ -1,6 +1,10 @@
 'use strict';
 
 // ================= DOM 引用 =================
+
+// 清理历史残留：gomoku_player_id 从未被前端读取（整站认证统一走 player_token/JWT）
+try { localStorage.removeItem('gomoku_player_id'); } catch (e) { }
+
 const pages = {
     menu: document.getElementById('page-menu'),
     setup: document.getElementById('page-setup'),
@@ -817,9 +821,6 @@ function handleWsMsg(msg) {
             if (data && data.token && !getUserToken()) {
                 setUserToken(data.token);
             }
-            if (data && data.player_id) {
-                localStorage.setItem('gomoku_player_id', data.player_id);
-            }
             _pendingToken = '';
             _pendingNickname = '';
             flushActionQueue();
@@ -851,9 +852,6 @@ function handleWsMsg(msg) {
             hideGomokuLoading();
             roomId = data.roomId;
             myColor = data.color;
-            if (data.player_id) {
-                localStorage.setItem('gomoku_player_id', data.player_id);
-            }
             document.getElementById('wait-code').textContent = roomId;
             showPage('wait');
             break;
@@ -868,9 +866,6 @@ function handleWsMsg(msg) {
             isOnline = true;
             isSpectator = false;
             myColor = data.myColor;
-            if (data.player_id) {
-                localStorage.setItem('gomoku_player_id', data.player_id);
-            }
             if (data.settings && data.settings.boardSize) {
                 boardSize = parseInt(data.settings.boardSize);
             }
@@ -1389,7 +1384,17 @@ function appendGomokuBubble(data) {
     wrapper.className = 'lobby-msg-row';
     if (isMine) wrapper.classList.add('mine');
 
-    // 内容区（无头像）
+    // 头像：有 OAuth 头像则显示图片，否则降级为首字符
+    let avatar = document.createElement('div');
+    avatar.className = 'lobby-avatar';
+    if (data.sender_id) {
+        renderAvatar(avatar, data.sender_id, data.sender_name || '');
+    } else {
+        avatar.textContent = (data.sender_name || '?').charAt(0);
+        avatar.style.background = isMine ? 'let(--note-blue)' : getAvatarColor(data.sender_name || '');
+    }
+
+    // 内容区
     let content = document.createElement('div');
     content.className = 'lobby-msg-content';
 
@@ -1399,123 +1404,56 @@ function appendGomokuBubble(data) {
         '<span class="lobby-msg-time">' + escapeHtml(data.time || '') + '</span>';
     content.appendChild(meta);
 
-    // 气泡
-    let bubble = document.createElement('div');
-    bubble.className = 'lobby-msg' + (isMine ? ' mine' : '');
-
     // 撤回
     if (data.revoked) {
-        bubble.classList.add('revoked');
+        let bubble = document.createElement('div');
+        bubble.className = 'lobby-msg revoked';
         bubble.innerHTML = '<div class="lobby-msg-text revoked-text">消息已撤回</div>';
         content.appendChild(bubble);
+        wrapper.appendChild(avatar);
         wrapper.appendChild(content);
         msgs.appendChild(wrapper);
         msgs.scrollTop = msgs.scrollHeight;
         return;
     }
 
-    // 卡片
+    // 卡片：直接渲染，不套气泡层（与主聊天室一致）
     let cardType = data.msg_type || ((data.type || '').startsWith('card.') ? data.type : null);
-    if (cardType === 'card.share.record') {
-        let cardHtml = window.LobbyRenderer ? window.LobbyRenderer.renderRecordCard(data.content) : '';
-        bubble.innerHTML = cardHtml || ('<div class=\"lobby-msg-text\">' + escapeHtml(data.content) + '</div>');
-        wrapper.dataset.msgId = data.id;
-    } else if (cardType === 'card.invite.gomoku') {
-        let cardHtml = window.LobbyRenderer ? window.LobbyRenderer.renderGomokuInviteCard(data.content) : '';
-        bubble.innerHTML = cardHtml || ('<div class=\"lobby-msg-text\">' + escapeHtml(data.content) + '</div>');
-        wrapper.dataset.msgId = data.id;
-    } else if (data.type === 'sticker' || data.sticker_id) {
-        let url = data.sticker_url || '';
-        bubble.innerHTML = url
-            ? '<img class=\"sticker-img\" src=\"' + escapeHtmlAttr(url) + '\" alt=\"表情\">'
-            : '<span style=\"color:#999\">[表情]</span>';
+    if (cardType === 'card.share.record' || cardType === 'card.invite.gomoku') {
+        let cardHtml = window.LobbyRenderer
+            ? (cardType === 'card.share.record'
+                ? window.LobbyRenderer.renderRecordCard(data.content)
+                : window.LobbyRenderer.renderGomokuInviteCard(data.content))
+            : renderGomokuCardHtml(data);
+        let cardEl = document.createElement('div');
+        cardEl.className = 'lobby-card-wrapper';
+        cardEl.innerHTML = cardHtml || ('<div class="lobby-msg-text">' + escapeHtml(data.content) + '</div>');
+        content.appendChild(cardEl);
     } else {
-        // 普通消息：MD 渲染
-        let rendered = window.LobbyRenderer ? window.LobbyRenderer.mdFormat(data.content || '') : escapeHtml(data.content || '');
-        bubble.innerHTML = '<div class=\"lobby-msg-text\">' + rendered + '</div>';
+        let bubble = document.createElement('div');
+        bubble.className = 'lobby-msg' + (isMine ? ' mine' : '');
+        if (data.type === 'sticker' || data.sticker_id) {
+            let url = data.sticker_url || '';
+            bubble.innerHTML = url
+                ? '<img class="sticker-img" src="' + escapeHtmlAttr(url) + '" alt="表情">'
+                : '<span style="color:#999">[表情]</span>';
+        } else {
+            // 普通消息：MD 渲染
+            let rendered = window.LobbyRenderer ? window.LobbyRenderer.mdFormat(data.content || '') : escapeHtml(data.content || '');
+            bubble.innerHTML = '<div class="lobby-msg-text">' + rendered + '</div>';
+        }
+        content.appendChild(bubble);
+        bubble.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            showGomokuMsgMenu(e, data.sender_name || '', data.content || '', data.id, data.sender_id);
+        });
     }
 
-    content.appendChild(bubble);
+    if (data.id) wrapper.dataset.msgId = data.id;
+    wrapper.appendChild(avatar);
     wrapper.appendChild(content);
 
-    // 右键菜单
-    if (data.id) wrapper.dataset.msgId = data.id;
-    bubble.addEventListener('contextmenu', function (e) {
-        e.preventDefault();
-        showGomokuMsgMenu(e, data.sender_name || '', data.content || '', data.id, data.sender_id);
-    });
-
     msgs.appendChild(wrapper);
-    msgs.scrollTop = msgs.scrollHeight;
-}
-
-function renderGomokuChatHistory(messages) {
-    let msgs = document.getElementById('gomoku-chat-messages');
-    if (!msgs) return;
-    msgs.innerHTML = '';
-    (messages || []).slice(-50).forEach((m) => {
-        let cardType = m.msg_type || ((m.type || '').startsWith('card.') ? m.type : null);
-        if (cardType === 'card.share.record' || cardType === 'card.invite.gomoku') {
-            renderGomokuChatCard(m);
-            return;
-        }
-        if (m.type === 'sticker') {
-            appendGomokuChatSticker(m);
-            return;
-        }
-        appendGomokuChatMsg(m.sender_name || '', m.content || '', m.time || '', m.id, m.sender_id);
-    });
-    let empty = msgs.querySelector('.gc-empty');
-    if (empty) empty.remove();
-    msgs.scrollTop = msgs.scrollHeight;
-}
-
-function appendGomokuChatMsg(sender, content, time, msgId, senderId) {
-    let msgs = document.getElementById('gomoku-chat-messages');
-    if (!msgs) return;
-    let empty = msgs.querySelector('.gc-empty');
-    if (empty) empty.remove();
-    let row = document.createElement('div');
-    row.className = 'gc-msg';
-    let isSelf = sender === getUserNickname();
-    if (isSelf) row.classList.add('self');
-    // 头像
-    let avatar = '<span class="gc-avatar">' + escapeHtml((sender || '?').charAt(0)) + '</span>';
-    row.innerHTML = avatar +
-        '<span class="gc-sender">' + escapeHtml(sender || '?') + '</span>' +
-        '<div class="gc-bubble">' + escapeHtml(content || '').replace(/\\n/g, '<br>') + '</div>' +
-        (time ? '<span class="gc-time">' + escapeHtml(time) + '</span>' : '');
-    if (msgId) row.dataset.msgId = msgId;
-    if (senderId) row.dataset.senderId = senderId;
-    row.addEventListener('contextmenu', function (e) {
-        e.preventDefault();
-        showGomokuMsgMenu(e, sender, content, msgId, senderId);
-    });
-    let lpTimer = null;
-    row.addEventListener('touchstart', function (e) {
-        lpTimer = setTimeout(function () { showGomokuMsgMenu(e, sender, content, msgId, senderId); }, 500);
-    });
-    row.addEventListener('touchend', function () { clearTimeout(lpTimer); });
-    row.addEventListener('touchmove', function () { clearTimeout(lpTimer); });
-    msgs.appendChild(row);
-    msgs.scrollTop = msgs.scrollHeight;
-}
-
-// 表情消息渲染
-function appendGomokuChatSticker(d) {
-    let msgs = document.getElementById('gomoku-chat-messages');
-    if (!msgs) return;
-    let empty = msgs.querySelector('.gc-empty');
-    if (empty) empty.remove();
-    let row = document.createElement('div');
-    row.className = 'gc-msg';
-    let sender = d.sender_name || '';
-    let isSelf = sender === getUserNickname();
-    if (isSelf) row.classList.add('self');
-    let url = d.sticker_url || '';
-    row.innerHTML = '<span class="gc-sender">' + escapeHtml(sender) + '</span>' +
-        (url ? '<img class="gc-sticker-img" src="' + escapeHtmlAttr(url) + '" alt="表情">' : '<div class="gc-bubble">[表情]</div>');
-    msgs.appendChild(row);
     msgs.scrollTop = msgs.scrollHeight;
 }
 
@@ -1661,13 +1599,8 @@ function appendGomokuChatSystem(text) {
     msgs.scrollTop = msgs.scrollHeight;
 }
 
-function renderGomokuChatCard(d) {
-    let msgs = document.getElementById('gomoku-chat-messages');
-    if (!msgs) return;
-    let empty = msgs.querySelector('.gc-empty');
-    if (empty) empty.remove();
-    let row = document.createElement('div');
-    row.className = 'gc-msg card';
+// 战绩 / 对局邀请卡片 HTML（lobby.js 未加载时使用，样式与主聊天室卡片一致）
+function renderGomokuCardHtml(d) {
     let cardHtml = '';
     try {
         let card = JSON.parse(d.content || '{}');
@@ -1695,11 +1628,7 @@ function renderGomokuChatCard(d) {
     } catch (e) {
         cardHtml = '<div class="gc-card">卡片消息</div>';
     }
-    let sender = d.sender_name || '';
-    let avatar = '<span class="gc-avatar">' + escapeHtml((sender || '?').charAt(0)) + '</span>';
-    row.innerHTML = avatar + '<span class="gc-sender">' + escapeHtml(sender) + '</span>' + cardHtml;
-    msgs.appendChild(row);
-    msgs.scrollTop = msgs.scrollHeight;
+    return cardHtml;
 }
 
 // 点击邀请卡片：跳转五子棋并填入房间号（不自动加入，等用户点落座）

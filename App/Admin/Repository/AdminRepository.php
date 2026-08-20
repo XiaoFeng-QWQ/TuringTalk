@@ -160,6 +160,22 @@ class AdminRepository
     }
 
     /**
+     * 分页查询全服公告历史
+     */
+    public static function getBroadcastLogs(int $page, int $pageSize): array
+    {
+        $offset = ($page - 1) * $pageSize;
+        $count  = SqliteHelper::fetchOne(self::$pdo, "SELECT COUNT(*) FROM admin_logs WHERE action = 'broadcast'");
+        $total  = (int)($count['COUNT(*)'] ?? 0);
+        $rows   = SqliteHelper::fetchAll(
+            self::$pdo,
+            "SELECT * FROM admin_logs WHERE action = 'broadcast' ORDER BY id DESC LIMIT ? OFFSET ?",
+            [$pageSize, $offset]
+        );
+        return ['total' => $total, 'rows' => $rows, 'page' => $page, 'page_size' => $pageSize];
+    }
+
+    /**
      * 分页查询操作日志。adminId 为 null 时查询全部。
      */
     public static function getLogs(?int $adminId, int $page, int $pageSize): array

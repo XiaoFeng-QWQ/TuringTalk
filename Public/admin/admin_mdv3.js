@@ -314,6 +314,7 @@
                 '<div class="mdv3-row-actions">' +
                 '<button class="doodle-btn btn-xs" data-action="open-post-detail" data-id="' + escapeAttrSafe(String(id)) + '">详情 &amp; 评论</button>' +
                 '<a class="doodle-btn btn-xs" target="_blank" rel="noopener" href="' + POST_PAGE_URL_BASE + escapeAttrSafe(String(id)) + '">打开原帖</a>' +
+                ((p.status === 'pending') ? '<button class="doodle-btn btn-xs btn-success-ghost" data-action="approve-post" data-id="' + escapeAttrSafe(String(id)) + '">通过</button>' : '') +
                 ((p.status !== 'rejected') ? '<button class="doodle-btn btn-xs btn-danger-ghost" data-action="reject-post" data-id="' + escapeAttrSafe(String(id)) + '">退回</button>' : '') +
                 '<button class="doodle-btn btn-xs btn-danger-ghost" data-action="delete-post" data-id="' + escapeAttrSafe(String(id)) + '">彻底删除</button>' +
                 '</div>' +
@@ -326,6 +327,13 @@
             b.addEventListener('click', () => {
                 const id = Number(b.dataset.id);
                 showPostDetailDialog(id);
+            });
+        });
+        $list.querySelectorAll('[data-action="approve-post"]').forEach(b => {
+            b.addEventListener('click', () => {
+                const id = Number(b.dataset.id);
+                if (!confirm('确认通过帖子 #' + id + '？')) return;
+                postAction(id, 'approve');
             });
         });
         $list.querySelectorAll('[data-action="reject-post"]').forEach(b => {

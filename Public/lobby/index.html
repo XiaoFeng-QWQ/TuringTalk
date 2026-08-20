@@ -112,6 +112,21 @@
                         </svg>
                         <span>MD 教程</span>
                     </a>
+                    <button class="doodle-btn" id="btn-my-macros" title="我的宏（自定义 MD 组件模板）">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                            <rect x="8" y="2" width="8" height="4" rx="1" />
+                            <path d="M9 12h6" />
+                            <path d="M9 16h6" />
+                        </svg>
+                        <span>我的宏</span>
+                    </button>
+                    <button class="doodle-btn" id="btn-temp-invite" title="临时聊天">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                        </svg>
+                        <span>临时聊天</span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -270,6 +285,11 @@
                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
                 <span class="toggle-label">其他提示</span>
             </label>
+            <label class="song-listen-toggle" title="开启后：特定节奏点击屏幕/发送含「奶龙」的消息会触发彩蛋">
+                <input type="checkbox" id="lobby-sysmsg-egg">
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                <span class="toggle-label">彩蛋</span>
+            </label>
         </div>
     </div>
 
@@ -290,6 +310,17 @@
     </div>
 
     <script src="/lobby/lobby.js?v="></script>
+    <script src="/temp-invite.js?v="></script>
+    <script>
+        // 临时聊天邀请面板（发起入口，lobby 已有 lobby 连接接收邀请，这里只启用搜索面板）
+        document.addEventListener('DOMContentLoaded', function () {
+            if (window.TempInvite) {
+                window.TempInvite.init({ autoConnect: false });
+                var btn = document.getElementById('btn-temp-invite');
+                if (btn) btn.addEventListener('click', function () { window.TempInvite.openPanel(); });
+            }
+        });
+    </script>
     <script defer src="https://cloud.umami.is/script.js" data-website-id="caab6c43-2fba-4eb5-9654-e1fe179ce0f2"></script>
 </body>
 

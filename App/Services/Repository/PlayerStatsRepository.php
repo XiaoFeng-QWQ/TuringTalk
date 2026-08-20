@@ -49,12 +49,15 @@ class PlayerStatsRepository
             messages TEXT,
             worn_tags TEXT NULL DEFAULT NULL COMMENT "佩戴标签 JSON 数组",
             worn_special_tags TEXT NULL DEFAULT NULL COMMENT "佩戴特殊标签 JSON 数组",
+            nickname_updated_at INT NOT NULL DEFAULT 0 COMMENT "上次修改昵称时间戳（每月限改一次）",
             created_at INT NOT NULL DEFAULT 0,
             last_played_at INT NOT NULL DEFAULT 0
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
 
         // 兼容存量表：补 password_set 列（CREATE TABLE IF NOT EXISTS 不会更新已有表）
         Database::ensureColumn($pdo, 'player_data', 'password_set', 'TINYINT(1) NOT NULL DEFAULT 1 COMMENT "用户是否已自行设置密码（0=系统随机/OAuth 注册，1=用户设置）"');
+        // 兼容存量表：补昵称修改时间列
+        Database::ensureColumn($pdo, 'player_data', 'nickname_updated_at', 'INT NOT NULL DEFAULT 0 COMMENT "上次修改昵称时间戳（每月限改一次）"');
 
         // 对手标签累计表
         $pdo->exec('CREATE TABLE IF NOT EXISTS player_tags (
@@ -179,6 +182,28 @@ class PlayerStatsRepository
         $stmt->execute([$id]);
         $row = $stmt->fetch();
         return $row ?: null;
+    }
+
+    /**
+     * 批量按 ID 取昵称（在线列表/邀请搜索用）：返回 id => nickname（不存在的 id 不出现）
+     */
+    public static function findNicknamesByIds(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('strval', $ids), fn($v) => $v !== ''));
+        if (empty($ids)) return [];
+        $map = [];
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $pdo = Database::connect();
+            $stmt = $pdo->prepare("SELECT id, nickname FROM player_data WHERE id IN ({$placeholders})");
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $r) {
+                if (($r['nickname'] ?? '') !== '') $map[(string)$r['id']] = (string)$r['nickname'];
+            }
+        } catch (\Throwable $e) {
+            Logger::warning('PlayerStatsRepository::findNicknamesByIds failed', ['error' => $e->getMessage()]);
+        }
+        return $map;
     }
 
     /**
@@ -458,9 +483,20 @@ class PlayerStatsRepository
     {
         $pdo = Database::connect();
         $stmt = $pdo->prepare(
-            'UPDATE player_data SET nickname = ?, ip = ?, fp = ? WHERE id = ?'
+            'UPDATE player_data SET nickname = ?, ip = ?, fp = ?, nickname_updated_at = ? WHERE id = ?'
         );
-        $stmt->execute([$nickname, $ip, $fp, $playerId]);
+        $stmt->execute([$nickname, $ip, $fp, time(), $playerId]);
+    }
+
+    /**
+     * 获取上次修改昵称的时间戳（0 = 从未修改过）
+     */
+    public static function getNicknameUpdatedAt(string $playerId): int
+    {
+        $pdo = Database::connect();
+        $stmt = $pdo->prepare('SELECT nickname_updated_at FROM player_data WHERE id = ? LIMIT 1');
+        $stmt->execute([$playerId]);
+        return (int)$stmt->fetchColumn();
     }
 
     // ================================================================

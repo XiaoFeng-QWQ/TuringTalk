@@ -45,7 +45,7 @@
             </div>
 
             <nav class="admin-tab-bar">
-                <button class="admin-tab-btn active" id="tab-sessions">
+                <button class="admin-tab-btn" id="tab-sessions">
                     <svg class="icon" viewBox="0 0 24 24">
                         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                         <circle cx="9" cy="7" r="4" />
@@ -53,13 +53,6 @@
                         <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                     </svg>
                     活跃对局
-                </button>
-                <button class="admin-tab-btn" id="tab-reports">
-                    <svg class="icon" viewBox="0 0 24 24">
-                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                        <line x1="4" y1="22" x2="4" y2="15" />
-                    </svg>
-                    举报审核
                 </button>
                 <button class="admin-tab-btn" id="tab-stickers">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -75,6 +68,24 @@
                         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                     </svg>
                     聊天室管理
+                </button>
+                <button class="admin-tab-btn" id="tab-bot">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                        <rect x="9" y="9" width="6" height="6" />
+                        <line x1="9" y1="1" x2="9" y2="4" />
+                        <line x1="15" y1="1" x2="15" y2="4" />
+                        <line x1="9" y1="20" x2="9" y2="23" />
+                        <line x1="15" y1="20" x2="15" y2="23" />
+                    </svg>
+                    BOT管理
+                </button>
+                <button class="admin-tab-btn active" id="tab-announce">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M3 11l18-5v12L3 14v-3z" />
+                        <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+                    </svg>
+                    全服公告
                 </button>
                 <button class="admin-tab-btn" id="tab-users">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -129,6 +140,21 @@
                         </button>
                     </div>
                 </div>
+                <button class="admin-tab-btn" id="tab-admin" style="display:none;">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    管理员
+                </button>
+                <button class="admin-tab-btn" id="tab-logs" style="display:none;">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    操作日志
+                </button>
             </nav>
 
             <div class="sidebar-foot">
@@ -152,27 +178,6 @@
 
             <!-- 管理面板 -->
             <div id="admin-panel-content" style="display:none;">
-
-                <!-- 全服公告 -->
-                <section class="broadcast-card">
-                    <div class="card-head">
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path d="M3 11l18-5v12L3 14v-3z" />
-                            <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-                        </svg>
-                        <h4>全服公告</h4>
-                        <span class="card-desc">发送弹幕公告给所有在线玩家</span>
-                    </div>
-                    <div class="broadcast-row">
-                        <input type="text" id="broadcast-input" placeholder="输入公告内容..." maxlength="100">
-                        <label class="duration-field" title="显示时长（秒）">
-                            时长
-                            <input type="number" id="broadcast-duration" value="60" min="1" max="3600" step="1">
-                        </label>
-                        <button class="doodle-btn btn-primary" id="btn-send-broadcast">发送</button>
-                    </div>
-                    <span class="form-status" id="broadcast-status"></span>
-                </section>
 
                 <!-- 活跃对局 -->
                 <section class="setting-row" id="panel-sessions">
@@ -407,9 +412,115 @@
                     </div>
                 </section>
 
-                <!-- MDv3 分享站管理：帖子 -->
-                <section class="setting-row mdv3-panel" id="panel-mdv3-posts" data-mdv3="posts" style="display:none;">
+                <section class="setting-row" id="panel-announce" style="display:none;">
                     <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M3 11l18-5v12L3 14v-3z" />
+                            <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+                        </svg>
+                        <h4>全服公告</h4>
+                        <span class="card-desc">发送弹幕公告给所有在线玩家</span>
+                    </div>
+
+                    <!-- 发送面板（仅此分区显示） -->
+                    <div class="broadcast-card" style="border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;background:var(--card);">
+                        <div class="broadcast-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <input type="text" id="broadcast-input" placeholder="输入公告内容..." maxlength="100"
+                                style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg,#fff);">
+                            <label class="duration-field" title="显示时长（秒）" style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;">
+                                时长
+                                <input type="number" id="broadcast-duration" value="60" min="1" max="3600" step="1"
+                                    style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--bg,#fff);">
+                            </label>
+                            <button class="doodle-btn btn-primary" id="btn-send-broadcast" style="padding:6px 18px;">发送</button>
+                        </div>
+                        <span class="form-status" id="broadcast-status" style="font-size:12px;color:var(--text-muted);"></span>
+                    </div>
+
+                    <!-- 历史公告列表 -->
+                    <div class="toolbar-row">
+                        <span style="font-size:12px;color:var(--text-muted);">历史公告（最近20条）</span>
+                    </div>
+                    <div class="list-panel" id="announce-list">
+                        <div class="list-empty">暂无历史公告</div>
+                    </div>
+                </section>
+
+                <section class="setting-row" id="panel-bot" style="display:none;">                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <rect x="4" y="4" width="16" height="16" rx="2" />
+                            <rect x="9" y="9" width="6" height="6" />
+                            <line x1="9" y1="1" x2="9" y2="4" />
+                            <line x1="15" y1="1" x2="15" y2="4" />
+                            <line x1="9" y1="20" x2="9" y2="23" />
+                            <line x1="15" y1="20" x2="15" y2="23" />
+                        </svg>
+                        <h4>开放BOT</h4>
+                        <span class="card-desc">绑定玩家为 BOT，管理 BOT KEY（查看/重置/禁用/删除）</span>
+                    </div>
+
+                    <div class="toolbar-row">
+                        <button class="doodle-btn" id="btn-bot-add">添加BOT</button>
+                        <button class="doodle-btn" id="btn-bot-refresh">刷新列表</button>
+                        <span style="font-size:12px;color:#888;margin-left:6px;">绑定玩家的玩家ID + 昵称，添加后自动生成唯一 KEY</span>
+                    </div>
+
+                    <div class="list-panel" id="bot-list">
+                        <div class="list-empty">暂无 BOT，点击「添加BOT」绑定玩家</div>
+                    </div>
+                    <div class="pagination" id="bot-pagination"></div>
+
+                    <hr style="margin:24px 0;border:none;border-top:2px dashed var(--border);">
+
+                    <div class="card-head">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                            <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                        </svg>
+                        <h4>BOT申请</h4>
+                        <span class="card-desc">审核玩家 BOT 申请，通过后自动绑定</span>
+                    </div>
+
+                    <div class="toolbar-row">
+                        <button class="doodle-btn apply-filter-btn active" data-filter="all">全部</button>
+                        <button class="doodle-btn apply-filter-btn" data-filter="pending">未通过</button>
+                        <button class="doodle-btn apply-filter-btn" data-filter="approved">已通过</button>
+                        <span style="font-size:12px;color:var(--text-muted);margin-left:6px;">通过后自动在「开放BOT」绑定该玩家</span>
+                    </div>
+
+                    <div class="list-panel" id="bot-apply-list">
+                        <div class="list-empty">暂无 BOT 申请</div>
+                    </div>
+                    <div class="pagination" id="bot-apply-pagination"></div>
+                </section>
+
+                <!-- 添加 BOT 弹窗 -->
+                <div id="bot-add-overlay" class="admin-dialog-overlay" style="display:none;">
+                    <div class="admin-dialog">
+                        <div style="display:flex;align-items:center;justify-content:space-between;">
+                            <h3 style="margin:0;">添加 BOT</h3>
+                            <button id="btn-bot-add-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1;">&times;</button>
+                        </div>
+                        <div class="admin-dialog-target">绑定现有玩家为聊天室 BOT 独立账户。</div>
+                        <div style="margin-bottom:10px;margin-top:4px;">
+                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">玩家ID（player_data.id）</div>
+                            <input id="bot-add-player-id" type="text" maxlength="32" autocomplete="off" placeholder="输入玩家ID（32位hex）"
+                                style="width:100%;box-sizing:border-box;">
+                        </div>
+                        <div style="margin-bottom:6px;">
+                            <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">玩家昵称</div>
+                            <input id="bot-add-nickname" type="text" maxlength="32" autocomplete="off" placeholder="输入玩家昵称"
+                                style="width:100%;box-sizing:border-box;">
+                        </div>
+                        <div class="admin-dialog-actions">
+                            <button class="doodle-btn" id="btn-bot-add-cancel">取消</button>
+                            <button class="doodle-btn success" id="btn-bot-add-confirm">绑定</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MDv3 分享站管理：帖子 -->
+                <section class="setting-row mdv3-panel" id="panel-mdv3-posts" data-mdv3="posts" style="display:none;">                    <div class="card-head">
                         <svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
                         <h4>帖子管理</h4>
                         <span class="card-desc">MDv3 分享站所有帖子审核与处理</span>
@@ -486,6 +597,40 @@
                         <div><strong>鉴权说明：</strong>本管理后台已登录的 <code>turing_admin_token</code> 将被作为 <code>token</code> 字段放入每个 POST 请求的 body 内。</div>
                         <div>若目标接口返回 401（token 无效/过期），请重新登录此管理后台。</div>
                     </div>
+                </section>
+
+                <section class="setting-row" id="panel-admin" style="display:none;">
+                    <h4>管理员列表</h4>
+                    <div class="toolbar-row">
+                        <input type="text" id="admin-add-username" placeholder="用户名">
+                        <input type="password" id="admin-add-password" placeholder="密码">
+                        <button class="doodle-btn btn-primary" id="btn-add-admin">添加</button>
+                    </div>
+                    <div id="admin-add-error" class="form-error"></div>
+                    <div class="list-panel" id="admin-list">
+                        <div class="list-empty">加载中...</div>
+                    </div>
+                    <div class="sub-section">
+                        <div class="sub-head">修改自己的密码</div>
+                        <div class="toolbar-row">
+                            <input type="password" id="admin-own-password-old" placeholder="当前密码">
+                            <input type="password" id="admin-own-password-new" placeholder="新密码">
+                            <button class="doodle-btn btn-primary" id="btn-change-own-password">修改</button>
+                        </div>
+                        <div id="admin-own-password-error" class="form-error"></div>
+                    </div>
+                </section>
+
+                <section class="setting-row" id="panel-logs" style="display:none;">
+                    <h4>操作日志</h4>
+                    <div class="seg">
+                        <button class="doodle-btn log-filter-btn active" data-filter="my">我的操作</button>
+                        <button class="doodle-btn log-filter-btn" data-filter="all">全部日志</button>
+                    </div>
+                    <div class="list-panel" id="admin-log-list">
+                        <div class="list-empty">点击上方按钮查看</div>
+                    </div>
+                    <div class="pagination" id="admin-log-pagination"></div>
                 </section>
 
             </div>

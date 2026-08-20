@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>BOT 管理面板</title>
+    <link rel="stylesheet" href="/style.css?v=">
+</head>
+
+<body class="bot-panel-page">
+    <header>
+        <button class="doodle-btn" id="btn-back" style="border-radius: 50%; padding: 10px;" title="返回首页">
+            <svg class="icon" viewBox="0 0 24 24">
+                <path d="M19 12H5M12 19l-7-7 7-7"></path>
+            </svg>
+        </button>
+        <div class="logo-text">
+            <svg class="icon" viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <rect x="9" y="9" width="6" height="6" />
+            </svg>
+            BOT 管理面板
+        </div>
+        <div class="header-actions">
+            <a class="doodle-btn" id="btn-docs"
+                href="https://docs.xiaofengqwq.com/图灵测试/api接口/02.WebSocket接口文档.html#_6-bot-gateway-websocket"
+                target="_blank" rel="noopener" title="BOT 网关接入文档"
+                style="padding:8px 8px; text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">
+                <svg class="icon" viewBox="0 0 24 24">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+            </a>
+            <button class="doodle-btn" id="btn-theme" title="主题切换" style="padding:8px 8px;">
+                <svg class="icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="5" />
+                    <path d="M12 1v2" />
+                    <path d="M12 21v2" />
+                    <path d="M4.22 4.22l1.42 1.42" />
+                    <path d="M18.36 18.36l1.42 1.42" />
+                    <path d="M1 12h2" />
+                    <path d="M21 12h2" />
+                    <path d="M4.22 19.78l1.42-1.42" />
+                    <path d="M18.36 5.64l1.42-1.42" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <div class="panel-wrap">
+        <div class="panel-sub">管理你的 BOT 账号：查看昵称/状态，修改 BOT 进入聊天室的昵称</div>
+
+        <!-- 加载中 -->
+        <div class="card" id="loading-tip">
+            <h3>
+                <svg class="icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                </svg>
+                正在加载…
+            </h3>
+        </div>
+
+        <!-- 未绑定 / 需登录 -->
+        <div class="card hidden" id="unbound-tip">
+            <h3>
+                <svg class="icon" viewBox="0 0 24 24">
+                    <path
+                        d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                暂无可用
+            </h3>
+            <div class="panel-info" id="unbound-text"></div>
+        </div>
+
+        <!-- 面板 -->
+        <div id="panel-body" class="hidden">
+            <div class="card">
+                <h3>
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <rect x="4" y="4" width="16" height="16" rx="2" />
+                        <rect x="9" y="9" width="6" height="6" />
+                    </svg>
+                    账号信息
+                </h3>
+                <div class="nick-row">
+                    <input class="panel-input" type="text" id="nick-input" maxlength="12" placeholder="BOT 昵称（下次连接生效）">
+                    <button class="btn btn-ghost" id="btn-save-nick">保存昵称</button>
+                </div>
+                <div class="panel-info">
+                    状态：<span id="info-status"></span> ｜ 创建于 <span id="info-created"></span><br>
+                    如需玩家ID，请前往 <b>首页 → 设置 → 我的玩家ID</b> 查看并复制<br>
+                    昵称修改后，BOT <b>下次连接</b> 以新昵称进入聊天室
+                </div>
+
+                <div class="key-row">
+                    <span class="key-label">BOT 连接密钥</span>
+                    <code class="key-value" id="bot-key-value">-</code>
+                    <div class="key-actions">
+                        <button class="btn btn-ghost" id="btn-copy-key">复制 KEY</button>
+                        <button class="btn btn-ghost" id="btn-rotate-key">轮换 KEY</button>
+                    </div>
+                    <div class="key-hint">轮换后旧 KEY 即刻失效，BOT 下次连接需使用新 KEY</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script defer src="https://cloud.umami.is/script.js"
+        data-website-id="caab6c43-2fba-4eb5-9654-e1fe179ce0f2"></script>
+    <script src="/shared.js?v="></script>
+    <script src="/bot-panel/bot-panel.js?v="></script>
+</body>
+
+</html>

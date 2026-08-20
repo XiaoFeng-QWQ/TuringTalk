@@ -132,6 +132,10 @@ class MatchHandler
         // 获取/创建玩家身份（含在线唯一性检查）
         $playerId = $this->game->getOrCreatePlayerId($fd, $nickname, $server, Sanitizer::identifier($data['password'] ?? ''));
         if (!$playerId) return;
+        // 全站在线索引注册（1v1 匹配/对局中 = ingame，临时聊天不可邀请）——仅账号玩家（游客不注册）
+        if (!empty($valid['token'])) {
+            \App\Services\TempChat\OnlineRegistry::register($playerId, 'game', $fd, 'ingame');
+        }
 
         $this->game->matchService()->enqueue($fd, $nickname, $duration);
     }

@@ -8,7 +8,11 @@ use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\WebSocket\GomokuWebSocketHandler;
+use App\Core\WebSocket\TempChatWebSocketHandler;
 use App\Admin\AdminWebSocketHandler;
+use App\Admin\Repository\BotRepository;
+use App\Admin\Repository\BotApplicationRepository;
+use App\Services\Game\GameService;
 use App\Core\Application;
 use App\Config\Config;
 use App\Services\Infrastructure\Logger;
@@ -18,8 +22,17 @@ use App\Services\Infrastructure\Logger;
  */
 class WebSocketHandler
 {
+    /** 全局实例（供 HTTP 控制器跨协议调用 handler，如临时聊天邀请） */
+    private static ?WebSocketHandler $instance = null;
+
+    public static function instance(): ?WebSocketHandler
+    {
+        return self::$instance;
+    }
+
     private AdminWebSocketHandler $adminHandler;
     private string $adminWsPath;
+    private BotGatewayWebSocketHandler $botGatewayHandler;
 
     /** @var array<string, BaseGameHandler> path => handler 路由表 */
     private array $routeByPath = [];
@@ -36,14 +49,19 @@ class WebSocketHandler
     /** 在线 fd 集合（所有非 admin 端点） */
     private array $onlineFds = [];
 
+    /** fd => ip（在线人数按 IP 合并去重用） */
+    private array $fdIp = [];
+
     public function __construct()
     {
+        self::$instance = $this;
         // ===== 注册所有游戏模式（新增只需加一行 new XxxHandler()） =====
         $this->gameHandlers = [
             new GameWebSocketHandler(),
             new WhoisAIWebSocketHandler(),
             new LobbyChatWebSocketHandler(),
             new GomokuWebSocketHandler(),
+            new TempChatWebSocketHandler(),
         ];
 
         // 自动构建路由表
@@ -53,7 +71,16 @@ class WebSocketHandler
         }
 
         // ===== Admin Handler =====
+        BotRepository::initialize();
+        BotApplicationRepository::initialize();
         $this->adminHandler = new AdminWebSocketHandler($this->gameHandlers);
+
+        // 开放 BOT 网关（复用聊天室，需 player_id+key 鉴权）
+        $lobbyHandlerForBot = $this->getLobbyHandler();
+        if ($lobbyHandlerForBot) {
+            $this->botGatewayHandler = new BotGatewayWebSocketHandler($lobbyHandlerForBot);
+            $this->routeByPath['/bot'] = $this->botGatewayHandler;
+        }
 
         // 注入 Tracker
         foreach ($this->gameHandlers as $h) {
@@ -107,8 +134,9 @@ class WebSocketHandler
 
         // 计入在线并广播（聊天室跳过通用 online_count，有独立的 lobby_online_count）
         $this->onlineFds[$request->fd] = true;
+        $this->fdIp[(string)$request->fd] = BaseGameHandler::extractClientIp($request);
         if (!($handler instanceof LobbyChatWebSocketHandler)) {
-            $count = count($this->onlineFds);
+            $count = $this->getOnlineCount();
             if ($server->isEstablished($request->fd)) {
                 $server->push($request->fd, json_encode([
                     'type' => 'online_count',
@@ -141,6 +169,13 @@ class WebSocketHandler
             return;
         }
 
+        // BOT 网关 fd 优先走 BotGateway（注入 BOT 身份后复用聊天室，防止按 type 前缀被 lobby 直接处理）
+        $fdHandler = $this->fdHandler[$frame->fd] ?? null;
+        if ($fdHandler === $this->botGatewayHandler) {
+            $fdHandler->onMessage($server, $frame);
+            return;
+        }
+
         // 按消息前缀路由到对应游戏 handler
         if (is_array($data) && isset($data['type'])) {
             foreach ($this->routeByPrefix as $prefix => $handler) {
@@ -167,11 +202,17 @@ class WebSocketHandler
             $handler->onClose($server, $fd);
         }
 
+        // BOT 网关结束会话（记录下线/时长）
+        if ($this->botGatewayHandler) {
+            $this->botGatewayHandler->onClose($server, $fd);
+        }
+
         // 非 admin 端点：移出在线并广播
         if (array_key_exists($fd, $this->onlineFds)) {
             unset($this->onlineFds[$fd]);
             $this->broadcastOnlineCount($server);
         }
+        unset($this->fdIp[(string)$fd]);
 
         unset($this->fdHandler[$fd]);
     }
@@ -198,11 +239,33 @@ class WebSocketHandler
         return $this->routeByPath['/ws/gomoku'] ?? null;
     }
 
+    public function getTempChatHandler(): ?TempChatWebSocketHandler
+    {
+        return $this->routeByPath['/ws/tempchat'] ?? null;
+    }
+
     // ==================== 在线人数广播 ====================
 
     public function getOnlineCount(): int
     {
-        return count($this->onlineFds);
+        // 在线人数 = 按 IP 合并去重（同一人多页面/多身份算 1 人，防"1个人显示4人"）
+        // 无 IP 时退回按身份/连接数兜底
+        $seen = [];
+        foreach ($this->onlineFds as $fdKey => $_) {
+            $fd = (int)$fdKey;
+            $ip = $this->fdIp[$fdKey] ?? '';
+            if ($ip !== '') {
+                $seen['ip:' . $ip] = true;
+            } else {
+                $pid = GameService::getPlayerId($fd);
+                if ($pid !== null && $pid !== '') {
+                    $seen['p:' . $pid] = true;
+                } else {
+                    $seen['fd:' . $fd] = true;
+                }
+            }
+        }
+        return count($seen);
     }
 
     /**
@@ -211,7 +274,7 @@ class WebSocketHandler
      */
     private function broadcastOnlineCount(Server $server, int $excludeFd = 0): void
     {
-        $count = count($this->onlineFds);
+        $count = $this->getOnlineCount();
         foreach ($server->connections as $clientFd) {
             if ($clientFd === $excludeFd) continue;
             if (!$server->isEstablished($clientFd)) continue;

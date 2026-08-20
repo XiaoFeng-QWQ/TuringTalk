@@ -288,6 +288,17 @@ class ActionHandler
             return;
         }
 
+        // 每月限改一次（后端校验：防绕过前端 localStorage）
+        $lastUpdated = PlayerStatsRepository::getNicknameUpdatedAt($playerId);
+        if ($lastUpdated > 0 && date('Y-m', $lastUpdated) === date('Y-m')) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type'    => 'update_nickname_result',
+                'success' => false,
+                'error'   => '本月已修改过昵称，每月仅可修改一次',
+            ]);
+            return;
+        }
+
         $myInfo = $this->game->getClientInfo($fd) ?? [];
         PlayerStatsRepository::updateNickname($playerId, $nickname, $myInfo['ip'] ?? '', $fp);
         $this->game->sendToPlayer($server, $fd, [

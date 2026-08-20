@@ -6,6 +6,7 @@ use App\Config\Config;
 use App\Core\Request;
 use App\Core\Response;
 use App\Core\Sanitizer;
+use App\Services\Infrastructure\AvatarService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\OAuth\GenericOAuthProvider;
@@ -326,6 +327,7 @@ class OAuthController
         if ($existingBinding) {
             $player = PlayerStatsRepository::findById($existingBinding['player_id']);
             if ($player) {
+                $this->syncAvatar($player['id'], $provider, $userInfo, $tokenResult['access_token']);
                 $this->finishLogin($response, $player['id'], $player['nickname'], $redirect);
                 return;
             }
@@ -349,6 +351,7 @@ class OAuthController
                 return;
             }
             OAuthBindingRepository::updatePlayerEmail($bindPlayerId, $userInfo['email']);
+            $this->syncAvatar($bindPlayerId, $provider, $userInfo, $tokenResult['access_token']);
             Logger::info('OAuth provider bound (bind mode)', [
                 'player_id' => $bindPlayerId,
                 'provider'  => $provider,
@@ -371,6 +374,7 @@ class OAuthController
                     $tokenResult['expires_in']
                 );
                 OAuthBindingRepository::updatePlayerEmail($matched['id'], $userInfo['email']);
+                $this->syncAvatar($matched['id'], $provider, $userInfo, $tokenResult['access_token']);
                 $this->finishLogin($response, $matched['id'], $matched['nickname'], $redirect);
                 return;
             }
@@ -395,6 +399,7 @@ class OAuthController
                 'provider_id'   => $userInfo['provider_id'],
                 'nickname'      => $userInfo['nickname'],
                 'email'         => $userInfo['email'],
+                'avatar'        => $userInfo['avatar'] ?? '',
                 'access_token'  => $tokenResult['access_token'],
                 'refresh_token' => $tokenResult['refresh_token'],
                 'expires_in'    => $tokenResult['expires_in'],
@@ -464,6 +469,7 @@ class OAuthController
         $response->json([
             'ok'       => true,
             'bindings' => OAuthBindingRepository::getByPlayerId($playerId),
+            'avatar'   => AvatarService::exists($playerId) ? '/api/avatar/' . urlencode($playerId) : '',
         ]);
     }
 
@@ -482,6 +488,59 @@ class OAuthController
 
         OAuthBindingRepository::unbind($playerId, $provider);
         $response->json(['ok' => true]);
+    }
+
+    // ==================== POST /api/oauth/sync-avatar ====================
+
+    /**
+     * 手动同步头像：用指定平台存储的 access_token 重新拉取最新头像并下载覆盖本地文件
+     * （解决"改了平台头像但没重新登录"的场景）。token 已过期则同步失败。
+     */
+    public function syncAvatarNow(Request $request, Response $response): void
+    {
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $provider = Sanitizer::identifier($request->post('provider', ''));
+        if ($provider === '') {
+            $response->json(['ok' => false, 'error' => '缺少 provider']);
+            return;
+        }
+
+        $bindings = OAuthBindingRepository::getByPlayerIdWithTokens($playerId);
+        $bindings = array_values(array_filter($bindings, function ($b) use ($provider) {
+            return $b['provider'] === $provider;
+        }));
+        if (empty($bindings)) {
+            $response->json(['ok' => false, 'error' => '未找到可同步的 OAuth 绑定']);
+            return;
+        }
+
+        $b = $bindings[0];
+        $oauthProvider = $this->provider($b['provider']);
+        if (!$oauthProvider || ($b['access_token'] ?? '') === '') {
+            $response->json(['ok' => false, 'error' => '该平台授权已过期，请重新登录后同步']);
+            return;
+        }
+
+        $userInfo = $oauthProvider->getUserInfo($b['access_token']);
+        $avatarUrl = is_array($userInfo) ? ($userInfo['avatar'] ?? '') : '';
+        if ($avatarUrl === '') {
+            $response->json(['ok' => false, 'error' => '该平台未返回头像']);
+            return;
+        }
+
+        $path = AvatarService::sync($playerId, $avatarUrl, $b['access_token']);
+        if ($path === '') {
+            $response->json(['ok' => false, 'error' => '头像同步失败，请稍后再试']);
+            return;
+        }
+        OAuthBindingRepository::updateAvatarPath($playerId, $b['provider'], $path);
+
+        $response->json([
+            'ok'        => true,
+            'player_id' => $playerId,
+        ]);
     }
 
     // ==================== POST /api/oauth/confirm-create ====================
@@ -571,6 +630,7 @@ class OAuthController
             return;
         }
         OAuthBindingRepository::updatePlayerEmail($playerId, $pending['email']);
+        $this->syncAvatar($playerId, $pending['provider'], $pending, $pending['access_token'] ?? '');
 
         // 直接返回 token（XHR 响应，不经 URL）
         $token = $this->generatePlayerToken($playerId);
@@ -627,6 +687,35 @@ class OAuthController
             'email'    => $pending['email'] ?? '',
             'nickname' => $pending['nickname'] ?? '',
         ]);
+    }
+
+    // ==================== 头像辅助 ====================
+
+    /**
+     * 同步 OAuth 头像到本地存储，并更新绑定记录的 avatar_path。
+     * 改为 Swoole 协程异步执行：下载头像不阻塞登录响应，失败静默跳过。
+     *
+     * @param string $accessToken 可选 access_token，供需授权的头像 URL（微软 Graph）下载使用。
+     */
+    private function syncAvatar(string $playerId, string $provider, array $userInfo, string $accessToken = ''): void
+    {
+        $avatarUrl = $userInfo['avatar'] ?? '';
+        if ($avatarUrl === '') return;
+
+        \Swoole\Coroutine::create(function () use ($playerId, $provider, $avatarUrl, $accessToken) {
+            try {
+                $path = AvatarService::sync($playerId, $avatarUrl, $accessToken);
+                if ($path !== '') {
+                    OAuthBindingRepository::updateAvatarPath($playerId, $provider, $path);
+                }
+            } catch (\Throwable $e) {
+                Logger::error('Async avatar sync failed', [
+                    'player_id' => $playerId,
+                    'provider'  => $provider,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+        });
     }
 
     // ==================== 辅助 ====================

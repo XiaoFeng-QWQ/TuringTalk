@@ -256,7 +256,7 @@ class SongService
      * 点歌：加入投票池并自动投 1 票（点歌人自己）
      * @return array [song|error]
      */
-    public function request(int $fd, string $songId, string $playerId, string $nickname): array
+    public function request(int $fd, string $songId, string $playerId, string $nickname, int $onlineCount = 0): array
     {
         $redis = RedisService::connect();
 
@@ -292,6 +292,11 @@ class SongService
         // 用 player_data.id 记录投票人，避免用户重新连接后重复投票
         $redis->sAdd(RedisService::KP_LOBBY_SONG_VOTERS . $songId, $playerId);
 
+        // 不足 2 人在线时：点歌自动 1 票已达阈值，立即晋升播放队列
+        if ((int)$redis->zScore(RedisService::KP_LOBBY_SONG_POOL, $songId) >= $this->voteThreshold($onlineCount)) {
+            $this->promoteToPlaylist($songId);
+        }
+
         $this->recordRate($redis, RedisService::KP_LOBBY_SONG_REQ_Q . $playerId);
 
         Logger::info('Song requested', ['fd' => $fd, 'nickname' => $nickname, 'songId' => $songId, 'name' => $song['name']]);
@@ -300,6 +305,15 @@ class SongService
     }
 
     // ==================== 投票 ====================
+
+    /**
+     * 点歌/移除投票阈值：固定 2 人即可生效；
+     * 在线人数不足 2 人（0/1）时阈值降为 1——点歌自动 1 票，立即添加进歌单。
+     */
+    private function voteThreshold(int $onlineCount): int
+    {
+        return $onlineCount < 2 ? 1 : 2;
+    }
 
     /**
      * 给歌曲投票（正向，投票池 → 播放队列）
@@ -331,7 +345,7 @@ class SongService
         $result = ['song_id' => $songId, 'votes' => (int)$newScore];
 
         // 达到投票阈值 → 自动晋升到播放队列（阈值 = 在线人数的一半，最低 2 票）
-        $threshold = max(2, (int)ceil($onlineCount / 2));
+        $threshold = $this->voteThreshold($onlineCount);
         if ((int)$newScore >= $threshold) {
             $promotedSong = $this->promoteToPlaylist($songId);
             $result['promoted'] = true;
@@ -373,7 +387,7 @@ class SongService
         $result = ['song_id' => $songId, 'remove_votes' => $removeVotes];
 
         // 达到移除阈值 → 自动从播放队列移除（阈值与正向相同，对称设计）
-        $threshold = max(2, (int)ceil($onlineCount / 2));
+        $threshold = $this->voteThreshold($onlineCount);
 
         if ($removeVotes >= $threshold) {
             $removed = $this->removeFromPlaylist($songId);
@@ -472,7 +486,7 @@ class SongService
     public function checkRemoveThresholds(int $onlineCount): array
     {
         $redis     = RedisService::connect();
-        $threshold = max(2, (int)ceil($onlineCount / 2));
+        $threshold = $this->voteThreshold($onlineCount);
         $items     = $redis->lRange(RedisService::KP_LOBBY_SONG_PLAYLIST, 0, -1) ?: [];
         $removed   = [];
 
@@ -569,7 +583,7 @@ class SongService
     public function promoteEligibleSongs(int $onlineCount): array
     {
         $redis     = RedisService::connect();
-        $threshold = max(2, (int)ceil($onlineCount / 2));
+        $threshold = $this->voteThreshold($onlineCount);
         $pool      = $redis->zRevRange(RedisService::KP_LOBBY_SONG_POOL, 0, -1, true) ?: [];
         $promoted  = [];
 
