@@ -867,6 +867,46 @@
             '</div>';
     }
 
+    function renderFateCard(cardText) {
+        let card = null;
+        try { card = JSON.parse(String(cardText || '')); } catch (e) { return null; }
+        if (!card || card.type !== 'fate_card') return null;
+        let title = card.title || '缘分达成';
+        let player = card.player || '';
+        let score = Number(card.score) || 0;
+        let verdict = card.verdict || '';
+        let lucken = card.lucken || '';
+        let golds = Array.isArray(card.golds) ? card.golds : [];
+
+        // 契合度进度条颜色：按档位渐变
+        let barClass = 'fc-fill-low';
+        if (score >= 90) barClass = 'fc-fill-soul';
+        else if (score >= 70) barClass = 'fc-fill-high';
+        else if (score >= 50) barClass = 'fc-fill-mid';
+
+        let goldHtml = '';
+        if (golds.length > 0) {
+            goldHtml = '<div class="fc-golds">' +
+                golds.map(function (g) {
+                    return '<div class="fc-gold"><span>' + escapeHtml(g) + '</span></div>';
+                }).join('') +
+                '</div>';
+        }
+
+        return '<div class="fate-card" style="padding:0">' +
+            '<div class="fc-band">缘分官宣</div>' +
+            '<div class="fc-title">' + escapeHtml(title) + '</div>' +
+            '<div class="fc-by">—— ' + escapeHtml(player) + ' 官宣于聊天室 ——</div>' +
+            '<div class="fc-score">' +
+            '<div class="fc-score-num">' + escapeHtml(String(score)) + '<i>%</i></div>' +
+            '<div class="fc-bar"><div class="fc-fill ' + barClass + '" style="width:' + escapeHtmlAttr(String(Math.max(0, Math.min(100, score)))) + '%"></div></div>' +
+            '</div>' +
+            (verdict ? '<div class="fc-verdict">' + escapeHtml(verdict) + '</div>' : '') +
+            goldHtml +
+            (lucken ? '<div class="fc-luck">' + escapeHtml(lucken) + '</div>' : '') +
+            '</div>';
+    }
+
     function makeBubble(data, isMine) {
         let senderName = data.sender_name || '';
 
@@ -1066,6 +1106,16 @@
             let cardEl = document.createElement('div');
             cardEl.className = 'lobby-card-wrapper';
             cardEl.innerHTML = replyHtml + (inviteHtml || '<div class="lobby-msg-text">' + escapeHtml(data.content) + '</div>');
+            content.appendChild(cardEl);
+            wrapper.appendChild(avatar);
+            wrapper.appendChild(content);
+            return wrapper;
+        } else if (data.msg_type === 'card.share.fate' || data.type === 'card.share.fate') {
+            // 缘分官宣卡片：直接渲染，不套气泡层
+            let fateHtml = renderFateCard(data.content);
+            let cardEl = document.createElement('div');
+            cardEl.className = 'lobby-card-wrapper';
+            cardEl.innerHTML = replyHtml + (fateHtml || '<div class="lobby-msg-text">' + escapeHtml(data.content) + '</div>');
             content.appendChild(cardEl);
             wrapper.appendChild(avatar);
             wrapper.appendChild(content);
@@ -7646,18 +7696,7 @@
         leaveLobbyGracefully('/');
     });
 
-    // 关闭/刷新标签页：已进入聊天室时主动关闭 WS
-    window.addEventListener('beforeunload', function (e) {
-        if ($hasIdentity.style.display !== 'none') {
-            stopHeartbeat();
-            intentionalClose = true;
-            if (ws) { try { ws.close(); } catch (e) { } ws = null; }
-            e.preventDefault();
-            e.returnValue = '';
-        }
-    });
-
-    // pagehide 兜底：页面隐藏时一定关闭 WS（前进/后退/关闭等场景）
+    // 页面隐藏/关闭时主动关闭 WS（覆盖前进、后退、关闭标签页等场景）
     window.addEventListener('pagehide', function () {
         stopHeartbeat();
         intentionalClose = true;
@@ -7677,6 +7716,7 @@
         makeBubble: makeBubble,
         renderRecordCard: renderRecordCard,
         renderGomokuInviteCard: renderGomokuInviteCard,
+        renderFateCard: renderFateCard,
         mdFormat: mdFormat,
         escapeHtml: escapeHtml,
     };

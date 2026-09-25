@@ -218,8 +218,8 @@
                     <h3
                         style="font-size: 17px; margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center;">
                         MDv3 分享站
-                        <span class="game-note-badge"
-                            style="background: var(--ink-blue); color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 20px; letter-spacing: 0.5px;">NEW</span>
+                        <!-- <span class="game-note-badge"
+                            style="background: var(--ink-blue); color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 20px; letter-spacing: 0.5px;">NEW</span> -->
                     </h3>
                     <p
                         style="font-size: 13px; color: var(--text-muted); margin: 4px 0 0; line-height: 1.5; text-align: center;">
@@ -240,7 +240,7 @@
                     </svg>
                     <h3>
                         评价与打分
-                        <span class="game-note-badge">NEW</span>
+                        <!-- <span class="game-note-badge">NEW</span> -->
                     </h3>
                     <p>
                         给本站打分评价 · 印章表态
@@ -260,10 +260,10 @@
                     </svg>
                     <h3>
                         BOT
-                        <span class="game-note-badge">NEW</span>
+                        <!-- <span class="game-note-badge">NEW</span> -->
                     </h3>
                     <p>
-                        申请或管理你的BOT账号
+                        申请或管理你的聊天室BOT账号
                     </p>
                 </div>
             </div>
@@ -1016,6 +1016,56 @@
                 <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px;">
                     <button class="doodle-btn" id="btn-report-detail-close">关闭</button>
                     <button class="doodle-btn success" id="btn-report-detail-reviewed">标记已审</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 缘分系统·默契测试弹层（对局结算后「测测默契」进入） -->
+    <div id="fate-test-overlay" style="display:none;">
+        <div class="clipboard-drawer">
+            <div class="paper-content doodle-border" style="max-width:640px;">
+                <div class="drawer-header">
+                    <h2 id="fate-title" style="color:var(--ink-blue);">
+                        <svg class="icon" viewBox="0 0 24 24" style="width:20px;height:20px;vertical-align:-4px;">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                        </svg>
+                        测测默契
+                    </h2>
+                    <button class="doodle-btn" id="btn-fate-close" style="padding: 4px 8px; border:none;">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+                <div id="fate-body">
+                    <!-- 视图由 script.js 按状态渲染：等待 / 答题 / 报告 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="fate-history-overlay" style="display:none;">
+        <div class="clipboard-drawer">
+            <div class="paper-content doodle-border" style="max-width:640px;">
+                <div class="drawer-header">
+                    <h2 style="color:var(--ink-blue);">
+                        <svg class="icon" viewBox="0 0 24 24" style="width:20px;height:20px;vertical-align:-4px;">
+                            <polyline points="18 8 12 14 6 8" />
+                            <path d="M3 21h18" />
+                        </svg>
+                        缘分历史
+                    </h2>
+                    <button class="doodle-btn" id="btn-fate-history-close" style="padding: 4px 8px; border:none;">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+                <div id="fate-history-body">
+                    <!-- 历史缘分列表由 script.js 渲染 -->
                 </div>
             </div>
         </div>

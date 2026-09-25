@@ -1438,6 +1438,19 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                         <div id="collection-status" style="display:none;text-align:center;font-size:12px;margin-top:4px;"></div>
                     </div>
                     </div>
+                    <button class="doodle-btn start-btn" id="btn-fate-inner" style="width:100%; justify-content:center; margin-bottom:8px; background:var(--note-yellow);">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                        </svg>
+                        测测默契
+                    </button>
+                    <button class="doodle-btn" id="btn-fate-history-inner" style="width:100%; justify-content:center; margin-bottom:8px; background:transparent; color:var(--text-subtle); border:2px solid var(--border-light); font-weight:700;">
+                        <svg class="icon" viewBox="0 0 24 24">
+                            <polyline points="18 8 12 14 6 8" />
+                            <path d="M3 21h18" />
+                        </svg>
+                        缘分历史
+                    </button>
                     <button class="doodle-btn start-btn" id="btn-replay-inner" style="width:100%; justify-content:center;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <polyline points="23 4 23 10 17 10" />
@@ -1490,6 +1503,26 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
     });
 
     document.getElementById('btn-replay-inner').addEventListener('click', resetGame);
+
+        // 「测测默契」：进入缘分默契测试（复用当前对局 session，无需重新匹配）
+        if (window.FateController) {
+            document.getElementById('btn-fate-inner').addEventListener('click', () => {
+                if (window.FateController.start) window.FateController.start(game._sessionId);
+            });
+        } else {
+            const fateBtn = document.getElementById('btn-fate-inner');
+            if (fateBtn) fateBtn.style.display = 'none';
+        }
+
+        // 「缘分历史」：打开历史缘分报告弹层并请求列表
+        const historyBtn = document.getElementById('btn-fate-history-inner');
+        if (historyBtn) {
+            if (window.FateHistoryController && window.FateHistoryController.open) {
+                historyBtn.addEventListener('click', () => window.FateHistoryController.open());
+            } else {
+                historyBtn.style.display = 'none';
+            }
+        }
 
     document.getElementById('btn-leave-message').addEventListener('click', () => {
         const input = document.getElementById('leave-message-input');
@@ -3000,6 +3033,11 @@ WebSocketTransport.prototype.connect = function (nickname, duration, password) {
             console.warn('[WS] JSON parse error, raw data:', event.data);
             return;
         }
+        // 缘分系统默契测试信令（fate.*）：复用本机 /ws 连接接收，交给 FateController 处理
+        if (data && typeof data.type === 'string' && data.type.indexOf('fate.') === 0) {
+            if (window.FateController && window.FateController.handleServerMessage) window.FateController.handleServerMessage(data);
+            return;
+        }
         // 临时聊天邀请信令（temp_*）：复用本机 /ws 连接接收，转发给全局 TempInvite 处理
         if (data && typeof data.type === 'string' && data.type.indexOf('temp_') === 0) {
             if (window.TempInvite && window.TempInvite.handleMessage) window.TempInvite.handleMessage(data);
@@ -3287,6 +3325,464 @@ document.getElementById('btn-reconnect-retry').addEventListener('click', functio
 
     transport.connect(transport._lastNickname || '', transport._lastDuration || 600);
 });
+
+// ================================================================
+// 缘分系统·默契测试控制器（对局结算后「测测默契」进入）
+// ================================================================
+window.FateController = (function () {
+    'use strict';
+
+    const overlay = document.getElementById('fate-test-overlay');
+    const body = document.getElementById('fate-body');
+    const title = document.getElementById('fate-title');
+
+    /** 当前状态：invite_wait / decide / answering / submitted / report */
+    let state = 'idle';
+    let sessionId = '';
+    let quiz = [];
+    /** 自己每题答案（0-3） */
+    let answers = [];
+    /** 猜对方每题答案（0-3） */
+    let guesses = [];
+    /** 当前对局对方昵称（结算页 renderResult 里 game 有 _opponentName） */
+    let opponentName = '';
+
+    function clearBody() {
+        body.innerHTML = '';
+    }
+
+    function open() {
+        overlay.style.display = 'flex';
+    }
+
+    function close() {
+        overlay.style.display = 'none';
+        clearBody();
+        state = 'idle';
+        sessionId = '';
+        quiz = [];
+        answers = [];
+        guesses = [];
+    }
+
+    function send(type, payload) {
+        try {
+            if (transport && transport.send) transport.send(type, payload || {});
+        } catch (e) {
+            renderError('连接似乎已断开，无法继续默契测试');
+        }
+    }
+
+    // ---------- 按钮「测测默契」入口 ----------
+    function start(curSessionId) {
+        if (!curSessionId) {
+            renderError('当前对局不可用，无法开始默契测试');
+            return;
+        }
+        sessionId = curSessionId;
+        opponentName = (game && game._opponentName) || '';
+        state = 'invite_wait';
+        title.innerHTML = '测测默契';
+        open();
+        prompt('waiting', '已发出默契邀请，等待对方确认...');
+        send('fate.accept');
+    }
+
+    // ---------- 服务端消息分发 ----------
+    function handleServerMessage(data) {
+        const type = data.type;
+        switch (type) {
+            case 'fate.accepted':
+                // 自己已确认，保持等待对方
+                state = 'invite_wait';
+                prompt('waiting', '已确认，等待对方一起进入答题...');
+                break;
+            case 'fate.invite':
+                // 对方发起了默契邀请，需要接受/拒绝
+                state = 'decide';
+                sessionId = data.session_id || sessionId;
+                opponentName = (data.data && data.data.partner) || opponentName;
+                title.innerHTML = '测测默契';
+                open();
+                renderInviteDecision(data);
+                break;
+            case 'fate.start':
+                renderQuiz(data);
+                break;
+            case 'fate.opponent_done':
+                handleOpponentDone(data);
+                break;
+            case 'fate.declined':
+                prompt('waiting', '你已婉拒默契测试。');
+                setTimeout(close, 1500);
+                break;
+            case 'fate.report':
+                renderReport(data);
+                break;
+            case 'fate.published':
+                prompt('waiting', '已官宣到聊天室！');
+                setTimeout(close, 1500);
+                break;
+            case 'fate.timeout':
+                prompt('waiting', '对方溜了…默契测试取消。');
+                setTimeout(close, 1800);
+                break;
+            case 'fate.history_list':
+                // 历史缘分列表：转给独立的历史弹层渲染
+                if (window.FateHistoryController && window.FateHistoryController.renderList) {
+                    window.FateHistoryController.renderList(data);
+                }
+                break;
+            default:
+                DebugLogger.log('fate', '未处理的默契消息', { type: type, data: data });
+        }
+    }
+
+    // ---------- 渲染辅助 ----------
+    function renderError(msg) {
+        clearBody();
+        body.innerHTML = `
+            <div style="text-align:center;padding:24px 8px 8px;color:var(--danger);font-size:14px;">
+                ${escapeHtml(msg)}
+            </div>
+        `;
+    }
+
+    /** 简单提示态 */
+    function prompt(kind, msg) {
+        clearBody();
+        const iconSvg = kind === 'waiting'
+            ? '<span class="spinner" style="display:inline-block;width:20px;height:20px;border:3px solid var(--border-light);border-top-color:var(--ink-blue);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-4px;"></span>'
+            : '';
+        body.innerHTML = `
+            <div style="text-align:center;padding:32px 12px;font-size:14px;color:var(--text);
+                display:flex;flex-direction:column;align-items:center;gap:14px;">
+                ${iconSvg}
+                <div>${escapeHtml(msg)}</div>
+            </div>
+        `;
+    }
+
+    // ---------- 邀请确认视图 ----------
+    function renderInviteDecision(data) {
+        clearBody();
+        const partner = (data.data && data.data.partner) || opponentName || '对方';
+        const timeout = (data.data && data.data.timeout) || 30;
+        body.innerHTML = `
+            <div style="padding:8px 4px 4px;">
+                <div class="fate-invite-card">
+                    <div style="font-size:15px;font-weight:bold;color:var(--ink-blue);margin-bottom:6px;">
+                        <svg class="fate-heart" viewBox="0 0 24 24" style="width:15px;height:15px;fill:var(--danger);vertical-align:-2px;">
+                            <path d="M12 21s-8-4.5-10-9.8C.6 6.4 3.8 3 7.2 3c2.1 0 3.7 1 4.8 2.6C13.1 4 14.7 3 16.8 3c3.4 0 6.6 3.4 5.2 8.2C20 16.5 12 21 12 21z"/>
+                        </svg> 默契测试邀请
+                    </div>
+                    <div style="font-size:13px;line-height:1.7;color:var(--text);">
+                        <b>${escapeHtml(partner)}</b> 想和你测一测默契
+                        <div style="margin-top:4px;font-size:12px;color:var(--text-subtle);">
+                            你们将从题库各答 5 题，再互猜对方的答案，看看有多合拍。
+                        </div>
+                    </div>
+                    <div style="margin-top:10px;font-size:11px;color:var(--text-subtle);">${timeout} 秒内未确认将自动取消</div>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:14px;">
+                    <button class="doodle-btn" id="btn-fate-decline" style="flex:1;justify-content:center;">婉拒</button>
+                    <button class="doodle-btn success" id="btn-fate-accept" style="flex:1;justify-content:center;">接受邀请</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('btn-fate-accept').addEventListener('click', () => {
+            state = 'invite_wait';
+            prompt('waiting', '已接受邀请，准备开始答题...');
+            send('fate.accept');
+        });
+        document.getElementById('btn-fate-decline').addEventListener('click', () => {
+            send('fate.decline');
+            prompt('waiting', '你已婉拒默契测试。');
+            setTimeout(close, 1200);
+        });
+    }
+
+    // ---------- 答题视图 ----------
+    function renderQuiz(data) {
+        state = 'answering';
+        const quizData = (data.data && data.data.quiz) || [];
+        quiz = quizData.filter((q) => q && typeof q.question === 'string');
+        if (quiz.length === 0) {
+            renderError('题目加载失败，请稍后重试');
+            return;
+        }
+        opponentName = (data.data && data.data.partner) || opponentName;
+        answers = new Array(quiz.length).fill(-1);
+        guesses = new Array(quiz.length).fill(-1);
+
+        title.innerHTML = '默契测试答题';
+        clearBody();
+
+        const questionsHtml = quiz.map((q, qi) => `
+            <div class="fate-question">
+                <div class="fate-q-head">
+                    <span class="fate-q-no">Q${qi + 1}</span>
+                    <span class="fate-q-text">${escapeHtml(q.question)}</span>
+                </div>
+                <div class="fate-q-rows">
+                    <div class="fate-q-row">
+                        <div class="fate-q-label">我会选</div>
+                        <div class="fate-q-opts" data-role="self" data-q="${qi}">
+                            ${q.options.map((opt, oi) => `
+                                <button class="fate-opt" data-oi="${oi}" data-kind="self" data-q="${qi}">${escapeHtml(opt)}</button>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="fate-q-row">
+                        <div class="fate-q-label">猜 TA 会选</div>
+                        <div class="fate-q-opts" data-role="guess" data-q="${qi}">
+                            ${q.options.map((opt, oi) => `
+                                <button class="fate-opt" data-oi="${oi}" data-kind="guess" data-q="${qi}">${escapeHtml(opt)}</button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+        body.innerHTML = `
+            <div style="padding:4px 2px 4px;">
+                <div class="fate-hint">每题先选「我会选」，再猜一猜 <b>${escapeHtml(opponentName)}</b> 会选什么。</div>
+                <div id="fate-quiz-list" style="max-height:52vh;overflow-y:auto;margin-top:10px;">${questionsHtml}</div>
+                <div style="text-align:center;margin-top:14px;">
+                    <button class="doodle-btn start-btn" id="btn-fate-submit" style="min-width:180px;justify-content:center;">
+                        提交答案
+                    </button>
+                </div>
+            </div>
+        `;
+
+        // 选项点击（事件委托）
+        body.querySelectorAll('.fate-opt').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const qi = Number(btn.dataset.q);
+                const oi = Number(btn.dataset.oi);
+                const kind = btn.dataset.kind;
+                // 同一行单选：清除该行其他选中
+                body.querySelectorAll(`.fate-opt[data-q="${qi}"][data-kind="${kind}"]`).forEach((b) =>
+                    b.classList.remove('active'));
+                btn.classList.add('active');
+                if (kind === 'self') answers[qi] = oi;
+                else guesses[qi] = oi;
+            });
+        });
+
+        document.getElementById('btn-fate-submit').addEventListener('click', submitAnswers);
+    }
+
+    function submitAnswers() {
+        // 校验是否全部完成
+        const missingSelf = answers.findIndex((v) => v === -1);
+        const missingGuess = guesses.findIndex((v) => v === -1);
+        if (missingSelf !== -1) {
+            prompt('waiting', `请先完成第 ${missingSelf + 1} 题「我会选」`);
+            return;
+        }
+        if (missingGuess !== -1) {
+            prompt('waiting', `先猜一猜第 ${missingGuess + 1} 题 TA 会选什么`);
+            return;
+        }
+        state = 'submitted';
+        prompt('waiting', '已提交，等待对方提交...');
+        send('fate.submit', { answers: answers, guesses: guesses });
+    }
+
+    // ---------- 对方侧状态 ----------
+    function handleOpponentDone(data) {
+        const status = data.data && data.data.status;
+        if (status === 'submitted') {
+            // 进入答题或已提交时，提示对方已提交
+            if (state === 'answering') {
+                const hint = body.querySelector('.fate-hint');
+                if (hint) hint.textContent = '对方已提交！你也要尽快完成哦。';
+                else prompt('waiting', '对方已提交，你也要尽快完成哦。');
+            } else if (state === 'submitted') {
+                prompt('waiting', '对方已提交，正在生成缘分报告...');
+            }
+        } else if (status === 'declined') {
+            prompt('waiting', '对方婉拒了默契测试。');
+            setTimeout(close, 1500);
+        } else if (status === 'left') {
+            prompt('waiting', '对方溜了，默契测试取消。');
+            setTimeout(close, 1500);
+        }
+    }
+
+    // ---------- 报告视图 ----------
+    function renderReport(data) {
+        state = 'report';
+        const r = (data.data && data.data.report) || {};
+        const recordId = data.data ? data.data.record_id : 0;
+        const score = r.score || 0;
+        title.innerHTML = '缘分报告';
+
+        // 契合度档位（颜色由 style.css 按 class 统一控制）
+        const scoreCls = score >= 70 ? ' score-high'
+            : score >= 50 ? ' score-mid'
+                : ' score-low';
+
+        const goldsHtml = (r.golds && r.golds.length)
+            ? r.golds.map((g) => `<div class="fate-gold">「${escapeHtml(g)}」</div>`).join('')
+            : '<div style="color:var(--text-subtle);font-size:12px;">聊天还比较短，还没攒够金句</div>';
+
+        clearBody();
+        body.innerHTML = `
+            <div style="padding:6px 4px 4px;">
+                <!-- 契合度分数 -->
+                <div class="fate-score-box">
+                    <div class="fate-score-num${scoreCls}">${score}<span class="fate-score-pct">%</span></div>
+                    <div class="fate-score-bar"><div class="fate-score-fill${scoreCls}" style="width:${score}%;"></div></div>
+                    <div class="fate-verdict">${escapeHtml(r.verdict || '')}</div>
+                </div>
+                <div class="fate-luck">${escapeHtml(r.lucken || '')}</div>
+
+                <div class="fate-section">
+                    <div class="fate-section-title">聊天数据</div>
+                    <div class="fate-stats">
+                        <span>聊天条数 <b>${Number(r.messages) || 0}</b></span>
+                        <span>聊天时长 <b>${formatTime(Number(r.duration) || 0)}</b></span>
+                    </div>
+                </div>
+
+                <div class="fate-section">
+                    <div class="fate-section-title">金句摘录</div>
+                    <div class="fate-golds">${goldsHtml}</div>
+                </div>
+
+                <div style="text-align:center;margin-top:14px;">
+                    <button class="doodle-btn success" id="btn-fate-publish" style="min-width:160px;justify-content:center;" ${recordId ? '' : 'disabled'}>
+                        官宣到聊天室
+                    </button>
+                    <div style="font-size:11px;color:var(--text-subtle);margin-top:8px;">全员可见你的缘分卡片，起哄围观更热闹</div>
+                </div>
+            </div>
+        `;
+
+        const publishBtn = document.getElementById('btn-fate-publish');
+        if (publishBtn) {
+            publishBtn.addEventListener('click', () => {
+                if (!recordId) return;
+                send('fate.publish', { record_id: recordId });
+                publishBtn.disabled = true;
+                publishBtn.textContent = '已官宣';
+            });
+        }
+    }
+
+    // 关闭按钮
+    document.getElementById('btn-fate-close').addEventListener('click', close);
+
+    return {
+        start: start,
+        handleServerMessage: handleServerMessage,
+        close: close,
+    };
+})();
+
+// ================================================================
+// 缘分历史：查看当前玩家参与过的缘分报告列表
+// ================================================================
+const FateHistoryController = (() => {
+    const overlay = document.getElementById('fate-history-overlay');
+    const bodyEl = document.getElementById('fate-history-body');
+
+    function open() {
+        if (!overlay || !transport) return;
+        overlay.style.display = 'flex';
+        bodyEl.innerHTML = `
+            <div style="text-align:center;padding:26px 8px 8px;color:var(--text-subtle);font-size:13px;">
+                <svg class="fate-heart" viewBox="0 0 24 24" style="width:22px;height:22px;margin:0 auto 10px;">
+                    <path d="M12 21s-8-4.5-10-9.8C.6 6.4 3.8 3 7.2 3c2.1 0 3.7 1 4.8 2.6C13.1 4 14.7 3 16.8 3c3.4 0 6.6 3.4 5.2 8.2C20 16.5 12 21 12 21z"/>
+                </svg>
+                正在翻看缘分档案...
+            </div>
+        `;
+        transport.send('fate.history');
+    }
+
+    function close() {
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    function renderList(data) {
+        const d = (data && data.data) || {};
+        const records = d.records || [];
+
+        if (!records.length) {
+            bodyEl.innerHTML = `
+                <div style="text-align:center;padding:28px 8px 10px;color:var(--text-subtle);font-size:13px;">
+                    还没有缘分报告，去对局里点「测测默契」创造第一份吧～
+                </div>
+            `;
+            return;
+        }
+
+        bodyEl.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px 6px;color:var(--text-subtle);font-size:12px;">
+                <span>共 ${d.total || records.length} 份缘分档案（按时间倒序）</span>
+            </div>
+            ${records.map((r) => renderCard(r)).join('')}
+        `;
+
+        // 每条记录点击展开详情
+        bodyEl.querySelectorAll('.fate-history-card').forEach((card) => {
+            card.querySelector('.fh-head').addEventListener('click', () => {
+                const detail = card.querySelector('.fh-detail');
+                const isOpen = detail.style.display === 'block';
+                detail.style.display = isOpen ? 'none' : 'block';
+                card.classList.toggle('open', !isOpen);
+            });
+        });
+    }
+
+    function renderCard(r) {
+        const score = Number(r.score) || 0;
+        const scoreCls = score >= 70 ? ' score-high'
+            : score >= 50 ? ' score-mid'
+                : ' score-low';
+        const pub = r.published ? '<span style="font-size:11px;color:var(--success-color);margin-left:4px;">已官宣</span>' : '';
+        const stats = r.stats || {};
+        const golds = (r.golds && r.golds.length)
+            ? r.golds.map((g) => `<div>「${escapeHtml(g)}」</div>`).join('')
+            : '';
+        return `
+            <div class="fate-history-card">
+                <div class="fh-head" style="cursor:pointer;">
+                    <div>
+                        <div class="fh-verdict">
+                            <span class="fate-score-num fh-score${scoreCls}">${score}%</span>
+                            <b>${escapeHtml(r.nickname_a || '')}</b> × <b>${escapeHtml(r.nickname_b || '')}</b>
+                            <span class="fh-sub">${escapeHtml(r.verdict || '')}</span>${pub}
+                        </div>
+                        <div class="fh-time">${escapeHtml(String(r.created_at || '').replace('T', ' '))}</div>
+                    </div>
+                    <svg class="icon fh-arrow" viewBox="0 0 24 24" style="width:18px;height:18px;flex:none;">
+                        <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                </div>
+                <div class="fh-detail" style="display:none;">
+                    <div class="fate-luck" style="margin-bottom:8px;">${escapeHtml(r.lucken || '')}</div>
+                    <div class="fate-stats" style="gap:12px;">
+                        <span>聊天 <b>${Number(stats.messages) || 0}</b> 条</span>
+                        <span>时长 <b>${formatTime(Number(stats.duration) || 0)}</b></span>
+                    </div>
+                    ${golds ? `<div class="fate-golds" style="margin-top:10px;">${golds}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    // 关闭按钮
+    const closeBtn = document.getElementById('btn-fate-history-close');
+    if (closeBtn) closeBtn.addEventListener('click', close);
+
+    return { open: open, close: close, renderList: renderList };
+})();
 
 /** 覆盖层「返回首页」按钮 */
 document.getElementById('btn-reconnect-home').addEventListener('click', function () {

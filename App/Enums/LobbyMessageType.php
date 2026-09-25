@@ -24,6 +24,9 @@ enum LobbyMessageType: string
     /** 五子棋对局邀请卡片 */
     case CARD_INVITE_GOMOKU = 'card.invite.gomoku';
 
+    /** 缘分（默契测试）官宣卡片 */
+    case CARD_SHARE_FATE = 'card.share.fate';
+
     /**
      * 判断该类型是否属于卡片类（需要特殊渲染）
      */

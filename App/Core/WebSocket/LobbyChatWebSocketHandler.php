@@ -136,6 +136,11 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
         $this->chatHandler->publishGomokuInvite($server, $sender, $roomId);
     }
 
+    public function publishFateCard(Server $server, array $record, string $announcerNickname, string $announcerId): void
+    {
+        $this->chatHandler->publishFateCard($server, $record, $announcerNickname, $announcerId);
+    }
+
     public function scheduledCleanup(Server $server): void
     {
         $this->songHandler->scheduledCleanup($server);

@@ -738,7 +738,9 @@ main {
 #admin-panel-overlay,
 #sticker-manager-overlay,
 #comment-overlay,
-#bot-apply-overlay {
+#bot-apply-overlay,
+#fate-test-overlay,
+#fate-history-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -3475,4 +3477,266 @@ main {
     gap: 10px;
     justify-content: flex-end;
     margin-top: 6px;
+}
+
+/* ==================== 缘分系统·默契测试（fate-*） ==================== */
+#fate-test-overlay .paper-content {
+    box-shadow: 5px 6px 0 var(--shadow-md);
+}
+
+/* ---- 邀请卡 ---- */
+.fate-invite-card {
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 14px 16px;
+    box-shadow: 4px 4px 0 var(--shadow-sm);
+}
+.fate-heart {
+    fill: var(--danger);
+    animation: heartbeat 1.4s ease-in-out infinite;
+    display: inline-block;
+}
+@keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    25% { transform: scale(1.2); }
+    40% { transform: scale(1); }
+    60% { transform: scale(1.15); }
+}
+
+/* ---- 答题卡 ---- */
+.fate-hint {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: var(--note-blue);
+    border: 1.5px dashed var(--ink-blue);
+    border-radius: 12px 4px 12px 4px;
+    padding: 8px 12px;
+    line-height: 1.6;
+}
+.fate-hint b {
+    color: var(--ink-blue);
+}
+.fate-question {
+    background: var(--bg-input);
+    border: 2px solid var(--border-light);
+    border-radius: 16px 6px 16px 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+}
+.fate-q-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.fate-q-no {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--surface-white);
+    background: var(--ink-blue);
+    border-radius: 6px 2px 6px 2px;
+    padding: 2px 7px;
+    margin-top: 1px;
+}
+.fate-q-text {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--ink-black);
+    line-height: 1.5;
+}
+.fate-q-row {
+    margin-top: 7px;
+}
+.fate-q-row + .fate-q-row {
+    margin-top: 10px;
+}
+.fate-q-label {
+    font-size: 11.5px;
+    color: var(--text-subtle);
+    margin-bottom: 5px;
+    letter-spacing: 0.5px;
+}
+.fate-q-opts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+.fate-opt {
+    background: var(--surface-white);
+    border: 1.5px solid var(--border-light);
+    border-radius: 10px 3px 10px 3px;
+    padding: 5px 11px;
+    font-size: 12.5px;
+    cursor: pointer;
+    color: var(--ink-black);
+    font-family: inherit;
+    transition: all 0.15s ease;
+    text-align: left;
+    max-width: 100%;
+}
+.fate-opt:hover {
+    border-color: var(--ink-blue);
+    background: var(--note-blue);
+}
+.fate-opt.active {
+    border-color: var(--ink-blue);
+    background: var(--ink-blue);
+    color: var(--surface-white);
+    box-shadow: 2px 2px 0 var(--shadow-sm);
+}
+
+/* ---- 缘分报告 ---- */
+.fate-score-box {
+    background: var(--note-yellow);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    padding: 16px;
+    text-align: center;
+    box-shadow: 4px 4px 0 var(--shadow-sm);
+}
+.fate-score-num {
+    font-size: 46px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -1px;
+}
+.fate-score-pct {
+    font-size: 20px;
+    font-weight: bold;
+    margin-left: 2px;
+}
+.fate-score-bar {
+    height: 12px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 20px;
+    overflow: hidden;
+    margin: 10px 0 8px;
+    box-shadow: inset 0 1px 3px var(--shadow-sm);
+}
+.fate-score-fill {
+    height: 100%;
+    border-radius: 20px;
+    transition: width 0.9s ease;
+}
+/* 契合度档位色（数字 + 进度条填充） */
+.fate-score-num.score-high,
+.fate-score-fill.score-high { color: var(--success-color); background: var(--success-color); }
+.fate-score-num.score-mid,
+.fate-score-fill.score-mid { color: var(--warn); background: var(--warn); }
+.fate-score-num.score-low,
+.fate-score-fill.score-low { color: var(--danger-color); background: var(--danger-color); }
+.fate-verdict {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--ink-blue);
+}
+.fate-luck {
+    margin: 12px 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: var(--note-pink);
+    border: 1.5px dashed var(--danger);
+    border-radius: 12px 4px 12px 4px;
+    padding: 8px 12px;
+    line-height: 1.6;
+    text-align: center;
+}
+.fate-section {
+    margin-top: 14px;
+}
+.fate-section-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--ink-blue);
+    border-bottom: 2px dashed var(--note-yellow);
+    padding-bottom: 3px;
+    margin-bottom: 8px;
+    display: inline-block;
+}
+.fate-stats {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.fate-stats span {
+    background: var(--bg-input);
+    border: 1.5px solid var(--border-light);
+    border-radius: 10px 3px 10px 3px;
+    padding: 4px 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+}
+.fate-stats b {
+    color: var(--ink-blue);
+}
+.fate-golds {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+.fate-gold {
+    background: var(--note-blue);
+    border-left: 3px solid var(--ink-blue);
+    border-radius: 8px 3px 8px 3px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--ink-black);
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* ---------- 缘分历史列表 ---------- */
+.fate-history-card {
+    border: 1.5px solid var(--border-light);
+    border-radius: 12px 3px 12px 3px;
+    background: var(--surface-white);
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+.fate-history-card .fh-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    transition: background 0.15s ease;
+}
+.fate-history-card .fh-head:hover {
+    background: var(--bg-input);
+}
+.fate-history-card .fh-verdict {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--ink-black);
+}
+.fate-history-card .fh-score {
+    font-size: 16px;
+    font-weight: bold;
+}
+.fate-history-card .fh-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.fate-history-card .fh-time {
+    font-size: 11px;
+    color: var(--text-subtle);
+    margin-top: 3px;
+}
+.fate-history-card .fh-arrow {
+    color: var(--text-subtle);
+    transition: transform 0.18s ease;
+}
+.fate-history-card.open .fh-arrow {
+    transform: rotate(180deg);
+}
+.fate-history-card .fh-detail {
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border-top: 1px dashed var(--border-light);
 }

@@ -3737,6 +3737,131 @@ main {
     box-shadow: 1px 1px 0 var(--shadow-sm);
 }
 
+/* ==================== 缘分官宣卡片 ==================== */
+.fate-card {
+    width: 276px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 3px 4px 0 var(--shadow-sm);
+}
+
+.fate-card .fc-band {
+    background: #e8738f; /* 缘分粉 */
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    letter-spacing: 2px;
+}
+
+.fate-card .fc-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #d8506f;
+    margin: 12px 14px 2px;
+    text-align: center;
+    word-break: break-all;
+}
+
+.fate-card .fc-by {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin: 2px 14px 10px;
+    text-align: center;
+    word-break: break-all;
+}
+
+.fate-card .fc-score {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 14px 8px;
+    padding: 10px;
+    background: #fff4f7;
+    border: 1.5px dashed var(--ink-black);
+    border-radius: 10px;
+}
+
+.fate-card .fc-score-num {
+    font-size: 26px;
+    font-weight: 800;
+    line-height: 1;
+    color: #d8506f;
+    min-width: 52px;
+    text-align: center;
+    font-family: monospace;
+}
+
+.fate-card .fc-score-num i {
+    font-style: normal;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.fate-card .fc-bar {
+    flex: 1;
+    height: 12px;
+    background: #f3d7de;
+    border-radius: 99px;
+    overflow: hidden;
+    border: 1px solid var(--ink-black);
+}
+
+.fate-card .fc-fill {
+    height: 100%;
+    border-radius: 99px;
+    transition: width .4s ease;
+}
+
+.fate-card .fc-fill-soul { background: linear-gradient(90deg, #ff7ba9, #d8506f); }
+.fate-card .fc-fill-high { background: linear-gradient(90deg, #ffb86b, #ff8a4c); }
+.fate-card .fc-fill-mid  { background: linear-gradient(90deg, #ffe17b, #f6c343); }
+.fate-card .fc-fill-low  { background: linear-gradient(90deg, #9fc2e8, #6f9fd1); }
+
+.fate-card .fc-verdict {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink-black);
+    text-align: center;
+    margin: 2px 14px 8px;
+    word-break: break-all;
+}
+
+.fate-card .fc-golds {
+    margin: 0 14px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.fate-card .fc-gold {
+    font-size: 12px;
+    color: var(--ink-blue);
+    background: var(--note-yellow);
+    border-left: 3px solid var(--ink-black);
+    border-radius: 4px;
+    padding: 6px 8px;
+    line-height: 1.4;
+    word-break: break-all;
+}
+
+.fate-card .fc-luck {
+    font-size: 11px;
+    color: var(--ink-black);
+    text-align: center;
+    padding: 7px 14px;
+    background: #f7f0ff;
+    border-top: 1px dashed var(--ink-black);
+    word-break: break-all;
+}
+
 /* ==================== 佩戴标签（称号）徽章 ==================== */
 .lobby-title-badge {
     display: inline-block;

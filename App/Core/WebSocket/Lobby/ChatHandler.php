@@ -951,6 +951,72 @@ class ChatHandler
     }
 
     /**
+     * 缘分报告官宣卡片：构造 JSON 缘分卡片并存储、广播到聊天室。
+     * 由缘分 WS 处理器在玩家点击"官宣"后调用。
+     *
+     * @param array $record 缘分报告（FateRecordRepository::findById 结果）
+     * @param string $announcerNickname 官宣者展示昵称
+     * @param string $announcerId       官宣者 player_data.id
+     */
+    public function publishFateCard(Server $server, array $record, string $announcerNickname, string $announcerId): void
+    {
+        $nickname = Sanitizer::nickname($announcerNickname);
+        $playerId = Sanitizer::identifier($announcerId);
+        if ($nickname === '' || $playerId === '' || empty($record['id'])) return;
+
+        $nickA = (string)($record['nickname_a'] ?? '');
+        $nickB = (string)($record['nickname_b'] ?? '');
+        $score = (int)($record['score'] ?? 0);
+        $verdict = (string)($record['verdict'] ?? '');
+        $lucken = (string)($record['lucken'] ?? '');
+
+        // 金句：取前 2 条作卡片展示，隐藏过长文案
+        $golds = [];
+        $decoded = json_decode((string)($record['golds_json'] ?? '[]'), true);
+        if (is_array($decoded)) {
+            foreach ($decoded as $g) {
+                if (count($golds) >= 2) break;
+                $golds[] = mb_substr((string)$g, 0, 24);
+            }
+        }
+
+        $card = [
+            'type'    => 'fate_card',
+            'version' => 1,
+            'title'   => (($nickA !== '' && $nickB !== '') ? ($nickA . ' × ' . $nickB . ' ') : '') .
+                         '默契度 ' . $score . '%',
+            'player'  => $nickname,
+            'score'   => $score,
+            'verdict' => $verdict,
+            'lucken'  => $lucken,
+            'golds'   => $golds,
+            'footer'  => ($verdict !== '' ? $verdict : '缘分达成') . '，已官宣！',
+        ];
+        $cardJson = json_encode($card, JSON_UNESCAPED_UNICODE);
+
+        $msg = $this->game->lobbyService()->sendCard(
+            $nickname,
+            $playerId,
+            $cardJson,
+            '',
+            '',
+            LobbyMessageType::CARD_SHARE_FATE,
+            []
+        );
+
+        $this->game->broadcastLobby($server, 0, [
+            'type'        => 'lobby_chat',
+            'id'          => $msg['id'],
+            'sender_name' => $msg['sender_name'],
+            'sender_id'   => $msg['sender_id'] ?? '',
+            'content'     => $msg['content'],
+            'msg_type'    => $msg['type'],
+            'time'        => $msg['time'],
+            'created_at'  => $msg['created_at'],
+        ]);
+    }
+
+    /**
      * 通过昵称查找当前在线的 fd
      */
     private function findFdByNickname(string $nickname): ?int

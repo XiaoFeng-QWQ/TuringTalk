@@ -19,6 +19,7 @@ use App\Services\Infrastructure\StickerService;
 use App\Services\Repository\OnlineCountRepository;
 use App\Admin\Repository\AdminRepository;
 use App\Services\Repository\OAuthBindingRepository;
+use App\Services\Repository\FateRecordRepository;
 
 /**
  * 应用程序入口
@@ -57,6 +58,7 @@ class Application
         ChatHistoryRepository::ensureTable();
         MacroRepository::ensureTable();
         \App\Services\TempChat\TempChatReportRepository::ensureTable();
+        FateRecordRepository::ensureTable();
         AdminRepository::initialize();
         OAuthBindingRepository::initialize();
 

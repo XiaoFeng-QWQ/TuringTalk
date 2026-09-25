@@ -76,6 +76,9 @@ class RedisService
 
     // ==================== 临时聊天 ====================
     public const KP_TEMPCHAT_MSG   = self::PREFIX . 'tempchat:msg:';             // tempchat:msg:{roomId} → list 房间消息 JSON（保留最近 500 条，TTL 2h）
+
+    // ==================== 缘分系统 ====================
+    public const KP_FATE           = self::PREFIX . 'fate:';                       // fate:room:{sessionId} → hash 默契房数据
     public const STICKER_CACHE_TTL  = 3600;
 
     /**
@@ -218,6 +221,7 @@ class RedisService
             self::KP_LOBBY_MUTED,             // tg:lobby:muted:*（重启后旧禁言全失效）
             self::KP_LOBBY_ISOLATED,          // tg:lobby:isolated:*（重启后旧孤立全失效）
             self::KP_LOBBY_REPORTED,          // tg:lobby:reported:*（重启后旧举报去重失效）
+            self::KP_FATE,                    // fg:fate:room:*（重启后旧默契房全失效）
         ];
 
         $totalScanned = 0;

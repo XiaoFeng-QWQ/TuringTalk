@@ -8,6 +8,7 @@ use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\WebSocket\GomokuWebSocketHandler;
 use App\Core\WebSocket\TempChatWebSocketHandler;
+use App\Core\WebSocket\Fate\FateWebSocketHandler;
 use App\Admin\AdminWebSocketHandler;
 use App\Admin\Repository\BotRepository;
 use App\Admin\Repository\BotApplicationRepository;
@@ -61,6 +62,10 @@ class WebSocketHandler
             new GomokuWebSocketHandler(),
             new TempChatWebSocketHandler(),
         ];
+        // 缘分（默契测试）系统：由 Fate.Enabled 总开关控制是否启用
+        if (Config::get('Fate.Enabled', true)) {
+            $this->gameHandlers[] = new FateWebSocketHandler();
+        }
 
         // 自动构建路由表
         foreach ($this->gameHandlers as $h) {
@@ -90,6 +95,12 @@ class WebSocketHandler
         $lobbyHandler = $this->getLobbyHandler();
         if ($gomokuHandler && $lobbyHandler) {
             $gomokuHandler->setLobbyHandler($lobbyHandler);
+        }
+
+        // 缘分官宣卡片广播到聊天室
+        $fateHandler = $this->getFateHandler();
+        if ($fateHandler && $lobbyHandler) {
+            $fateHandler->setLobbyHandler($lobbyHandler);
         }
 
         $adminPath = trim(Config::get('Admin.Path', 'admin'), '/');
@@ -235,6 +246,11 @@ class WebSocketHandler
     public function getTempChatHandler(): ?TempChatWebSocketHandler
     {
         return $this->routeByPath['/ws/tempchat'] ?? null;
+    }
+
+    public function getFateHandler(): ?FateWebSocketHandler
+    {
+        return $this->routeByPath['/ws/fate'] ?? null;
     }
 
     // ==================== 在线人数广播 ====================
