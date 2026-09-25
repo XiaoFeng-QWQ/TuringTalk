@@ -225,6 +225,14 @@
                         </div>
                     </div>
                     <div id="lobby-song-playing-info" class="lobby-song-playing-info"></div>
+                    <div class="song-play-mode" id="lobby-song-play-mode" style="display:none;">
+                        <span class="song-play-mode-title">播放模式</span>
+                        <div class="song-play-mode-options" id="lobby-song-play-mode-options">
+                            <button type="button" class="song-play-mode-btn" data-mode="loop">列表循环</button>
+                            <button type="button" class="song-play-mode-btn" data-mode="shuffle">随机播放</button>
+                            <button type="button" class="song-play-mode-btn" data-mode="order">顺序播放</button>
+                        </div>
+                    </div>
                     <div id="lobby-song-playlist" class="lobby-song-playlist"></div>
                     <div class="lobby-song-search">
                         <input type="text" id="lobby-song-search-input" placeholder="输入歌名 / 艺人，或粘贴网易云分享链接 / 歌曲ID"
@@ -259,6 +267,9 @@
     <div id="lobby-sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>
         <img id="lobby-sticker-lightbox-img" alt="">
+        <div class="sticker-lightbox-actions">
+            <button id="lobby-sticker-lightbox-add" class="doodle-btn" style="display:none;">+ 添加到我的表情</button>
+        </div>
         <button id="lobby-sticker-lightbox-close" class="doodle-btn"
             style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
     </div>

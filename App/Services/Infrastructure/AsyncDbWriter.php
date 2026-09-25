@@ -83,21 +83,6 @@ class AsyncDbWriter
     }
 
     /**
-     * 推送 WhoisAI 战绩写入任务
-     */
-    public static function pushWhoisAIStats(string $playerId, bool $win, ?int $activeHour = null): void
-    {
-        self::push([
-            'type' => 'whoisai_stats',
-            'data' => [
-                'player_id'   => $playerId,
-                'win'         => $win,
-                'active_hour' => $activeHour ?? (int)date('G'),
-            ],
-        ]);
-    }
-
-    /**
      * 推送五子棋战绩写入任务
      */
     public static function pushGomokuStats(string $playerId, bool $win, bool $draw): void
@@ -186,10 +171,6 @@ class AsyncDbWriter
                 self::processReportChat($task['data']);
                 break;
 
-            case 'whoisai_stats':
-                self::processWhoisAIStats($task['data']);
-                break;
-
             case 'gomoku_stats':
                 self::processGomokuStats($task['data']);
                 break;
@@ -214,11 +195,6 @@ class AsyncDbWriter
             $data['player2'],
             $data['duration']
         );
-    }
-
-    private static function processWhoisAIStats(array $data): void
-    {
-        PlayerStatsRepository::recordWhoisAIGame($data['player_id'], (bool)$data['win'], (int)($data['active_hour'] ?? 0));
     }
 
     private static function processGomokuStats(array $data): void

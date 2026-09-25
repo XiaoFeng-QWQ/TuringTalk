@@ -804,6 +804,15 @@ const btnCloseSettings = document.getElementById('btn-close-settings');
 const changelogOverlay = document.getElementById('changelog-overlay');
 const btnChangelog = document.getElementById('btn-changelog');
 const btnCloseChangelog = document.getElementById('btn-close-changelog');
+const loginToggle = document.getElementById('login-toggle');
+if (loginToggle) {
+    loginToggle.addEventListener('click', function () {
+        const panel = document.getElementById('login-panel');
+        const expanded = panel.style.display === 'block';
+        panel.style.display = expanded ? 'none' : 'block';
+        this.querySelector('.login-toggle-arrow').style.transform = expanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    });
+}
 const btnClearLocalData = document.getElementById('btn-clear-local-data');
 const btnUploadUserData = document.getElementById('btn-upload-userdata');
 // 对局内表情选择器
@@ -811,6 +820,11 @@ const btnStickerPicker = document.getElementById('btn-sticker-picker');
 const stickerPicker = document.getElementById('sticker-picker');
 const stickerPickerBody = document.getElementById('sticker-picker-body');
 const btnCloseStickerPicker = document.getElementById('btn-close-sticker-picker');
+// 表情 lightbox
+const stickerLightbox = document.getElementById('sticker-lightbox');
+const stickerLightboxImg = document.getElementById('sticker-lightbox-img');
+const stickerLightboxAdd = document.getElementById('sticker-lightbox-add');
+const stickerLightboxClose = document.getElementById('sticker-lightbox-close');
 // 表情列表（WS 连接后从服务端获取，id → {name, url}）
 let stickerMap = loadStickerCache();
 bindStickerPickerTabs('sticker-picker', renderStickerPicker, repositionStickerPicker);
@@ -1190,10 +1204,31 @@ function appendSticker(stickerId, stickerName, side, sender, stickerUrl) {
                 <div class="bubble-info">${escapeHtml(sender)} (${ts})</div>
                 <img src="${escapeHtmlAttr(url)}" alt="${escapeHtmlAttr(stickerName)}" class="sticker-msg-img" loading="lazy">
             `;
+        // 点击查看大图 + 添加到我的表情
+        bubble.querySelector('.sticker-msg-img').addEventListener('click', function () {
+            showStickerLightbox(stickerId, url, stickerName);
+        });
     }
 
     scrollChatToBottom();
     chatBody.appendChild(bubble);
+}
+
+/** 显示表情大图 */
+function showStickerLightbox(stickerId, stickerUrl, stickerName) {
+    stickerLightboxImg.src = stickerUrl;
+    stickerLightbox.style.display = 'flex';
+    if (stickerId) {
+        stickerLightboxAdd.style.display = 'inline-block';
+        stickerLightboxAdd.onclick = null;
+        stickerLightboxAdd.onclick = function () {
+            addStickerToMine(stickerId).then(function () {
+                stickerLightboxAdd.style.display = 'none';
+            });
+        };
+    } else {
+        stickerLightboxAdd.style.display = 'none';
+    }
 }
 
 /** 发送表情 */
@@ -1321,31 +1356,40 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                     <span class="result-icon">${iconSVG}</span>
                     <h2 class="result-verdict">${verdict}</h2>
                     <div class="reveal-text">${reveal}</div>
-                    <div class="result-row">
-                        <span class="label">你的判断</span>
-                        <span class="value">${guessLabel}</span>
+                    <div class="result-grid">
+                        <div class="result-row">
+                            <span class="label">你的判断</span>
+                            <span class="value">${guessLabel}</span>
+                        </div>
+                        <div class="result-row">
+                            <span class="label">对方身份</span>
+                            <span class="value">${truthLabel}</span>
+                        </div>
+                        ${opponentTag ? `
+                        <div class="result-row">
+                            <span class="label">对方标签</span>
+                            <span class="value" style="background:var(--ink-blue);color:var(--surface-white);padding:2px 10px;border-radius:12px 3px 12px 3px;font-size:13px;">${escapeHtml(opponentTag)}</span>
+                        </div>` : ''}
+                        <div class="result-row">
+                            <span class="label">对方猜你是</span>
+                            <span class="value">${opponentGuessLabel}</span>
+                        </div>
+                        <div class="result-row">
+                            <span class="label">对话条数</span>
+                            <span class="value">${totalMsgs} 条</span>
+                        </div>
+                        <div class="result-row">
+                            <span class="label">用时</span>
+                            <span class="value">${formatTime(Math.round((Date.now() - gameStartTime) / 1000))}</span>
+                        </div>
                     </div>
-                    <div class="result-row">
-                        <span class="label">对方身份</span>
-                        <span class="value">${truthLabel}</span>
-                    </div>
-                    ${opponentTag ? `
-                    <div class="result-row">
-                        <span class="label">对方标签</span>
-                        <span class="value" style="background:let(--ink-blue);color:let(--surface-white);padding:2px 10px;border-radius:12px 3px 12px 3px;font-size:13px;">${escapeHtml(opponentTag)}</span>
-                    </div>` : ''}
-                    <div class="result-row">
-                        <span class="label">对方猜你是</span>
-                        <span class="value">${opponentGuessLabel}</span>
-                    </div>
-                    <div class="result-row">
-                        <span class="label">对话条数</span>
-                        <span class="value">${totalMsgs} 条</span>
-                    </div>
-                    <div class="result-row">
-                        <span class="label">用时</span>
-                        <span class="value">${formatTime(Math.round((Date.now() - gameStartTime) / 1000))}</span>
-                    </div>
+                    <button class="doodle-btn" id="result-actions-toggle" style="width:100%;justify-content:center;margin-bottom:8px;background:var(--cover-bg);font-size:14px;">
+                        <svg class="icon toggle-arrow" viewBox="0 0 24 24" style="transition:transform 0.2s;">
+                            <path d="M6 9l6 6 6-6" />
+                        </svg>
+                        更多操作
+                    </button>
+                    <div id="result-actions-panel" style="display:none;">
                     <button class="doodle-btn" id="btn-export-image" style="width:100%; justify-content:center; margin-bottom:8px;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -1393,6 +1437,7 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                         </div>
                         <div id="collection-status" style="display:none;text-align:center;font-size:12px;margin-top:4px;"></div>
                     </div>
+                    </div>
                     <button class="doodle-btn start-btn" id="btn-replay-inner" style="width:100%; justify-content:center;">
                         <svg class="icon" viewBox="0 0 24 24">
                             <polyline points="23 4 23 10 17 10" />
@@ -1402,6 +1447,13 @@ function renderResult(timeoutReason, userGuess, opponentTruth, opponentGuess, op
                     </button>
                 </div>
             `;
+
+    document.getElementById('result-actions-toggle').addEventListener('click', function () {
+        const panel = document.getElementById('result-actions-panel');
+        const expanded = panel.style.display === 'block';
+        panel.style.display = expanded ? 'none' : 'block';
+        this.querySelector('.toggle-arrow').style.transform = expanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    });
 
     document.getElementById('btn-view-chat').addEventListener('click', () => {
         resultArea.style.display = 'none';
@@ -2635,6 +2687,16 @@ btnCloseStickerPicker.addEventListener('click', () => {
     stickerPicker.style.display = 'none';
 });
 
+// 表情 lightbox 关闭事件
+stickerLightboxClose.addEventListener('click', () => {
+    stickerLightbox.style.display = 'none';
+});
+stickerLightbox.addEventListener('click', (e) => {
+    if (e.target === stickerLightbox || e.target.className === 'sticker-lightbox-bg' || e.target === stickerLightboxImg) {
+        stickerLightbox.style.display = 'none';
+    }
+});
+
 // 点击表情选择器外部关闭
 document.addEventListener('click', (e) => {
     if (stickerPicker.style.display !== 'none' &&
@@ -3326,7 +3388,6 @@ function updateLbUI() {
                     losses: losses,
                     timeouts: localStats.timeouts || 0,
                 },
-                WhoisAI: { wins: 0, losses: 0 },
                 total_games: totalGames,
                 win_rate: totalGames > 0 ? Math.round(wins / totalGames * 100) : 0,
             });
@@ -3540,9 +3601,8 @@ document.getElementById('btn-save-worn-tags').addEventListener('click', function
 function updateLbMyStats(stats) {
     if (!stats) return;
     const tt = stats.turing_test || {};
-    const hva = stats.WhoisAI || {};
-    document.getElementById('lb-my-wins').textContent = (tt.wins || 0) + (hva.wins || 0);
-    document.getElementById('lb-my-losses').textContent = (tt.losses || 0) + (hva.losses || 0);
+    document.getElementById('lb-my-wins').textContent = (tt.wins || 0);
+    document.getElementById('lb-my-losses').textContent = (tt.losses || 0);
     document.getElementById('lb-my-games').textContent = stats.total_games || 0;
     document.getElementById('lb-my-rate').textContent = (stats.win_rate !== undefined ? stats.win_rate + '%' : '-');
 }
@@ -3551,11 +3611,10 @@ function updateLbMyStats(stats) {
 function mergeServerStats(stats) {
     if (!stats) return;
     const tt = stats.turing_test || {};
-    const hva = stats.WhoisAI || {};
     const local = {
         total: stats.total_games || 0,
-        wins: (tt.wins || 0) + (hva.wins || 0),
-        losses: (tt.losses || 0) + (hva.losses || 0),
+        wins: (tt.wins || 0),
+        losses: (tt.losses || 0),
         timeouts: tt.timeouts || 0,
         guessHuman: tt.guess_human || 0,
         guessAI: tt.guess_ai || 0,
@@ -4526,13 +4585,8 @@ function buildAboutLines(data, turingGames) {
     const lines = [];
 
     if (!turingGames) {
-        if ((data.whoisai_games || 0) > 0) {
-            lines.push('这里的数据来自 <b>图灵测试（1v1）</b> 模式。');
-            lines.push('你主要在玩 <b>谁是AI</b> 模式，去 1v1 打几局就能看到详细分析啦。');
-        } else {
-            lines.push('这里的数据来自 <b>图灵测试（1v1）</b> 模式。');
-            lines.push('去打几局就能看到你的 AI 识别能力分析。');
-        }
+        lines.push('这里的数据来自 <b>图灵测试（1v1）</b> 模式。');
+        lines.push('去打几局就能看到你的 AI 识别能力分析。');
         return lines;
     }
 
@@ -4569,11 +4623,6 @@ function buildAboutLines(data, turingGames) {
         lines.push('你是 <b>' + label + '</b>，最常在 ' + top + ' 点左右上线。');
     }
 
-    if ((data.whoisai_games || 0) > 0) {
-        const wr = data.whoisai_win_rate || 0;
-        lines.push('谁是AI 模式打了 ' + (data.whoisai_games || 0) + ' 局，胜率 ' + wr + '%。');
-    }
-
     return lines;
 }
 
@@ -4589,12 +4638,10 @@ function renderProfile(data) {
         titleBadge.className = 'profile-title-badge';
     }
 
-    // 副标题：区分两种模式
+    // 副标题
     const tg = data.turing_games || 0;
-    const wg = data.whoisai_games || 0;
     const parts = [];
     if (tg > 0) parts.push('图灵测试 ' + tg + ' 局');
-    if (wg > 0) parts.push('谁是AI ' + wg + ' 局');
     parts.push('胜率 ' + (data.win_rate || 0) + '%');
     document.getElementById('profile-subtitle').textContent = parts.join(' · ');
 
@@ -4622,9 +4669,6 @@ function renderProfile(data) {
         { label: '胜率', value: (data.win_rate || 0) + '%' },
         { label: '总局数', value: data.total_games || 0 },
     ];
-    if ((data.whoisai_games || 0) > 0) {
-        kStats.push({ label: '谁是AI胜率', value: (data.whoisai_win_rate || 0) + '%' });
-    }
     document.getElementById('profile-key-stats').innerHTML = kStats.map((s, i) =>
         '<div class="profile-key-stat anim-pop-in" style="animation-delay:' + (i * 0.08) + 's">' +
         '<div class="ks-label">' + escapeHtml(s.label) + '</div>' +

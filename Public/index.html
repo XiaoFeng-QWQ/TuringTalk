@@ -89,6 +89,13 @@
                     </label>
                     <input id="nickname-input" type="text">
                 </div>
+                <button class="doodle-btn" id="login-toggle" style="width:100%;justify-content:center;font-size:12px;background:var(--cover-bg);margin-bottom:8px;padding:6px;">
+                    <svg class="icon login-toggle-arrow" viewBox="0 0 24 24" style="width:14px;height:14px;transition:transform 0.2s;">
+                        <path d="M6 9l6 6 6-6"/>
+                    </svg>
+                    账号设置
+                </button>
+                <div id="login-panel" style="display:none;">
                 <div class="input-line" id="password-input-line" style="display:none;">
                     <label>
                         <svg class="icon" viewBox="0 0 24 24">
@@ -133,6 +140,7 @@
                     <div id="oauth-quick-buttons" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;">
                     </div>
                 </div>
+                </div>
                 <div class="agreement-line">
                     开始即代表同意 <a href="javascript:void(0)" id="agreement-link">《用户协议》</a>
                     <span style="margin:0 4px;color:#ccc;">·</span>
@@ -148,6 +156,14 @@
                     style="text-align:center;font-size:14px;color:var(--ink-blue);padding:6px 0;cursor:default;">
                     🔥<span id="online-num">棍母</span>名玩家<span class="online-text-wrap"><span
                             id="online-text-carousel"></span></span>中🔥
+                </div>
+                <div class="duration-picker" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px;font-size:14px;color:var(--text-subtle);">
+                    <span>聊多久</span>
+                    <select class="doodle-select" id="duration-select" style="font-size:14px;padding:6px 10px;">
+                        <option value="600">10 分钟</option>
+                        <option value="300">5 分钟</option>
+                        <option value="0">无限</option>
+                    </select>
                 </div>
                 <button class="doodle-btn start-btn" id="btn-start">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -482,21 +498,23 @@
                 <span class="result-icon" id="result-icon"></span>
                 <h2 class="result-verdict" id="result-verdict"></h2>
                 <div class="reveal-text" id="result-reveal"></div>
-                <div class="result-row">
-                    <span class="label">你的判断</span>
-                    <span class="value" id="result-guess"></span>
-                </div>
-                <div class="result-row">
-                    <span class="label">对方身份</span>
-                    <span class="value" id="result-truth"></span>
-                </div>
-                <div class="result-row">
-                    <span class="label">对话条数</span>
-                    <span class="value" id="result-msgs"></span>
-                </div>
-                <div class="result-row">
-                    <span class="label">用时</span>
-                    <span class="value" id="result-time"></span>
+                <div class="result-grid">
+                    <div class="result-row">
+                        <span class="label">你的判断</span>
+                        <span class="value" id="result-guess"></span>
+                    </div>
+                    <div class="result-row">
+                        <span class="label">对方身份</span>
+                        <span class="value" id="result-truth"></span>
+                    </div>
+                    <div class="result-row">
+                        <span class="label">对话条数</span>
+                        <span class="value" id="result-msgs"></span>
+                    </div>
+                    <div class="result-row">
+                        <span class="label">用时</span>
+                        <span class="value" id="result-time"></span>
+                    </div>
                 </div>
                 <button class="doodle-btn start-btn" id="btn-replay" style="width:100%; justify-content:center;">
                     <svg class="icon" viewBox="0 0 24 24">
@@ -532,21 +550,6 @@
                             <line x1="6" y1="6" x2="18" y2="18" />
                         </svg>
                     </button>
-                </div>
-
-                <div class="setting-row">
-                    <h4>
-                        <svg class="icon" viewBox="0 0 24 24">
-                            <path
-                                d="M5 22h14M5 2h14M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2" />
-                        </svg>
-                        聊天时长
-                    </h4>
-                    <p>决定下一局能聊多久</p>
-                    <select class="doodle-select" id="duration-select">
-                        <option value="600">10 分钟 (慢节奏)</option>
-                        <option value="300">5 分钟 (速战速决)</option>
-                    </select>
                 </div>
 
                 <div class="setting-row">
@@ -1261,6 +1264,9 @@
     <div id="sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>
         <img id="sticker-lightbox-img" src="" alt="">
+        <div class="sticker-lightbox-actions">
+            <button id="sticker-lightbox-add" class="doodle-btn" style="display:none;">+ 添加到我的表情</button>
+        </div>
         <button id="sticker-lightbox-close" class="doodle-btn"
             style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
     </div>

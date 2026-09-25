@@ -44,6 +44,12 @@ class GameTimers
      */
     public function startChatTimer(Server $server, string $sessionId, int $duration): void
     {
+        // 无限时长（duration ≤ 0）：不启动聊天定时器，由玩家手动判定结束
+        if ($duration <= 0) {
+            Logger::info('Chat timer skipped (unlimited duration)', ['session_id' => $sessionId]);
+            return;
+        }
+
         $this->chatTimers[$sessionId] = Timer::after($duration * 1000, function () use ($server, $sessionId) {
             try {
                 $session = $this->game->gameService()->getSession($sessionId);

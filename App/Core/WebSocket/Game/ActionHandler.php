@@ -104,6 +104,12 @@ class ActionHandler
         }
 
         $myInfo = $this->game->getClientInfo($fd) ?? [];
+
+        // 1v1 对局举报的 evidence 字段标记为固定提示，审核以 chat_history 为准
+        $evidence = '[对局举报，请查看聊天记录]';
+
+        $allMessages = $this->game->gameService()->getSessionMessages($session['id']);
+
         $result = ReportRepository::report(
             'game',
             $session['id'],
@@ -112,7 +118,7 @@ class ActionHandler
             $reporterName,
             $targetName,
             $reason,
-            '',
+            $evidence,
             $fd,
             $myInfo['ip'] ?? '',
             $myInfo['fingerprint'] ?? '',
@@ -121,13 +127,19 @@ class ActionHandler
             $targetFp
         );
 
-        // 举报提交时立即保存聊天记录，避免管理员审阅时聊天记录还未写入
+        // saveChatHistory 同样需要全量消息，复用避免重复查 Redis
         if ($result['success']) {
-            $messages = $this->game->gameService()->getSessionMessages($session['id']);
             $duration = max(0, time() - ($session['chat_started_at'] ?? $session['created_at'] ?? time()));
-            $p1Desc   = ($session['player1_nickname'] ?? '玩家1') . ($session['player1_fd'] > 0 ? ' (玩家)' : '');
-            $p2Desc   = ($session['player2_nickname'] ?? '玩家2') . ($session['player2_fd'] > 0 ? ' (玩家)' : '');
-            ReportRepository::saveChatHistory($session['id'], $messages, $p1Desc, $p2Desc, $duration);
+            $p1Desc = $session['player1_nickname'] . ($session['player1_fd'] > 0 ? ' (玩家)' : '');
+            $p2Desc = $session['player2_nickname'] . ($session['player2_fd'] > 0 ? ' (玩家)' : '');
+            // 消息为空时不写入，避免 INSERT IGNORE 锁死脏记录
+            if (!empty($allMessages)) {
+                ReportRepository::saveChatHistory($session['id'], $allMessages, $p1Desc, $p2Desc, $duration);
+            } else {
+                Logger::warning('saveChatHistory skipped: no messages found', [
+                    'session_id' => $session['id'],
+                ]);
+            }
         }
 
         $this->game->sendToPlayer($server, $fd, [
@@ -273,6 +285,15 @@ class ActionHandler
                 'type'    => 'update_nickname_result',
                 'success' => false,
                 'error'   => '参数不完整',
+            ]);
+            return;
+        }
+
+        if (\App\Services\Game\NicknameBanService::isBanned($nickname)) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type'    => 'update_nickname_result',
+                'success' => false,
+                'error'   => 'Token 无效或已过期，请重新登录',
             ]);
             return;
         }

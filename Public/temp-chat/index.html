@@ -172,6 +172,9 @@
     <div id="lobby-sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>
         <img id="lobby-sticker-lightbox-img" alt="">
+        <div class="sticker-lightbox-actions">
+            <button id="lobby-sticker-lightbox-add" class="doodle-btn" style="display:none;">+ 添加到我的表情</button>
+        </div>
         <button id="lobby-sticker-lightbox-close" class="doodle-btn"
             style="position:absolute;top:12px;right:12px;padding:4px 8px;font-size:18px;line-height:1;">&times;</button>
     </div>
@@ -181,6 +184,20 @@
         <span class="temp-invite-text" id="temp-invite-text"></span>
         <button class="doodle-btn temp-invite-yes" id="temp-invite-yes">同意</button>
         <button class="doodle-btn temp-invite-no" id="temp-invite-no">拒绝</button>
+    </div>
+
+    <!-- 加入房间加载遮罩（同意邀请 / 自动接受 / 重连房间时显示） -->
+    <div id="temp-join-loading" class="temp-join-loading" style="display:none;">
+        <div class="temp-join-loading-card doodle-border">
+            <svg class="bili-spinner" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-dasharray="31.4 31.4" stroke-linecap="round">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12"
+                        dur="0.8s" repeatCount="indefinite" />
+                </circle>
+            </svg>
+            <span id="temp-join-loading-text">正在进入房间…</span>
+        </div>
     </div>
 
     <script defer src="https://cloud.umami.is/script.js"

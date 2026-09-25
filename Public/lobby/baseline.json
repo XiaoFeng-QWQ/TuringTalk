@@ -1,0 +1,506 @@
+{
+  "md:纯文本": {
+    "content": "大家好，今天天气不错",
+    "html": "<p>大家好，今天天气不错</p>"
+  },
+  "md:markdown加粗": {
+    "content": "这是**加粗**和*斜体*",
+    "html": "<p>这是<strong>加粗</strong>和<em>斜体</em></p>"
+  },
+  "md:链接按钮": {
+    "content": "看这里 [!查看](https://example.com)",
+    "html": "<p>看这里 [!查看](https://example.com)</p>"
+  },
+  "md:B站链接": {
+    "content": "视频 https://www.bilibili.com/video/BV1xx411c7mD",
+    "html": "<p>视频 <div class=\"bili-embed\" data-bili-url=\"https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1xx411c7mD\"><div class=\"bili-loading\"><svg class=\"bili-spinner\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-dasharray=\"31.4 31.4\" stroke-linecap=\"round\"><animateTransform attributeName=\"transform\" type=\"rotate\" from=\"0 12 12\" to=\"360 12 12\" dur=\"0.8s\" repeatCount=\"indefinite\"/></circle></svg>解析中...</div></div></p>"
+  },
+  "md:代码块": {
+    "content": "```\n[!按钮:签到|发送:ok]\n```",
+    "html": "<pre><code>[!按钮:签到|发送:ok]  </code></pre>"
+  },
+  "md:文本-裸色": {
+    "content": "[!文本:你好世界|#f00]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left;color:#f00\"><div class=\"md-textbox-body\">你好世界</div></div></p>"
+  },
+  "md:文本-大号": {
+    "content": "[!文本:你好|大]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">你好</div></div></p>"
+  },
+  "md:文本-居中": {
+    "content": "[!文本:你好|居中|#0f0]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:center;color:#0f0\"><div class=\"md-textbox-body\">你好</div></div></p>"
+  },
+  "md:文本-自适应": {
+    "content": "[!文本:很短]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">很短</div></div></p>"
+  },
+  "md:文本-长文本": {
+    "content": "[!文本:这是一段比较长的文本内容用来测试自适应大小档位选择是否正确]",
+    "html": "<p><div class=\"md-textbox md-textbox-sm md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">这是一段比较长的文本内容用来测试自适应大小档位选择是否正确</div></div></p>"
+  },
+  "md:文本-换行": {
+    "content": "[!文本:第一行\\n第二行]",
+    "html": "<p><div class=\"md-textbox md-textbox-md md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">第一行\n第二行</div></div></p>"
+  },
+  "md:文本-标题": {
+    "content": "[!文本:正文内容|标题=我的标题]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-title\">我的标题</div><div class=\"md-textbox-body\">正文内容</div></div></p>"
+  },
+  "md:画板-基础": {
+    "content": "[!画板:15|l:3,12,3,4;c:0,10,5,2,10,10]",
+    "html": "<p><span class=\"md-board\" data-board-id=\"board0\" data-board-size=\"15\" data-board-shapes=\"l:3,12,3,4;c:0,10,5,2,10,10\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span></p>"
+  },
+  "md:画板-完整": {
+    "content": "[!画板:20|l:1,1,9,9|bg=#fff|grid=0]",
+    "html": "<p><span class=\"md-board\" data-board-id=\"board0\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"#fff\" data-board-grid=\"0\"></span></p>"
+  },
+  "md:画板-modal": {
+    "content": "[!画板|l:1,1,9,9|modal=1|文字=开图]",
+    "html": "<p><a class=\"md-btn md-btn-board\" href=\"#\" data-board-modal=\"board0\">开图</a><span class=\"md-board\" data-board-id=\"board0\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span></p>"
+  },
+  "md:画板-text图形": {
+    "content": "[!画板:10|text:5,5,1:你好:#f00]",
+    "html": "<p><span class=\"md-board\" data-board-id=\"board0\" data-board-size=\"10\" data-board-shapes=\"text:5,5,1:你好:#f00\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span></p>"
+  },
+  "md:画板-隐藏": {
+    "content": "[!画板|l:1,1,9,9|hide=1|id=板1]",
+    "html": "<p><span data-ui-id=\"板1\" class=\"md-board\" data-board-id=\"板1\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\" style=\"display:none\"></span></p>"
+  },
+  "md:表格-基础": {
+    "content": "[!表格:2|名|备注|小攸|猫娘]",
+    "html": "<p><table class=\"md-table\"><thead><tr><th>名</th><th>备注</th></tr></thead><tbody><tr><td>小攸</td><td>猫娘</td></tr></tbody></table></p>"
+  },
+  "md:表格-3列": {
+    "content": "[!表格:3|A|B|C|1|2|3]",
+    "html": "<p><table class=\"md-table\"><thead><tr><th>A</th><th>B</th><th>C</th></tr></thead><tbody><tr><td>1</td><td>2</td><td>3</td></tr></tbody></table></p>"
+  },
+  "md:表格-单元格换行": {
+    "content": "[!表格:2|名|备注|小攸|第一行\\n第二行]",
+    "html": "<p><table class=\"md-table\"><thead><tr><th>名</th><th>备注</th></tr></thead><tbody><tr><td>小攸</td><td>第一行\n第二行</td></tr></tbody></table></p>"
+  },
+  "md:音乐": {
+    "content": "[!音乐:https://x.com/a.mp3|标题=我的歌|id=m1|状态=mus]",
+    "html": "<p><span data-ui-id=\"m1\" class=\"md-music\" data-music-id=\"m1\" data-music-state=\"mus\"><audio class=\"md-music-audio\" preload=\"none\" src=\"https://x.com/a.mp3\"></audio><span class=\"md-music-title\">我的歌</span><span class=\"md-music-controls\"><button class=\"md-music-btn\" data-music-toggle=\"1\" type=\"button\"></button><span class=\"md-music-time\">00:00 / 00:00</span><span class=\"md-music-bar\" data-music-bar=\"1\"><i></i></span></span></span></p>"
+  },
+  "md:音乐-非法链接": {
+    "content": "[!音乐:javascript:alert(1)]",
+    "html": "<p><span class=\"md-img-error\">[音频链接不合法]</span></p>"
+  },
+  "md:图集": {
+    "content": "[!图集:作品展|https://a.png|https://b.png|自动=3|id=g]",
+    "html": "<p><a data-ui-id=\"g\" class=\"md-btn md-btn-gallery\" href=\"#\" data-gallery=\"[&quot;https://a.png&quot;,&quot;https://b.png&quot;]\" data-gallery-title=\"%E4%BD%9C%E5%93%81%E5%B1%95\" data-gallery-id=\"g\" data-gallery-autoplay=\"3\">作品展</a></p>"
+  },
+  "md:图集-无图": {
+    "content": "[!图集:空|notaurl]",
+    "html": "<p><span class=\"md-img-error\">[图集链接不合法]</span></p>"
+  },
+  "md:投票-基础": {
+    "content": "[!投票:今晚吃什么|火锅|烧烤|日料]",
+    "html": "<p><div class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;火锅&quot;,&quot;烧烤&quot;,&quot;日料&quot;]\"><div class=\"md-vote-q\">今晚吃什么</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">火锅</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">烧烤</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"2\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">日料</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div></p>"
+  },
+  "md:投票-多选": {
+    "content": "[!投票:选班长|A|B|C|D|多选=2]",
+    "html": "<p><div class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"2\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;A&quot;,&quot;B&quot;,&quot;C&quot;,&quot;D&quot;]\"><div class=\"md-vote-q\">选班长</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">A</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">B</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"2\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">C</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"3\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">D</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">最多选 2 项</div></div></p>"
+  },
+  "md:投票-perm": {
+    "content": "[!投票:审核|通过|拒绝|perm=@小攸]",
+    "html": "<p><div class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;通过&quot;,&quot;拒绝&quot;]\" data-vote-perm=\"@小攸\"><div class=\"md-vote-q\">审核</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">通过</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">拒绝</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div></p>"
+  },
+  "md:投票-洗牌": {
+    "content": "[!投票:最佳|A|B|C|洗牌]",
+    "html": "<p><div class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;C&quot;,&quot;A&quot;,&quot;B&quot;]\"><div class=\"md-vote-q\">最佳</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">C</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">A</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"2\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">B</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div></p>"
+  },
+  "md:进度": {
+    "content": "[!进度:7/10|id=p1]",
+    "html": "<p><span data-ui-id=\"p1\" class=\"md-bar\" data-bar-id=\"p1\" data-bar-max=\"10\" data-bar-init=\"7\"><span class=\"md-bar-fill\" style=\"width:70%\"></span><span class=\"md-bar-text\">7/10</span></span></p>"
+  },
+  "md:倒计时-秒": {
+    "content": "[!倒计时:90|id=t1|end=发送:时间到]",
+    "html": "<p><span data-ui-id=\"t1\" class=\"md-timer\" data-timer-id=\"t1\" data-timer-total=\"90\" data-timer-end=\"%E5%8F%91%E9%80%81%3A%E6%97%B6%E9%97%B4%E5%88%B0\">00:01:30</span></p>"
+  },
+  "md:倒计时-时分": {
+    "content": "[!倒计时:1时30分15秒|id=t2|绑定=1]",
+    "html": "<p><span data-ui-id=\"t2\" class=\"md-timer\" data-timer-id=\"t2\" data-timer-total=\"5415\" data-timer-bind=\"1\">01:30:15</span></p>"
+  },
+  "md:倒计时-冒号": {
+    "content": "[!倒计时:1:30|id=t3|绑定=1]",
+    "html": "<p><span data-ui-id=\"t3\" class=\"md-timer\" data-timer-id=\"t3\" data-timer-total=\"5400\" data-timer-bind=\"1\">01:30:00</span></p>"
+  },
+  "md:计时": {
+    "content": "[!计时:25分|id=c1|绑定=1|end=发送:休息|重复=1]",
+    "html": "<p><span data-ui-id=\"c1\" class=\"md-stopwatch\" data-timer-id=\"c1\" data-stopwatch-max=\"1500\" data-timer-end=\"%E5%8F%91%E9%80%81%3A%E4%BC%91%E6%81%AF\" data-timer-bind=\"1\" data-stopwatch-repeat=\"1\">00:00:00</span></p>"
+  },
+  "md:定时": {
+    "content": "[!定时:09:00|发送:早上好|id=w|绑定=1|重复=1]",
+    "html": "<p><span data-ui-id=\"w\" class=\"md-at\" data-at-time=\"09:00\" data-at-id=\"w\" data-at-end=\"%E5%8F%91%E9%80%81%3A%E6%97%A9%E4%B8%8A%E5%A5%BD\" data-at-repeat=\"1\" data-at-bind=\"1\">⏰ 定时 09:00</span></p>"
+  },
+  "md:定时-未绑定": {
+    "content": "[!定时:21:00|发送:睡觉|id=s]",
+    "html": "<p><span data-ui-id=\"s\" class=\"md-at\" data-at-time=\"21:00\" data-at-id=\"s\" data-at-end=\"%E5%8F%91%E9%80%81%3A%E7%9D%A1%E8%A7%89\">⏰ 定时 21:00</span></p>"
+  },
+  "md:按钮-发送": {
+    "content": "[!按钮:签到|发送:签到成功]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3A%E7%AD%BE%E5%88%B0%E6%88%90%E5%8A%9F\">签到</a></p>"
+  },
+  "md:按钮-跳转": {
+    "content": "[!按钮:官网|https://example.com]",
+    "html": "<p><a class=\"md-btn\" href=\"https://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">官网</a></p>"
+  },
+  "md:按钮-复制": {
+    "content": "[!按钮:复制|复制:hello]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%A4%8D%E5%88%B6%3Ahello\">复制</a></p>"
+  },
+  "md:按钮-弹窗": {
+    "content": "[!按钮:公告|弹窗:标题|内容]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%BC%B9%E7%AA%97%3A%E6%A0%87%E9%A2%98%7C%E5%86%85%E5%AE%B9\">公告</a></p>"
+  },
+  "md:按钮-变量": {
+    "content": "[!按钮:加分|变量:分数={分数}+10]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%98%E9%87%8F%3A%E5%88%86%E6%95%B0%3D%7B%E5%88%86%E6%95%B0%7D%2B10\">加分</a></p>"
+  },
+  "md:按钮-动作串": {
+    "content": "[!按钮:全套|发送:ok&变量:x=1&随机:y=1,6]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3Aok%26amp%3B%E5%8F%98%E9%87%8F%3Ax%3D1%26amp%3B%E9%9A%8F%E6%9C%BA%3Ay%3D1%2C6\">全套</a></p>"
+  },
+  "md:按钮-条件动作": {
+    "content": "[!按钮:攻击|随机:伤害=5,15&变量:血量={血量}-{伤害}?{血量}>10:发送:倒了]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E9%9A%8F%E6%9C%BA%3A%E4%BC%A4%E5%AE%B3%3D5%2C15%26amp%3B%E5%8F%98%E9%87%8F%3A%E8%A1%80%E9%87%8F%3D%7B%E8%A1%80%E9%87%8F%7D-%7B%E4%BC%A4%E5%AE%B3%7D%3F%7B%E8%A1%80%E9%87%8F%7D%26gt%3B10%3A%E5%8F%91%E9%80%81%3A%E5%80%92%E4%BA%86\">攻击</a></p>"
+  },
+  "md:按钮-文字": {
+    "content": "[!按钮:内部|发送:ok|文字=外部]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3Aok\">外部</a></p>"
+  },
+  "md:按钮-颜色": {
+    "content": "[!按钮:红|发送:ok|颜色=#f00]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3Aok\" style=\"color:#f00\">红</a></p>"
+  },
+  "md:按钮-click": {
+    "content": "[!按钮:签到|发送:ok|click=*1]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3Aok\" data-click=\"{&quot;mode&quot;:&quot;per-user&quot;,&quot;globalLimit&quot;:0,&quot;perUserLimit&quot;:1,&quot;extra&quot;:{}}\">签到</a></p>"
+  },
+  "md:按钮-音效动画": {
+    "content": "[!按钮:叮|发送:ok|音效=https://x.mp3|动画=1]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3Aok\" data-sound=\"https://x.mp3\" data-anim=\"1\">叮</a></p>"
+  },
+  "md:按钮-URL带参数": {
+    "content": "[!按钮:点|发送:https://x.com?a=1&b=2]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%91%E9%80%81%3Ahttps%3A%2F%2Fx.com%3Fa%3D1%26amp%3Bb%3D2\">点</a></p>"
+  },
+  "md:按钮-吞并内容": {
+    "content": "[!按钮:弹|弹窗:公告|第一行|第二行]",
+    "html": "<p><a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%BC%B9%E7%AA%97%3A%E5%85%AC%E5%91%8A%7C%E7%AC%AC%E4%B8%80%E8%A1%8C%7C%E7%AC%AC%E4%BA%8C%E8%A1%8C\">弹</a></p>"
+  },
+  "md:发送": {
+    "content": "[!发送:发送按钮|内容A]",
+    "html": "<p><a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"内容A\">发送按钮</a></p>"
+  },
+  "md:复制": {
+    "content": "[!复制:复制按钮|内容B]",
+    "html": "<p><a class=\"md-btn md-btn-copy\" href=\"#\" data-copy=\"内容B\">复制按钮</a></p>"
+  },
+  "md:确认": {
+    "content": "[!确认:确定吗？|发送:确认了]",
+    "html": "<p><a class=\"md-btn md-btn-confirm\" href=\"#\" data-confirm-msg=\"%E7%A1%AE%E5%AE%9A%E5%90%97%EF%BC%9F\" data-confirm-action=\"%E5%8F%91%E9%80%81%3A%E7%A1%AE%E8%AE%A4%E4%BA%86\">确定吗？</a></p>"
+  },
+  "md:隐藏": {
+    "content": "[!隐藏:点我|发送:被点了]",
+    "html": "<p><span class=\"md-hide\" data-action=\"%E5%8F%91%E9%80%81%3A%E8%A2%AB%E7%82%B9%E4%BA%86\">点我</span></p>"
+  },
+  "md:输入": {
+    "content": "[!输入:请输入|id=inp1]",
+    "html": "<p><span class=\"md-input-box\" data-ui-id=\"inp1\"><input class=\"md-input\" type=\"text\" data-input-id=\"inp1\" data-ok=\"\" placeholder=\"请输入\"></span></p>"
+  },
+  "md:输入-带标签": {
+    "content": "[!输入:占位|id=inp2|label=名称]",
+    "html": "<p><span class=\"md-input-box\" data-ui-id=\"inp2\"><input class=\"md-input\" type=\"text\" data-input-id=\"inp2\" data-ok=\"\" placeholder=\"占位\"></span></p>"
+  },
+  "md:显示": {
+    "content": "[!显示:名字]",
+    "html": "<p><span class=\"md-get\" data-get-id=\"名字\"></span></p>"
+  },
+  "md:开关": {
+    "content": "[!开关:开/关|id=sw1]",
+    "html": "<p><a class=\"md-btn md-btn-switch\" href=\"#\" data-ui-id=\"sw1\" data-switch-id=\"sw1\" data-switch-vals=\"[&quot;开&quot;,&quot;关&quot;]\">开</a></p>"
+  },
+  "md:开关-颜色": {
+    "content": "[!开关:红/绿|id=sw2|颜色=1]",
+    "html": "<p><a class=\"md-btn md-btn-switch\" href=\"#\" data-ui-id=\"sw2\" data-switch-id=\"sw2\" data-switch-vals=\"[&quot;红&quot;,&quot;绿&quot;]\" data-switch-color=\"1\">红</a></p>"
+  },
+  "md:变量": {
+    "content": "[!变量:金币=100]",
+    "html": "<p><span class=\"md-var\" data-var-id=\"金币\">100</span></p>"
+  },
+  "md:条件": {
+    "content": "[!条件:{金币}>50|有钱人]",
+    "html": "<p><span class=\"md-if\" data-if-cond=\"{金币}&amp;gt;50\">有钱人</span></p>"
+  },
+  "md:条件-相等": {
+    "content": "[!条件:{状态}=开|已开启]",
+    "html": "<p><span class=\"md-if\" data-if-cond=\"{状态}=开\">已开启</span></p>"
+  },
+  "md:动作链": {
+    "content": "[!动作链:目标=标题;闪烁=3;延时=200|id=动画|绑定=1]",
+    "html": "<p><span data-ui-id=\"动画\" class=\"md-chain\" data-chain-id=\"动画\" data-chain-steps=\"%E7%9B%AE%E6%A0%87%3D%E6%A0%87%E9%A2%98%3B%E9%97%AA%E7%83%81%3D3%3B%E5%BB%B6%E6%97%B6%3D200\" data-chain-loop=\"0\" data-chain-bind=\"1\" style=\"display:none\"></span></p>"
+  },
+  "md:动作链-循环": {
+    "content": "[!动作链:目标=板1;移动x=2|id=跳|循环]",
+    "html": "<p><span data-ui-id=\"跳\" class=\"md-chain\" data-chain-id=\"跳\" data-chain-steps=\"%E7%9B%AE%E6%A0%87%3D%E6%9D%BF1%3B%E7%A7%BB%E5%8A%A8x%3D2\" data-chain-loop=\"inf\" data-chain-bind=\"0\" style=\"display:none\"></span></p>"
+  },
+  "md:动作链-防刷屏": {
+    "content": "[!动作链:目标=板1;发送:hi|id=链1]",
+    "html": "<p><span data-ui-id=\"链1\" class=\"md-chain\" data-chain-id=\"链1\" data-chain-steps=\"%E7%9B%AE%E6%A0%87%3D%E6%9D%BF1%3B%E5%8F%91%E9%80%81%3Ahi\" data-chain-loop=\"0\" data-chain-bind=\"0\" style=\"display:none\"></span></p>"
+  },
+  "md:弹窗内组件": {
+    "content": "[!弹窗:公告|[!按钮:去|https://x.com]|欢迎]",
+    "html": "<p><a class=\"md-btn md-btn-modal\" href=\"#\" data-modal-title=\"%E5%85%AC%E5%91%8A\" data-modal-content=\"%5B!%E6%8C%89%E9%92%AE%3A%E5%8E%BB%7Chttps%3A%2F%2Fx.com%5D%7C%E6%AC%A2%E8%BF%8E\">公告</a></p>"
+  },
+  "md:变量引用": {
+    "content": "[!变量:名=小攸][!文本:你好{名}]",
+    "html": "<p><span class=\"md-var\" data-var-id=\"名\">小攸</span><div class=\"md-textbox md-textbox-md md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">你好{名}</div></div></p>"
+  },
+  "md:图集展开变量": {
+    "content": "[!变量:图库=https://a.png,https://b.png][!图集:看|{图库}]",
+    "html": "<p><span class=\"md-var\" data-var-id=\"图库\">https://a.png,https://b.png</span><span class=\"md-img-error\">[图集链接不合法]</span></p>"
+  },
+  "md:投票展开变量": {
+    "content": "[!变量:菜单=火锅,烧烤][!投票:吃啥|{菜单}]",
+    "html": "<p><span class=\"md-var\" data-var-id=\"菜单\">火锅,烧烤</span><div class=\"md-vote\" data-vote-id=\"v1\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;{菜单}&quot;]\"><div class=\"md-vote-q\">吃啥</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">{菜单}</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div></p>"
+  },
+  "md:id定位": {
+    "content": "[!文本:提示|x=10|y=5]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"position:relative;left:10px;top:5px;text-align:left\"><div class=\"md-textbox-body\">提示</div></div></p>"
+  },
+  "md:未知类型": {
+    "content": "[!狗头:233]",
+    "html": "<p>[!狗头:233]</p>"
+  },
+  "md:v2语法": {
+    "content": "[!开图](board:20|shapes=l:1,1,9,9)",
+    "html": "<p>[!开图](board:20|shapes=l:1,1,9,9)</p>"
+  },
+  "md:XSS尝试": {
+    "content": "[!按钮:签到|<script>alert(1)</script>]",
+    "html": "<p><a class=\"md-btn\" href=\"#\">签到</a></p>"
+  },
+  "md:XSS属性": {
+    "content": "[!文本:test|\" onmouseover=\"alert(1)]",
+    "html": "<p><div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">test</div></div></p>"
+  },
+  "blocks:大家好，今天天气不错": {
+    "html": "<p>大家好，今天天气不错</p>"
+  },
+  "blocks:这是**加粗**和*斜体*": {
+    "html": "<p>这是<strong>加粗</strong>和<em>斜体</em></p>"
+  },
+  "blocks:看这里 [!查看](https://example.com)": {
+    "html": "<div><b>未知组件类型「查看」</b><br><code>[!查看]</code></div><button type=\"button\" class=\"md-error-copy\" data-raw=\"55yL6L+Z6YeMIFsh5p+l55yLXShodHRwczovL2V4YW1wbGUuY29tKQ==\">📋 复制原文</button>"
+  },
+  "blocks:视频 https://www.bilibili.com/video/BV1xx411c7mD": {
+    "html": "<p>视频 <div class=\"bili-embed\" data-bili-url=\"https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1xx411c7mD\"><div class=\"bili-loading\"><svg class=\"bili-spinner\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-dasharray=\"31.4 31.4\" stroke-linecap=\"round\"><animateTransform attributeName=\"transform\" type=\"rotate\" from=\"0 12 12\" to=\"360 12 12\" dur=\"0.8s\" repeatCount=\"indefinite\"/></circle></svg>解析中...</div></div></p>"
+  },
+  "blocks:```\n[!按钮:签到|发送:ok]\n```": {
+    "html": "<pre><code>[!按钮:签到|发送:ok]  </code></pre>"
+  },
+  "blocks:[!文本:你好世界|#f00]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left;color:#f00\"><div class=\"md-textbox-body\">你好世界</div></div>"
+  },
+  "blocks:[!文本:你好|大]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">你好</div></div>"
+  },
+  "blocks:[!文本:你好|居中|#0f0]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:center;color:#0f0\"><div class=\"md-textbox-body\">你好</div></div>"
+  },
+  "blocks:[!文本:很短]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">很短</div></div>"
+  },
+  "blocks:[!文本:这是一段比较长的文本内容用来测试自适应大小档位选择是否正确]": {
+    "html": "<div class=\"md-textbox md-textbox-sm md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">这是一段比较长的文本内容用来测试自适应大小档位选择是否正确</div></div>"
+  },
+  "blocks:[!文本:第一行\\n第二行]": {
+    "html": "<div class=\"md-textbox md-textbox-md md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">第一行\n第二行</div></div>"
+  },
+  "blocks:[!文本:正文内容|标题=我的标题]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-title\">我的标题</div><div class=\"md-textbox-body\">正文内容</div></div>"
+  },
+  "blocks:[!画板:15|l:3,12,3,4;c:0,10,5,2,10,10]": {
+    "html": "<span data-ui-id=\"board0\" class=\"md-board\" data-board-id=\"board0\" data-board-size=\"15\" data-board-shapes=\"l:3,12,3,4;c:0,10,5,2,10,10\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span>"
+  },
+  "blocks:[!画板:20|l:1,1,9,9|bg=#fff|grid=0]": {
+    "html": "<span data-ui-id=\"board0\" class=\"md-board\" data-board-id=\"board0\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"#fff\" data-board-grid=\"0\"></span>"
+  },
+  "blocks:[!画板|l:1,1,9,9|modal=1|文字=开图]": {
+    "html": "<a data-ui-id=\"board0\" class=\"md-btn md-btn-board\" href=\"#\" data-board-modal=\"board0\">开图</a><span class=\"md-board\" data-board-id=\"board0\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span>"
+  },
+  "blocks:[!画板:10|text:5,5,1:你好:#f00]": {
+    "html": "<span data-ui-id=\"board0\" class=\"md-board\" data-board-id=\"board0\" data-board-size=\"10\" data-board-shapes=\"text:5,5,1:你好:#f00\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span>"
+  },
+  "blocks:[!画板|l:1,1,9,9|hide=1|id=板1]": {
+    "html": "<span data-ui-id=\"板1\" class=\"md-board\" data-board-id=\"板1\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\" style=\"display:none\"></span>"
+  },
+  "blocks:[!表格:2|名|备注|小攸|猫娘]": {
+    "html": "<table class=\"md-table\"><thead><tr><th>名</th><th>备注</th></tr></thead><tbody><tr><td>小攸</td><td>猫娘</td></tr></tbody></table>"
+  },
+  "blocks:[!表格:3|A|B|C|1|2|3]": {
+    "html": "<table class=\"md-table\"><thead><tr><th>A</th><th>B</th><th>C</th></tr></thead><tbody><tr><td>1</td><td>2</td><td>3</td></tr></tbody></table>"
+  },
+  "blocks:[!表格:2|名|备注|小攸|第一行\\n第二行]": {
+    "html": "<table class=\"md-table\"><thead><tr><th>名</th><th>备注</th></tr></thead><tbody><tr><td>小攸</td><td>第一行\n第二行</td></tr></tbody></table>"
+  },
+  "blocks:[!音乐:https://x.com/a.mp3|标题=我的歌|id=m1|状态=mus]": {
+    "html": "<span data-ui-id=\"m1\" class=\"md-music\" data-music-id=\"m1\" data-music-state=\"mus\"><audio class=\"md-music-audio\" preload=\"none\" src=\"https://x.com/a.mp3\"></audio><span class=\"md-music-title\">我的歌</span><span class=\"md-music-controls\"><button class=\"md-music-btn\" data-music-toggle=\"1\" type=\"button\"></button><span class=\"md-music-time\">00:00 / 00:00</span><span class=\"md-music-bar\" data-music-bar=\"1\"><i></i></span></span></span>"
+  },
+  "blocks:[!音乐:javascript:alert(1)]": {
+    "html": "<span class=\"md-img-error\">[音频链接不合法]</span>"
+  },
+  "blocks:[!图集:作品展|https://a.png|https://b.png|自动=3|id=g]": {
+    "html": "<a data-ui-id=\"g\" class=\"md-btn md-btn-gallery\" href=\"#\" data-gallery=\"[&quot;https://a.png&quot;,&quot;https://b.png&quot;]\" data-gallery-title=\"%E4%BD%9C%E5%93%81%E5%B1%95\" data-gallery-autoplay=\"3\">作品展</a>"
+  },
+  "blocks:[!图集:空|notaurl]": {
+    "html": "<span class=\"md-img-error\">[图集链接不合法]</span>"
+  },
+  "blocks:[!投票:今晚吃什么|火锅|烧烤|日料]": {
+    "html": "<div data-ui-id=\"v0\" class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;火锅&quot;,&quot;烧烤&quot;,&quot;日料&quot;]\"><div class=\"md-vote-q\">今晚吃什么</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">火锅</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">烧烤</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"2\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">日料</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div>"
+  },
+  "blocks:[!投票:选班长|A|B|C|D|多选=2]": {
+    "html": "<div data-ui-id=\"v0\" class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"2\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;A&quot;,&quot;B&quot;,&quot;C&quot;,&quot;D&quot;]\"><div class=\"md-vote-q\">选班长</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">A</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">B</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"2\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">C</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"3\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">D</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">最多选 2 项</div></div>"
+  },
+  "blocks:[!投票:审核|通过|拒绝|perm=@小攸]": {
+    "html": "<div data-ui-id=\"v0\" class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;通过&quot;,&quot;拒绝&quot;]\" data-vote-perm=\"@小攸\"><div class=\"md-vote-q\">审核</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">通过</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">拒绝</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div>"
+  },
+  "blocks:[!投票:最佳|A|B|C|洗牌]": {
+    "html": "<div data-ui-id=\"v0\" class=\"md-vote\" data-vote-id=\"v0\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;B&quot;,&quot;A&quot;,&quot;C&quot;]\"><div class=\"md-vote-q\">最佳</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">B</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"1\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">A</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div><div class=\"md-vote-opt\" data-vote-opt=\"2\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">C</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div>"
+  },
+  "blocks:[!进度:7/10|id=p1]": {
+    "html": "<span data-ui-id=\"p1\" class=\"md-bar\" data-bar-id=\"p1\" data-bar-max=\"10\" data-bar-init=\"7\"><span class=\"md-bar-fill\" style=\"width:70%\"></span><span class=\"md-bar-text\">7/10</span></span>"
+  },
+  "blocks:[!倒计时:90|id=t1|end=发送:时间到]": {
+    "html": "<span data-ui-id=\"t1\" class=\"md-timer\" data-timer-id=\"t1\" data-timer-total=\"90\" data-timer-end=\"%E5%8F%91%E9%80%81%3A%E6%97%B6%E9%97%B4%E5%88%B0\">00:01:30</span>"
+  },
+  "blocks:[!倒计时:1时30分15秒|id=t2|绑定=1]": {
+    "html": "<span data-ui-id=\"t2\" class=\"md-timer\" data-timer-id=\"t2\" data-timer-total=\"5415\" data-timer-bind=\"1\">01:30:15</span>"
+  },
+  "blocks:[!倒计时:1:30|id=t3|绑定=1]": {
+    "html": "<span data-ui-id=\"t3\" class=\"md-timer\" data-timer-id=\"t3\" data-timer-total=\"5400\" data-timer-bind=\"1\">01:30:00</span>"
+  },
+  "blocks:[!计时:25分|id=c1|绑定=1|end=发送:休息|重复=1]": {
+    "html": "<span data-ui-id=\"c1\" class=\"md-stopwatch\" data-timer-id=\"c1\" data-stopwatch-max=\"1500\" data-timer-end=\"%E5%8F%91%E9%80%81%3A%E4%BC%91%E6%81%AF\" data-timer-bind=\"1\" data-stopwatch-repeat=\"1\">00:00:00</span>"
+  },
+  "blocks:[!定时:09:00|发送:早上好|id=w|绑定=1|重复=1]": {
+    "html": "<span data-ui-id=\"w\" class=\"md-at\" data-at-time=\"09:00\" data-at-id=\"w\" data-at-end=\"%E5%8F%91%E9%80%81%3A%E6%97%A9%E4%B8%8A%E5%A5%BD\" data-at-repeat=\"1\" data-at-bind=\"1\">⏰ 定时 09:00</span>"
+  },
+  "blocks:[!定时:21:00|发送:睡觉|id=s]": {
+    "html": "<span data-ui-id=\"s\" class=\"md-at\" data-at-time=\"21:00\" data-at-id=\"s\" data-at-end=\"%E5%8F%91%E9%80%81%3A%E7%9D%A1%E8%A7%89\">⏰ 定时 21:00</span>"
+  },
+  "blocks:[!按钮:签到|发送:签到成功]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"签到成功\">签到</a>"
+  },
+  "blocks:[!按钮:官网|https://example.com]": {
+    "html": "<a class=\"md-btn\" href=\"https://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">官网</a>"
+  },
+  "blocks:[!按钮:复制|复制:hello]": {
+    "html": "<a class=\"md-btn md-btn-copy\" href=\"#\" data-copy=\"hello\">复制</a>"
+  },
+  "blocks:[!按钮:公告|弹窗:标题|内容]": {
+    "html": "<a class=\"md-btn md-btn-modal\" href=\"#\" data-modal-title=\"%E6%A0%87%E9%A2%98\" data-modal-content=\"%E5%86%85%E5%AE%B9\">公告</a>"
+  },
+  "blocks:[!按钮:加分|变量:分数={分数}+10]": {
+    "html": "<a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E5%8F%98%E9%87%8F%3A%E5%88%86%E6%95%B0%3D%7B%E5%88%86%E6%95%B0%7D%2B10\">加分</a>"
+  },
+  "blocks:[!按钮:全套|发送:ok&变量:x=1&随机:y=1,6]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"ok&amp;变量:x=1&amp;随机:y=1,6\">全套</a>"
+  },
+  "blocks:[!按钮:攻击|随机:伤害=5,15&变量:血量={血量}-{伤害}?{血量}>10:发送:倒了]": {
+    "html": "<a class=\"md-btn md-btn-action\" href=\"#\" data-action=\"%E9%9A%8F%E6%9C%BA%3A%E4%BC%A4%E5%AE%B3%3D5%2C15%26%E5%8F%98%E9%87%8F%3A%E8%A1%80%E9%87%8F%3D%7B%E8%A1%80%E9%87%8F%7D-%7B%E4%BC%A4%E5%AE%B3%7D%3F%7B%E8%A1%80%E9%87%8F%7D%3E10%3A%E5%8F%91%E9%80%81%3A%E5%80%92%E4%BA%86\">攻击</a>"
+  },
+  "blocks:[!按钮:内部|发送:ok|文字=外部]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"ok\">外部</a>"
+  },
+  "blocks:[!按钮:红|发送:ok|颜色=#f00]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"ok\" style=\"color:#f00\">红</a>"
+  },
+  "blocks:[!按钮:签到|发送:ok|click=*1]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"ok\" data-click=\"{&quot;mode&quot;:&quot;per-user&quot;,&quot;globalLimit&quot;:0,&quot;perUserLimit&quot;:1,&quot;extra&quot;:{}}\">签到</a>"
+  },
+  "blocks:[!按钮:叮|发送:ok|音效=https://x.mp3|动画=1]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"ok\" data-sound=\"https://x.mp3\" data-anim=\"1\">叮</a>"
+  },
+  "blocks:[!按钮:点|发送:https://x.com?a=1&b=2]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"https://x.com?a=1&amp;b=2\">点</a>"
+  },
+  "blocks:[!按钮:弹|弹窗:公告|第一行|第二行]": {
+    "html": "<a class=\"md-btn md-btn-modal\" href=\"#\" data-modal-title=\"%E5%85%AC%E5%91%8A\" data-modal-content=\"%E7%AC%AC%E4%B8%80%E8%A1%8C%7C%E7%AC%AC%E4%BA%8C%E8%A1%8C\">弹</a>"
+  },
+  "blocks:[!发送:发送按钮|内容A]": {
+    "html": "<a class=\"md-btn md-btn-send\" href=\"#\" data-send=\"内容A\">发送按钮</a>"
+  },
+  "blocks:[!复制:复制按钮|内容B]": {
+    "html": "<a class=\"md-btn md-btn-copy\" href=\"#\" data-copy=\"内容B\">复制按钮</a>"
+  },
+  "blocks:[!确认:确定吗？|发送:确认了]": {
+    "html": "<a class=\"md-btn md-btn-confirm\" href=\"#\" data-confirm-msg=\"%E7%A1%AE%E5%AE%9A%E5%90%97%EF%BC%9F\" data-confirm-action=\"%E7%A1%AE%E8%AE%A4%E4%BA%86\">确定吗？</a>"
+  },
+  "blocks:[!隐藏:点我|发送:被点了]": {
+    "html": "<span class=\"md-hide\" data-action=\"%E5%8F%91%E9%80%81%3A%E8%A2%AB%E7%82%B9%E4%BA%86\">点我</span>"
+  },
+  "blocks:[!输入:请输入|id=inp1]": {
+    "html": "<span class=\"md-input-box\" data-ui-id=\"inp1\"><input class=\"md-input\" type=\"text\" data-input-id=\"inp1\" data-ok=\"\" placeholder=\"请输入\"></span>"
+  },
+  "blocks:[!输入:占位|id=inp2|label=名称]": {
+    "html": "<span class=\"md-input-box\" data-ui-id=\"inp2\"><input class=\"md-input\" type=\"text\" data-input-id=\"inp2\" data-ok=\"\" placeholder=\"占位\"></span>"
+  },
+  "blocks:[!显示:名字]": {
+    "html": "<span data-ui-id=\"名字\" class=\"md-get\" data-get-id=\"名字\"></span>"
+  },
+  "blocks:[!开关:开/关|id=sw1]": {
+    "html": "<a class=\"md-btn md-btn-switch\" href=\"#\" data-ui-id=\"sw1\" data-switch-id=\"sw1\" data-switch-vals=\"[&quot;开&quot;,&quot;关&quot;]\">开</a>"
+  },
+  "blocks:[!开关:红/绿|id=sw2|颜色=1]": {
+    "html": "<a class=\"md-btn md-btn-switch\" href=\"#\" data-ui-id=\"sw2\" data-switch-id=\"sw2\" data-switch-vals=\"[&quot;红&quot;,&quot;绿&quot;]\" data-switch-color=\"1\">红</a>"
+  },
+  "blocks:[!变量:金币=100]": {
+    "html": "<span class=\"md-var\" data-var-id=\"金币\">100</span>"
+  },
+  "blocks:[!条件:{金币}>50|有钱人]": {
+    "html": "<span class=\"md-if\" data-if-cond=\"{金币}&gt;50\">有钱人</span>"
+  },
+  "blocks:[!条件:{状态}=开|已开启]": {
+    "html": "<span class=\"md-if\" data-if-cond=\"{状态}=开\">已开启</span>"
+  },
+  "blocks:[!动作链:目标=标题;闪烁=3;延时=200|id=动画|绑定=1]": {
+    "html": "<span data-ui-id=\"动画\" class=\"md-chain\" data-chain-id=\"动画\" data-chain-steps=\"%E7%9B%AE%E6%A0%87%3D%E6%A0%87%E9%A2%98%3B%E9%97%AA%E7%83%81%3D3%3B%E5%BB%B6%E6%97%B6%3D200\" data-chain-loop=\"0\" data-chain-bind=\"1\" style=\"display:none\"></span>"
+  },
+  "blocks:[!动作链:目标=板1;移动x=2|id=跳|循环]": {
+    "html": "<span data-ui-id=\"跳\" class=\"md-chain\" data-chain-id=\"跳\" data-chain-steps=\"%E7%9B%AE%E6%A0%87%3D%E6%9D%BF1%3B%E7%A7%BB%E5%8A%A8x%3D2\" data-chain-loop=\"inf\" data-chain-bind=\"0\" style=\"display:none\"></span>"
+  },
+  "blocks:[!动作链:目标=板1;发送:hi|id=链1]": {
+    "html": "<span data-ui-id=\"链1\" class=\"md-chain\" data-chain-id=\"链1\" data-chain-steps=\"%E7%9B%AE%E6%A0%87%3D%E6%9D%BF1%3B%E5%8F%91%E9%80%81%3Ahi\" data-chain-loop=\"0\" data-chain-bind=\"0\" style=\"display:none\"></span>"
+  },
+  "blocks:[!弹窗:公告|[!按钮:去|https://x.com]|欢迎]": {
+    "html": "<a class=\"md-btn md-btn-modal\" href=\"#\" data-modal-title=\"%E5%85%AC%E5%91%8A\" data-modal-content=\"%5B%7B%22t%22%3A%22button%22%2C%22label%22%3A%22%E5%8E%BB%22%2C%22content%22%3A%22%E5%8E%BB%7Chttps%3A%2F%2Fx.com%22%2C%22action_type%22%3A%22url%22%2C%22action%22%3A%22https%3A%2F%2Fx.com%22%7D%2C%7B%22t%22%3A%22text%22%2C%22text%22%3A%22%7C%E6%AC%A2%E8%BF%8E%22%7D%5D\">公告</a>"
+  },
+  "blocks:[!变量:名=小攸][!文本:你好{名}]": {
+    "html": "<span class=\"md-var\" data-var-id=\"名\">小攸</span><div class=\"md-textbox md-textbox-md md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">你好{名}</div></div>"
+  },
+  "blocks:[!变量:图库=https://a.png,https://b.png][!图集:看|{图库}]": {
+    "html": "<span class=\"md-var\" data-var-id=\"图库\">https://a.png,https://b.png</span><span class=\"md-img-error\">[图集链接不合法]</span>"
+  },
+  "blocks:[!变量:菜单=火锅,烧烤][!投票:吃啥|{菜单}]": {
+    "html": "<span class=\"md-var\" data-var-id=\"菜单\">火锅,烧烤</span><div data-ui-id=\"v1\" class=\"md-vote\" data-vote-id=\"v1\" data-vote-max=\"1\" data-vote-mode=\"bar\" data-vote-opts=\"[&quot;{菜单}&quot;]\"><div class=\"md-vote-q\">吃啥</div><div class=\"md-vote-opts\"><div class=\"md-vote-opt\" data-vote-opt=\"0\" data-vote-picked=\"0\"><span class=\"md-vote-opt-name\">{菜单}</span><span class=\"md-vote-bar\"><i style=\"width:0%\"></i></span><span class=\"md-vote-num\">0 票</span></div></div><div class=\"md-vote-foot\">单选</div></div>"
+  },
+  "blocks:[!文本:提示|x=10|y=5]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"position:relative;left:10px;top:5px;text-align:left\"><div class=\"md-textbox-body\">提示</div></div>"
+  },
+  "blocks:[!狗头:233]": {
+    "html": "<div><b>未知组件类型「狗头」</b><br><code>[!狗头:233]</code></div><button type=\"button\" class=\"md-error-copy\" data-raw=\"WyHni5flpLQ6MjMzXQ==\">📋 复制原文</button>"
+  },
+  "blocks:[!开图](board:20|shapes=l:1,1,9,9)": {
+    "html": "<span data-ui-id=\"board0\" class=\"md-board\" data-board-id=\"board0\" data-board-size=\"20\" data-board-shapes=\"l:1,1,9,9\" data-board-text=\"\" data-board-bg=\"\" data-board-grid=\"1\"></span>"
+  },
+  "blocks:[!按钮:签到|<script>alert(1)</script>]": {
+    "html": "<a class=\"md-btn\" href=\"#\">签到</a>"
+  },
+  "blocks:[!文本:test|\" onmouseover=\"alert(1)]": {
+    "html": "<div class=\"md-textbox md-textbox-lg md-textbox-note\" style=\"text-align:left\"><div class=\"md-textbox-body\">test</div></div>"
+  }
+}

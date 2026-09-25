@@ -107,6 +107,12 @@ class MatchService
                     continue;
                 }
 
+                // 聊天时长不匹配：跳过（同 duration 才匹配）
+                if ((int)$candidate['duration'] !== $duration) {
+                    $this->pushQueue($redis, $candidateFd, $candidate['nickname'], $candidate['duration']);
+                    continue;
+                }
+
                 // 校验对手 FD 是否存活
                 if ($this->server !== null && !$this->server->isEstablished($candidateFd)) {
                     Logger::warning('Match: opponent fd is dead, skipping', ['fd' => $fd, 'opponent_fd' => $candidateFd]);

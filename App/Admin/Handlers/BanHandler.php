@@ -73,8 +73,8 @@ class BanHandler
         if ($banSession) {
             $banningAdmin = $this->tracker->getUsername($fd);
             $bannedName = ($banSession['player1_fd'] === $playerFd)
-                ? ($banSession['player1_nickname'] ?? '玩家')
-                : ($banSession['player2_nickname'] ?? '玩家');
+                ? $banSession['player1_nickname']
+                : $banSession['player2_nickname'];
             $this->game->sendToSpectators($server, $banSession['id'], [
                 'type'       => 'spectate_ended',
                 'session_id' => $banSession['id'],

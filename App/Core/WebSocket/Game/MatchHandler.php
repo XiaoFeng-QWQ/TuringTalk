@@ -42,6 +42,14 @@ class MatchHandler
             return;
         }
 
+        // 昵称黑名单检查
+        if (\App\Services\Game\NicknameBanService::isBanned($nickname)) {
+            Logger::info('Banned nickname rejected at match', ['fd' => $fd, 'nickname' => $nickname]);
+            $this->game->sendError($server, $fd, 'Token 无效或已过期，请重新登录');
+            $server->close($fd);
+            return;
+        }
+
         Logger::info('Player joining match', [
             'fd' => $fd,
             'nickname' => $nickname,
@@ -160,7 +168,7 @@ class MatchHandler
                 'player1_fd' => $player1Fd,
                 'player2_fd' => $player2Fd,
             ]);
-            $this->game->matchService()->enqueue($newFd, $session['player' . ($isPlayer1 ? '1' : '2') . '_nickname'] ?? '玩家', (int)$session['duration']);
+            $this->game->matchService()->enqueue($newFd, $session['player' . ($isPlayer1 ? '1' : '2') . '_nickname'], (int)$session['duration']);
             return;
         }
         $oldFd = $isPlayer1 ? $player1Fd : $player2Fd;

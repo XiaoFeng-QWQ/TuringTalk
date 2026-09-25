@@ -223,15 +223,15 @@ class StickerRepository
     }
 
     /**
-     * 按 ID 查找表情：优先查用户自定义，回退到默认表情
+     * 按 ID 查找审核通过的表情：优先查用户自定义，回退到默认表情
      */
     public static function getById(string $id, ?string $userId = null): ?array
     {
         $pdo = Database::connect();
 
         if ($userId !== null && $userId !== '') {
-            $stmt = $pdo->prepare('SELECT id, name, url, created_at FROM user_stickers WHERE user_id = ? AND id = ? AND status = ?');
-            $stmt->execute([$userId, $id, 'approved']);
+            $stmt = $pdo->prepare('SELECT id, name, url, created_at FROM user_stickers WHERE id = ? AND status = ?');
+            $stmt->execute([$id, 'approved']);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($row) return $row;
         }

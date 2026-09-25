@@ -23,15 +23,6 @@
             BOT 管理面板
         </div>
         <div class="header-actions">
-            <a class="doodle-btn" id="btn-docs"
-                href="https://docs.xiaofengqwq.com/图灵测试/api接口/02.WebSocket接口文档.html#_6-bot-gateway-websocket"
-                target="_blank" rel="noopener" title="BOT 网关接入文档"
-                style="padding:8px 8px; text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">
-                <svg class="icon" viewBox="0 0 24 24">
-                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                </svg>
-            </a>
             <button class="doodle-btn" id="btn-theme" title="主题切换" style="padding:8px 8px;">
                 <svg class="icon" viewBox="0 0 24 24">
                     <circle cx="12" cy="12" r="5" />
@@ -51,7 +42,6 @@
     <div class="panel-wrap">
         <div class="panel-sub">管理你的 BOT 账号：查看昵称/状态，修改 BOT 进入聊天室的昵称</div>
 
-        <!-- 加载中 -->
         <div class="card" id="loading-tip">
             <h3>
                 <svg class="icon" viewBox="0 0 24 24">
@@ -62,7 +52,6 @@
             </h3>
         </div>
 
-        <!-- 未绑定 / 需登录 -->
         <div class="card hidden" id="unbound-tip">
             <h3>
                 <svg class="icon" viewBox="0 0 24 24">
@@ -76,7 +65,6 @@
             <div class="panel-info" id="unbound-text"></div>
         </div>
 
-        <!-- 面板 -->
         <div id="panel-body" class="hidden">
             <div class="card">
                 <h3>
@@ -86,10 +74,12 @@
                     </svg>
                     账号信息
                 </h3>
+
                 <div class="nick-row">
                     <input class="panel-input" type="text" id="nick-input" maxlength="12" placeholder="BOT 昵称（下次连接生效）">
                     <button class="btn btn-ghost" id="btn-save-nick">保存昵称</button>
                 </div>
+
                 <div class="panel-info">
                     状态：<span id="info-status"></span> ｜ 创建于 <span id="info-created"></span><br>
                     如需玩家ID，请前往 <b>首页 → 设置 → 我的玩家ID</b> 查看并复制<br>
@@ -105,6 +95,18 @@
                     </div>
                     <div class="key-hint">轮换后旧 KEY 即刻失效，BOT 下次连接需使用新 KEY</div>
                 </div>
+            </div>
+
+            <div class="card">
+                <a href="https://docs.xiaofengqwq.com/图灵测试/api接口/02.WebSocket接口文档.html#_6-bot-gateway-websocket"
+                    target="_blank" rel="noopener" title="BOT 网关接入文档">
+                    BOT 网关接入文档
+                </a>
+                <br>
+                <a href="https://yuju.99kpk.top:81/pan/1375/%E5%BC%80%E6%94%BEBOT%E6%8E%A5%E5%8F%A3PHP-Python-Nodejs_SDK.zip"
+                    target="_blank" rel="noopener">
+                    聊天室机器人开发SDK&示例代码
+                </a>
             </div>
         </div>
 

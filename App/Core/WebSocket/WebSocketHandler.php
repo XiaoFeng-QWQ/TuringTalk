@@ -5,7 +5,6 @@ namespace App\Core\WebSocket;
 use Swoole\WebSocket\Server;
 use Swoole\WebSocket\Frame;
 use App\Core\WebSocket\GameWebSocketHandler;
-use App\Core\WebSocket\WhoisAIWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\WebSocket\GomokuWebSocketHandler;
 use App\Core\WebSocket\TempChatWebSocketHandler;
@@ -58,7 +57,6 @@ class WebSocketHandler
         // ===== 注册所有游戏模式（新增只需加一行 new XxxHandler()） =====
         $this->gameHandlers = [
             new GameWebSocketHandler(),
-            new WhoisAIWebSocketHandler(),
             new LobbyChatWebSocketHandler(),
             new GomokuWebSocketHandler(),
             new TempChatWebSocketHandler(),
@@ -222,11 +220,6 @@ class WebSocketHandler
     public function getGameHandler(): GameWebSocketHandler
     {
         return $this->routeByPath['/ws'] ?? $this->gameHandlers[0];
-    }
-
-    public function getWhoisAIHandler(): WhoisAIWebSocketHandler
-    {
-        return $this->routeByPath['/ws/WhoisAI'] ?? null;
     }
 
     public function getLobbyHandler(): LobbyChatWebSocketHandler

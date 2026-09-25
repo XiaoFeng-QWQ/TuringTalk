@@ -32,7 +32,6 @@ class ReportRepository
             target_fd           INT          NOT NULL DEFAULT 0 COMMENT "被举报者 fd",
             target_ip           VARCHAR(45)  NOT NULL DEFAULT "" COMMENT "被举报者 IP",
             target_fingerprint  VARCHAR(64)  NOT NULL DEFAULT "" COMMENT "被举报者浏览器指纹",
-            session_id          VARCHAR(64)  NOT NULL DEFAULT "" COMMENT "对局ID(game)/room_id(whoisai)，非对局上报为空",
             reporter_name       VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "举报者昵称(快照)",
             target_name         VARCHAR(32)  NOT NULL DEFAULT "" COMMENT "被举报者昵称(快照)",
             reason              VARCHAR(255) NOT NULL DEFAULT "" COMMENT "举报原因",
@@ -94,13 +93,13 @@ class ReportRepository
                 'INSERT INTO reports (
                     source, source_id, reporter_player_id, reporter_fd, reporter_ip, reporter_fingerprint,
                     target_player_id, target_fd, target_ip, target_fingerprint,
-                    reporter_name, target_name, reason, evidence, session_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    reporter_name, target_name, reason, evidence
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $stmt->execute([
                 $source, $sourceId, $reporterPlayerId, $reporterFd, $reporterIp, $reporterFingerprint,
                 $targetPlayerId, $targetFd, $targetIp, $targetFingerprint,
-                $reporterName, $targetName, $reason, $evidence, '',
+                $reporterName, $targetName, $reason, $evidence,
             ]);
 
             Logger::debug('Report submitted', [
@@ -147,9 +146,8 @@ class ReportRepository
             $pdo = Database::connect();
             $json = json_encode($messages, JSON_UNESCAPED_UNICODE);
             $stmt = $pdo->prepare(
-                'INSERT INTO report_chat_history (session_id, messages, player1, player2, duration)
-                 VALUES (?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE messages = VALUES(messages), player1 = VALUES(player1), player2 = VALUES(player2), duration = VALUES(duration)'
+                'INSERT IGNORE INTO report_chat_history (session_id, messages, player1, player2, duration)
+                 VALUES (?, ?, ?, ?, ?)'
             );
             $stmt->execute([$sessionId, $json, $player1Desc, $player2Desc, $duration]);
 

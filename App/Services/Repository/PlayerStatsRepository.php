@@ -11,7 +11,6 @@ use PDO;
  *
  * 每个玩法独立一个序列化列，方便扩展：
  * - turing_test   TEXT  图灵测试战绩（PHP 序列化数组）
- * - WhoisAI    TEXT  人类 vs AI 战绩（PHP 序列化数组）
  *
  * 玩家身份由 player_data.id 标识。
  */
@@ -103,12 +102,6 @@ class PlayerStatsRepository
                 'current_streak' => 0,
                 'best_win_streak' => 0,
             ],
-            'WhoisAI' => [
-                'total_games' => 0,
-                'wins' => 0,
-                'losses' => 0,
-                'active_hours' => [],
-            ],
             'gomoku' => [
                 'total_games' => 0,
                 'wins' => 0,
@@ -123,7 +116,6 @@ class PlayerStatsRepository
     private static function getColumn(string $gameMode): string
     {
         return match ($gameMode) {
-            'WhoisAI' => 'WhoisAI',
             'gomoku'  => 'gomoku',
             default   => 'turing_test',
         };
@@ -625,31 +617,6 @@ class PlayerStatsRepository
             'truth' => $opponentTruth,
             'timeout' => $timeoutReason,
         ]);
-    }
-
-    /**
-     * 记录一局谁是AI结果
-     */
-    public static function recordWhoisAIGame(string $playerId, bool $win, int $activeHour = 0): void
-    {
-        $player = self::findById($playerId);
-        if (!$player) return;
-
-        $stats = self::getGameStats($playerId, 'WhoisAI');
-        $stats['total_games']++;
-        if ($win) $stats['wins']++;
-        else $stats['losses']++;
-
-        if ($activeHour > 0) {
-            $h = (int)$activeHour;
-            $stats['active_hours'][$h] = ($stats['active_hours'][$h] ?? 0) + 1;
-        }
-
-        self::saveGameStats($playerId, 'WhoisAI', $stats);
-
-        $pdo = Database::connect();
-        $stmt = $pdo->prepare('UPDATE player_data SET last_played_at = ? WHERE id = ?');
-        $stmt->execute([time(), $playerId]);
     }
 
     /**
@@ -1232,9 +1199,8 @@ class PlayerStatsRepository
         if (!$player) return null;
 
         $turingStats = self::getGameStats($playerId, 'turing_test');
-        $WhoisAIStats = self::getGameStats($playerId, 'WhoisAI');
-        $allGames = $turingStats['total_games'] + $WhoisAIStats['total_games'];
-        $allWins  = $turingStats['wins'] + $WhoisAIStats['wins'];
+        $allGames = $turingStats['total_games'];
+        $allWins  = $turingStats['wins'];
 
         $result = [
             'id'            => $player['id'],
@@ -1243,7 +1209,6 @@ class PlayerStatsRepository
             'created_at'    => (int)$player['created_at'],
             'last_played_at' => (int)$player['last_played_at'],
             'turing_test'    => $turingStats,
-            'WhoisAI'    => $WhoisAIStats,
             'total_games'    => $allGames,
             'win_rate'       => $allGames > 0 ? round(($allWins / $allGames) * 100) : 0,
             'avg_msgs'       => $turingStats['total_games'] > 0
@@ -1264,9 +1229,8 @@ class PlayerStatsRepository
 
         $playerId = $player['id'];
         $turing = self::getGameStats($playerId, 'turing_test');
-        $WhoisAI = self::getGameStats($playerId, 'WhoisAI');
-        $allGames = $turing['total_games'] + $WhoisAI['total_games'];
-        $allWins  = $turing['wins'] + $WhoisAI['wins'];
+        $allGames = $turing['total_games'];
+        $allWins  = $turing['wins'];
 
         $tg = (int)($turing['total_games'] ?? 0);
 
@@ -1275,7 +1239,6 @@ class PlayerStatsRepository
             'nickname'       => $player['nickname'],
             'total_games'    => $allGames,
             'turing_games'   => $turing['total_games'],
-            'whoisai_games'  => $WhoisAI['total_games'],
             'win_rate'       => $allGames > 0 ? round(($allWins / $allGames) * 100) : 0,
             'guess_accuracy' => $tg > 0
                 ? round(((int)($turing['guess_correct'] ?? 0) / $tg) * 100) : 0,
@@ -1309,12 +1272,6 @@ class PlayerStatsRepository
             $profile['avg_judge_seconds'] = (int)round(($turing['judge_duration_ms'] ?? 0) / $jc / 1000);
         }
 
-        if ($WhoisAI['total_games'] > 0) {
-            $profile['whoisai_win_rate'] = (int)round(($WhoisAI['wins'] / $WhoisAI['total_games']) * 100);
-        } else {
-            $profile['whoisai_win_rate'] = 0;
-        }
-
         // 最佳时段（胜率最高，至少3局）
         $bestHour = null;
         $bestHourRate = 0;
@@ -1331,14 +1288,8 @@ class PlayerStatsRepository
         $profile['current_streak'] = (int)($turing['current_streak'] ?? 0);
         $profile['best_win_streak'] = (int)($turing['best_win_streak'] ?? 0);
 
-        // 活跃时段（合并图灵测试 + WhoisAI）
+        // 活跃时段
         $activeHours = $turing['active_hours'] ?? [];
-        $whoisaiHours = $WhoisAI['active_hours'] ?? [];
-        if (!empty($whoisaiHours)) {
-            foreach ($whoisaiHours as $h => $c) {
-                $activeHours[$h] = ($activeHours[$h] ?? 0) + $c;
-            }
-        }
         if (!empty($activeHours)) {
             arsort($activeHours);
             $profile['peak_hours'] = array_map('intval', array_slice(array_keys($activeHours), 0, 3));

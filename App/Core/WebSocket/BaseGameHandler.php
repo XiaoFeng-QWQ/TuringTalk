@@ -4,6 +4,7 @@ namespace App\Core\WebSocket;
 
 use App\Core\Sanitizer;
 use App\Services\Game\GameService;
+use App\Services\Game\NicknameBanService;
 use App\Services\Infrastructure\Logger;
 use App\Services\Infrastructure\RedisService;
 use App\Services\Repository\BanRepository;
@@ -470,7 +471,14 @@ abstract class BaseGameHandler
                 $player = PlayerStatsRepository::findById($playerId);
                 if ($player) {
                     GameService::setPlayerCode($fd, $token);
-                    return ['success' => true, 'error' => null, 'nickname' => $player['nickname'] ?: $nickname, 'player_id' => $playerId, 'token' => $token];
+
+                    // 昵称黑名单检查
+                    $nick = $player['nickname'] ?: $nickname;
+                    if (NicknameBanService::isBanned($nick)) {
+                        return ['success' => false, 'error' => 'Token 无效或已过期，请重新登录', 'nickname' => $nick, 'player_id' => null, 'token' => null];
+                    }
+
+                    return ['success' => true, 'error' => null, 'nickname' => $nick, 'player_id' => $playerId, 'token' => $token];
                 }
             }
             return ['success' => false, 'error' => 'Token 无效或已过期，请重新登录', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
@@ -480,6 +488,10 @@ abstract class BaseGameHandler
         if (!empty($password)) {
             $existing = PlayerStatsRepository::findByNickname($nickname);
             if ($existing && password_verify($password, $existing['password_hash'])) {
+                // 昵称黑名单检查
+                if (NicknameBanService::isBanned($nickname)) {
+                    return ['success' => false, 'error' => 'Token 无效或已过期，请重新登录', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
+                }
                 $newToken = \App\Controllers\GameController::generatePlayerToken($existing['id'], $existing['password_hash']);
                 GameService::setPlayerCode($fd, $newToken);
                 return ['success' => true, 'error' => null, 'nickname' => $existing['nickname'] ?: $nickname, 'player_id' => $existing['id'], 'token' => $newToken];
@@ -496,9 +508,18 @@ abstract class BaseGameHandler
             if ($existing['fp'] !== $fp || $existing['ip'] !== $ip) {
                 return ['success' => false, 'error' => '该昵称已被占用，请换一个或输入密码', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
             }
+            // 昵称黑名单检查（仅昵称复用分支）
+            if (NicknameBanService::isBanned($nickname)) {
+                return ['success' => false, 'error' => 'Token 无效或已过期，请重新登录', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
+            }
             $newToken = \App\Controllers\GameController::generatePlayerToken($existing['id'], $existing['password_hash']);
             GameService::setPlayerCode($fd, $newToken);
             return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => $existing['id'], 'token' => $newToken];
+        }
+
+        // 新昵称黑名单检查（无 password 无 token 的新玩家）
+        if (NicknameBanService::isBanned($nickname)) {
+            return ['success' => false, 'error' => 'Token 无效或已过期，请重新登录', 'nickname' => $nickname, 'player_id' => null, 'token' => null];
         }
 
         return ['success' => true, 'error' => null, 'nickname' => $nickname, 'player_id' => null, 'token' => null];
@@ -576,6 +597,17 @@ abstract class BaseGameHandler
     public function getOrCreatePlayerId(int $fd, string $nickname, ?Server $server = null, string $password = ''): ?string
     {
         if (empty($nickname)) return null;
+
+        if (NicknameBanService::isBanned($nickname)) {
+            Logger::warning(static::class . ' Banned nickname rejected at create', ['fd' => $fd, 'nickname' => $nickname]);
+            if ($server !== null) {
+                $this->sendToPlayer($server, $fd, [
+                    'type' => 'error',
+                    'message' => 'Token 无效或已过期，请重新登录',
+                ]);
+            }
+            return null;
+        }
 
         $row = $this->clientInfo[(string)$fd] ?? [];
         $fp = Sanitizer::identifier($row['fingerprint'] ?? '');

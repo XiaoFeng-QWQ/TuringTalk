@@ -45,6 +45,7 @@
     const $btnCloseStickerPicker = document.getElementById('lobby-btn-close-sticker-picker');
     const $stickerLightbox = document.getElementById('lobby-sticker-lightbox');
     const $stickerLightboxImg = document.getElementById('lobby-sticker-lightbox-img');
+    const $stickerLightboxAdd = document.getElementById('lobby-sticker-lightbox-add');
     const $stickerLightboxClose = document.getElementById('lobby-sticker-lightbox-close');
     const $usersList = document.getElementById('lobby-users-list');
     const $usersCount = document.getElementById('lobby-users-count');
@@ -84,14 +85,11 @@
     const $songListenToggle = document.getElementById('lobby-song-listen-toggle');
     const $songSyncToggle = document.getElementById('lobby-song-sync-toggle');
     const $songSyncLabel = document.getElementById('lobby-song-sync-label');
+    const $songPlayMode = document.getElementById('lobby-song-play-mode');
+    const $songPlayModeOptions = document.getElementById('lobby-song-play-mode-options');
     const $songInfo = document.getElementById('lobby-song-info');
-    const $songInfoCover = document.getElementById('lobby-song-info-cover');
-    const $songInfoName = document.getElementById('lobby-song-info-name');
-    const $songInfoArtist = document.getElementById('lobby-song-info-artist');
     const $songInfoProgressBar = document.getElementById('lobby-song-info-progress-bar');
     const $songInfoTime = document.getElementById('lobby-song-info-time');
-    const $songInfoAdder = document.getElementById('lobby-song-info-adder');
-    const $songInfoNext = document.getElementById('lobby-song-info-next');
 
     // ==================== 状态 ====================
     let ws = null;
@@ -131,6 +129,7 @@
     let audioUnlocked = false;    // 浏览器自动播放策略是否已解锁
     let songListen = getUserdata().song_listen ?? false;  // 是否参与听歌
     let songSyncMode = getUserdata().song_sync_mode ?? true;  // true=同步模式，false=个人模式
+    let songPlayMode = getUserdata().song_play_mode ?? 'loop';  // 个人模式播放方式：loop列表循环/shuffle随机/order顺序
 
     // ==================== 浏览器通知 ====================
     let notifyEnabled = getUserdata().lobby_notify ?? false;
@@ -1042,14 +1041,14 @@
                 ? '<img class="sticker-img" src="' + escapeHtmlAttr(stickerUrl) + '" alt="表情" title="' + escapeHtmlAttr(data.sticker_name || '') + '">'
                 : '<span style="color:#999;font-style:italic;">[表情不存在: ' + escapeHtml(data.sticker_id) + ']</span>';
             if (stickerUrl) {
-                (function (url) {
+                (function (id, url, name) {
                     let img = bubble.querySelector('.sticker-img');
                     if (img) {
                         img.addEventListener('click', function () {
-                            showStickerLightbox(url);
+                            showStickerLightbox(id, url, name);
                         });
                     }
-                })(stickerUrl);
+                })(data.sticker_id, stickerUrl, data.sticker_name || '');
             }
         } else if (data.msg_type === 'card.share.record' || data.type === 'card.share.record') {
             // 战绩分享卡片：直接渲染，不套气泡层
@@ -1204,7 +1203,7 @@
         let renderStickerImg = function (url) {
             bubble.innerHTML = '<img class="sticker-img" src="' + escapeHtmlAttr(url) + '" alt="表情" title="' + escapeHtmlAttr(stickerName || '') + '">';
             bubble.querySelector('.sticker-img').addEventListener('click', function () {
-                showStickerLightbox(url);
+                showStickerLightbox(stickerId, url, stickerName);
             });
         };
         if (stickerUrl2) {
@@ -4830,9 +4829,21 @@
         send({ type: 'get_stickers', version: getStickerCacheVersion(), player_token: getUserToken() });
     }
 
-    function showStickerLightbox(url) {
-        $stickerLightboxImg.src = url;
+    function showStickerLightbox(stickerId, stickerUrl, stickerName) {
+        $stickerLightboxImg.src = stickerUrl;
         $stickerLightbox.style.display = 'flex';
+        // 添加到我的表情按钮
+        if (stickerId) {
+            $stickerLightboxAdd.style.display = 'inline-block';
+            $stickerLightboxAdd.onclick = null;
+            $stickerLightboxAdd.onclick = function () {
+                addStickerToMine(stickerId).then(function () {
+                    $stickerLightboxAdd.style.display = 'none';
+                });
+            };
+        } else {
+            $stickerLightboxAdd.style.display = 'none';
+        }
     }
 
     $btnSticker.addEventListener('click', function () {
@@ -6931,12 +6942,22 @@
         document.addEventListener(evt, tryUnlockAudio, { once: true });
     });
 
-    // 从播放队列中查找下一首（循环队列：当前歌在队尾时回到队首）
+    // 从播放队列中查找下一首（个人模式按选择的播放方式取；同步模式固定列表循环）
     function getNextSong() {
         if (!songPlaying || !songList || songList.length === 0) return null;
         let curIdx = -1;
         for (let k = 0; k < songList.length; k++) {
             if (String(songList[k].id) === String(songPlaying.id)) { curIdx = k; break; }
+        }
+        // 个人模式：按用户选择的播放方式取下一首；同步模式固定列表循环（由服务端统一管理队列）
+        if (!songSyncMode && songPlayMode === 'shuffle') {
+            let others = songList.filter(s => String(s.id) !== String(songPlaying.id));
+            if (!others.length) return songList[0] || null;
+            return others[Math.floor(Math.random() * others.length)] || null;
+        }
+        // 顺序播放：播放到队尾即停止，不循环回到队首
+        if (!songSyncMode && songPlayMode === 'order' && curIdx !== -1 && curIdx + 1 >= songList.length) {
+            return null;
         }
         if (curIdx === -1) return songList[0] || null;
         let nextIdx = (curIdx + 1) % songList.length;
@@ -7518,7 +7539,28 @@
             // 切到个人模式：停止跟随服务器播放
             stopSongPlayback();
         }
+        renderSongPlayMode();
         renderSongPanel();
+    }
+
+    // 个人模式播放方式：renderSongPlayMode 控制面板显隐与当前选中态（仅个人模式显示）
+    function renderSongPlayMode() {
+        if (!$songPlayMode) return;
+        // 仅个人听歌模式（关闭同步）显示播放模式选择列表
+        $songPlayMode.style.display = songSyncMode ? 'none' : 'block';
+        if (!$songPlayModeOptions) return;
+        let pmBtns = $songPlayModeOptions.querySelectorAll('.song-play-mode-btn');
+        for (let b = 0; b < pmBtns.length; b++) {
+            pmBtns[b].classList.toggle('active', pmBtns[b].getAttribute('data-mode') === songPlayMode);
+        }
+    }
+
+    function toggleSongPlayMode(mode) {
+        songPlayMode = mode;
+        let ud = getUserdata();
+        ud.song_play_mode = mode;
+        saveUserdata(ud);
+        renderSongPlayMode();
     }
 
     // ==================== 点歌事件绑定 ====================
@@ -7533,6 +7575,16 @@
         $songSyncToggle.checked = songSyncMode;
         if ($songSyncLabel) $songSyncLabel.textContent = songSyncMode ? '同步模式' : '个人模式';
         $songSyncToggle.addEventListener('change', toggleSongSyncMode);
+    }
+    if ($songPlayModeOptions) {
+        let pmBtnEls = $songPlayModeOptions.querySelectorAll('.song-play-mode-btn');
+        for (let b = 0; b < pmBtnEls.length; b++) {
+            pmBtnEls[b].addEventListener('click', function () {
+                let mode = this.getAttribute('data-mode');
+                if (mode) toggleSongPlayMode(mode);
+            });
+        }
+        renderSongPlayMode();
     }
     if ($btnMdHelp) {
         // MD 教程：直接跳转网站（新窗口），无需 JS 处理（index.html 已配 target=_blank）

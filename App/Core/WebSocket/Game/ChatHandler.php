@@ -77,9 +77,8 @@ class ChatHandler
             ]);
         }
 
-        // 转发给旁观者（带角色标注，归一化 side 使人类始终在右边）
+        // 转发给旁观者（使用真实昵称，归一化 side 使人类始终在右边）
         $isP1 = $session['player1_fd'] === $fd;
-        $roleLabel = $isP1 ? '玩家1' : '玩家2';
         $spSide = $isP1 ? 'left' : 'right';
         if (GameWebSocketHandler::shouldFlipSpectateSide($session)) {
             $spSide = ($spSide === 'right') ? 'left' : 'right';
@@ -87,7 +86,7 @@ class ChatHandler
         $this->game->sendToSpectators($server, $sessionId, [
             'type' => 'spectate_message',
             'text' => $text,
-            'sender' => $roleLabel,
+            'sender' => $senderName,
             'side' => $spSide,
         ]);
 
@@ -161,9 +160,7 @@ class ChatHandler
             ]);
         }
 
-        // 转发给旁观者（归一化 side）
-        $isP1 = $session['player1_fd'] === $fd;
-        $roleLabel = $isP1 ? '玩家1' : '玩家2';
+        // 转发给旁观者（使用真实昵称，归一化 side）
         $spSide = $side;
         if (GameWebSocketHandler::shouldFlipSpectateSide($session)) {
             $spSide = ($spSide === 'right') ? 'left' : 'right';
@@ -172,7 +169,7 @@ class ChatHandler
             'type' => 'spectate_sticker',
             'id' => $sticker['id'],
             'name' => $sticker['name'] ?? '',
-            'sender' => $roleLabel,
+            'sender' => $senderName,
             'side' => $spSide,
         ]);
 

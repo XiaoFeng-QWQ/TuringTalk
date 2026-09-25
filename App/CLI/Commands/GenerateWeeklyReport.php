@@ -41,7 +41,7 @@ class GenerateWeeklyReport extends Command
 
             // ── 查询所有玩家 ──
             $stmt = $mysql->query(
-                'SELECT id, nickname, discriminator, turing_test, WhoisAI, gomoku,
+                'SELECT id, nickname, discriminator, turing_test, gomoku,
                         created_at, last_played_at
                  FROM player_data
                  ORDER BY last_played_at DESC'
@@ -198,13 +198,13 @@ class GenerateWeeklyReport extends Command
                 total_players, active_players,
                 total_games, total_wins,
                 avg_games_per_player, avg_win_rate,
-                turing_games, whoisai_games, gomoku_games
+                turing_games, gomoku_games
             ) VALUES (
                 :w, :ga, :ps, :pe,
                 :tp, :ap,
                 :tg, :tw,
                 :agpp, :awr,
-                :tug, :wag, :gog
+                :tug, :gog
             ) ON CONFLICT(week) DO UPDATE SET
                 generated_at=excluded.generated_at,
                 period_start=excluded.period_start,
@@ -216,7 +216,6 @@ class GenerateWeeklyReport extends Command
                 avg_games_per_player=excluded.avg_games_per_player,
                 avg_win_rate=excluded.avg_win_rate,
                 turing_games=excluded.turing_games,
-                whoisai_games=excluded.whoisai_games,
                 gomoku_games=excluded.gomoku_games
         ');
 
@@ -232,7 +231,6 @@ class GenerateWeeklyReport extends Command
             ':agpp' => $overview['avg_games_per_player'],
             ':awr'  => $overview['avg_win_rate'],
             ':tug'  => $overview['turing_games'],
-            ':wag'  => $overview['whoisai_games'],
             ':gog'  => $overview['gomoku_games'],
         ]);
     }
@@ -249,7 +247,6 @@ class GenerateWeeklyReport extends Command
                 turing_games, turing_wins, turing_losses, turing_timeouts,
                 turing_win_rate, turing_guess_accuracy, turing_avg_msgs,
                 turing_best_streak, turing_current_streak,
-                whoisai_games, whoisai_wins, whoisai_losses, whoisai_win_rate,
                 gomoku_games, gomoku_wins, gomoku_losses, gomoku_draws, gomoku_win_rate,
                 peak_hours, created_at, last_played_at
             ) VALUES (
@@ -258,7 +255,6 @@ class GenerateWeeklyReport extends Command
                 :tug, :tuw, :tul, :tut,
                 :tuwr, :tuga, :tuam,
                 :tubs, :tucs,
-                :wag, :waw, :wal, :wawr,
                 :gog, :gow, :gol, :god, :gowr,
                 :ph, :ca, :lpa
             )
@@ -284,10 +280,6 @@ class GenerateWeeklyReport extends Command
                 ':tuam' => $p['turing']['avg_msgs'],
                 ':tubs' => $p['turing']['best_win_streak'],
                 ':tucs' => $p['turing']['current_streak'],
-                ':wag'  => $p['whoisai']['games'],
-                ':waw'  => $p['whoisai']['wins'],
-                ':wal'  => $p['whoisai']['losses'],
-                ':wawr' => $p['whoisai']['win_rate'],
                 ':gog'  => $p['gomoku']['games'],
                 ':gow'  => $p['gomoku']['wins'],
                 ':gol'  => $p['gomoku']['losses'],
@@ -309,12 +301,11 @@ class GenerateWeeklyReport extends Command
     private function aggregatePlayerStats(array $row): array
     {
         $turing  = $this->unserializeStats($row['turing_test'], 'turing_test');
-        $whoisai = $this->unserializeStats($row['WhoisAI'], 'WhoisAI');
         $gomoku  = $this->unserializeStats($row['gomoku'], 'gomoku');
 
-        $totalGames = $turing['total_games'] + $whoisai['total_games'] + $gomoku['total_games'];
-        $totalWins  = $turing['wins'] + $whoisai['wins'] + $gomoku['wins'];
-        $totalLosses = $turing['losses'] + $whoisai['losses'] + $gomoku['losses'];
+        $totalGames = $turing['total_games'] + $gomoku['total_games'];
+        $totalWins  = $turing['wins'] + $gomoku['wins'];
+        $totalLosses = $turing['losses'] + $gomoku['losses'];
 
         return [
             'id'             => $row['id'],
@@ -338,12 +329,6 @@ class GenerateWeeklyReport extends Command
                 'best_win_streak' => (int)($turing['best_win_streak'] ?? 0),
                 'current_streak'  => (int)($turing['current_streak'] ?? 0),
             ],
-            'whoisai' => [
-                'games'    => $whoisai['total_games'],
-                'wins'     => $whoisai['wins'],
-                'losses'   => $whoisai['losses'],
-                'win_rate' => $whoisai['total_games'] > 0 ? round(($whoisai['wins'] / $whoisai['total_games']) * 100, 1) : 0,
-            ],
             'gomoku' => [
                 'games'    => $gomoku['total_games'],
                 'wins'     => $gomoku['wins'],
@@ -353,7 +338,6 @@ class GenerateWeeklyReport extends Command
             ],
             'peak_hours' => $this->getPeakHours(
                 ($turing['active_hours'] ?? []),
-                ($whoisai['active_hours'] ?? []),
                 ($gomoku['active_hours'] ?? [])
             ),
         ];
@@ -389,10 +373,10 @@ class GenerateWeeklyReport extends Command
         }
     }
 
-    private function getPeakHours(array $turing, array $whoisai, array $gomoku): array
+    private function getPeakHours(array $turing, array $gomoku): array
     {
         $merged = [];
-        foreach ([$turing, $whoisai, $gomoku] as $hours) {
+        foreach ([$turing, $gomoku] as $hours) {
             foreach ($hours as $h => $c) {
                 $merged[$h] = ($merged[$h] ?? 0) + $c;
             }
@@ -413,13 +397,12 @@ class GenerateWeeklyReport extends Command
             return [
                 'total_players' => 0, 'total_games' => 0, 'total_wins' => 0,
                 'avg_games_per_player' => 0, 'avg_win_rate' => 0,
-                'turing_games' => 0, 'whoisai_games' => 0, 'gomoku_games' => 0,
+                'turing_games' => 0, 'gomoku_games' => 0,
             ];
         }
 
         $sum = fn(string $key) => array_sum(array_column($players, $key));
         $sumTuring  = fn(string $key) => array_sum(array_column(array_column($players, 'turing'), $key));
-        $sumWhoisai = fn(string $key) => array_sum(array_column(array_column($players, 'whoisai'), $key));
         $sumGomoku  = fn(string $key) => array_sum(array_column(array_column($players, 'gomoku'), $key));
 
         return [
@@ -429,7 +412,6 @@ class GenerateWeeklyReport extends Command
             'avg_games_per_player' => round($sum('total_games') / $totalPlayers, 1),
             'avg_win_rate'         => round(array_sum(array_column($players, 'win_rate')) / $totalPlayers, 1),
             'turing_games'         => $sumTuring('games'),
-            'whoisai_games'        => $sumWhoisai('games'),
             'gomoku_games'         => $sumGomoku('games'),
         ];
     }

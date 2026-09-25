@@ -10,7 +10,7 @@
 
     const STORAGE_KEY = 'turing_mdv3_config_v1';
     const DEFAULT_BASE_URL = 'https://你的域名';
-    const MDV3_SUB_KEYS = ['posts', 'reports', 'restrictions', 'settings'];
+    const MDV3_SUB_KEYS = ['mdv3_posts', 'mdv3_reports', 'mdv3_restrictions', 'mdv3_settings'];
     /** 帖子前台页面 URL 前缀：跳转原帖用 */
     const POST_PAGE_URL_BASE = 'http://share.xfcode.top/post.html?id=';
 
@@ -845,9 +845,9 @@
     function bindTabSwitchHook() {
         window.addEventListener('mdv3:tab-switched', (ev) => {
             const tab = (ev && ev.detail && ev.detail.tab) || '';
-            if (tab === 'posts') loadPostsList();
-            if (tab === 'reports') loadReportsList();
-            if (tab === 'restrictions') loadRestrictionsList();
+            if (tab === 'mdv3_posts') loadPostsList();
+            if (tab === 'mdv3_reports') loadReportsList();
+            if (tab === 'mdv3_restrictions') loadRestrictionsList();
         });
     }
 

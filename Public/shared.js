@@ -710,3 +710,37 @@ function oauthHandleReturn(params) {
         }
     }
 }
+
+/**
+ * 添加到我的表情（调 API）
+ * 返回 Promise
+ */
+function addStickerToMine(stickerId) {
+    const token = getUserToken();
+    if (!token) {
+        showTopToast('请先创建身份', true);
+        return Promise.reject('no_token');
+    }
+    return fetch('/api/sticker/add-to-mine', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+        },
+        body: JSON.stringify({ sticker_id: stickerId })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+        if (data.error) {
+            showTopToast(data.error, true);
+            return Promise.reject(data.error);
+        }
+        showTopToast('已添加到我的表情', false);
+        return data;
+    })
+    .catch(function (err) {
+        if (typeof err === 'string') throw err;
+        showTopToast('添加失败，请重试', true);
+        return Promise.reject(err);
+    });
+}

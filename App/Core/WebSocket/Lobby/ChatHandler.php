@@ -61,6 +61,11 @@ class ChatHandler
                 $server->close($fd);
                 return;
             }
+            if (\App\Services\Game\NicknameBanService::isBanned($nickname)) {
+                $this->game->sendToPlayer($server, $fd, ['type' => 'lobby_error', 'text' => 'Token 无效或已过期，请重新登录']);
+                $server->close($fd);
+                return;
+            }
             $playerId = $botPlayerId;
             GameService::setPlayerId($fd, $playerId);
             $this->game->claimOnlineLock($server, $fd, $playerId); // BOT 网关 fd 内部豁免在线锁

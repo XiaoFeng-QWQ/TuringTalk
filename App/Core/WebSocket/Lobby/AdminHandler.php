@@ -39,7 +39,7 @@ class AdminHandler
         $targetPlayerId = $targetInfo['player_id'] ?? '';
         if ($targetPlayerId === '') return;
 
-        $targetNickname = $targetInfo['nickname'] ?? '未知';
+        $targetNickname = $targetInfo['nickname'];
         $this->game->lobbyService()->mute($targetPlayerId, $minutes);
 
         if ($server->isEstablished($targetFd)) {
@@ -72,7 +72,7 @@ class AdminHandler
         $targetPlayerId = $targetInfo['player_id'] ?? '';
         if ($targetPlayerId === '') return;
 
-        $targetNickname = $targetInfo['nickname'] ?? '未知';
+        $targetNickname = $targetInfo['nickname'];
         $this->game->lobbyService()->unmute($targetPlayerId);
 
         if ($server->isEstablished($targetFd)) {
@@ -106,7 +106,7 @@ class AdminHandler
         $targetPlayerId = $targetInfo['player_id'] ?? '';
         if ($targetPlayerId === '') return;
 
-        $targetNickname = $targetInfo['nickname'] ?? '未知';
+        $targetNickname = $targetInfo['nickname'];
         $this->game->lobbyService()->isolate($targetPlayerId, $minutes);
 
         // 静默孤立：不向任何普通玩家广播提示（仅管理员在线列表可见状态变化）
@@ -133,7 +133,7 @@ class AdminHandler
         $targetPlayerId = $targetInfo['player_id'] ?? '';
         if ($targetPlayerId === '') return;
 
-        $targetNickname = $targetInfo['nickname'] ?? '未知';
+        $targetNickname = $targetInfo['nickname'];
         $this->game->lobbyService()->unisolate($targetPlayerId);
 
         // 静默解除：不广播给其他玩家

@@ -400,7 +400,7 @@ class GomokuWebSocketHandler extends BaseGameHandler
         $nickname = $row['nickname'] ?? '';
         if ($nickname === '') {
             $player = PlayerStatsRepository::findById($playerId);
-            $nickname = $player['nickname'] ?? '玩家';
+            $nickname = $player['nickname'];
         }
 
         $this->lobbyHandler->publishGomokuInvite($server, [

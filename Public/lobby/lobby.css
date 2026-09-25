@@ -1510,6 +1510,47 @@
     background: var(--ink-blue);
 }
 
+/* 播放模式选择（个人听歌模式显示） */
+.song-play-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    background: var(--note-yellow);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 6px;
+}
+
+.song-play-mode-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--text-secondary);
+}
+
+.song-play-mode-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.song-play-mode-btn {
+    font-size: 11px;
+    line-height: 1;
+    padding: 5px 10px;
+    background: var(--surface-white);
+    border: 1.5px solid var(--ink-black);
+    border-radius: 12px 4px 12px 4px / 4px 12px 4px 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.song-play-mode-btn.active {
+    background: var(--ink-blue);
+    color: var(--surface-white);
+    font-weight: bold;
+}
+
 /* 系统消息显示设置面板 */
 .lobby-sysmsg-panel {
     position: fixed;

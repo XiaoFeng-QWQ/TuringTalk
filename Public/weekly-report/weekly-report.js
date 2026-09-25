@@ -20,7 +20,6 @@
         { key: 'turing_games',        label: '图灵对局',  minGames: 0 },
         { key: 'turing_guess_accuracy', label: '猜对率',  minGames: 5 },
         { key: 'turing_best_streak',  label: '连胜',     minGames: 0 },
-        { key: 'whoisai_games',       label: '谁是AI',   minGames: 0 },
         { key: 'gomoku_games',        label: '五子棋',   minGames: 0 },
     ];
 
@@ -124,7 +123,6 @@
             { value: overview.avg_games_per_player || '0', label: '人均局数' },
             { value: overview.avg_win_rate + '%' || '0%', label: '平均胜率' },
             { value: overview.turing_games || 0, label: '图灵测试' },
-            { value: overview.whoisai_games || 0, label: '谁是AI' },
             { value: overview.gomoku_games || 0, label: '五子棋' },
         ];
         $overview.innerHTML = cards.map(c =>

@@ -608,8 +608,21 @@ function updateTurnDisplay() {
 }
 
 // ================= 棋盘点击 =================
+// 用 pointer 事件替代 click：消除移动端 300ms 延迟，位移超过阈值视为滑动（滚动页面）不落子
 if (canvas) {
-    canvas.addEventListener('click', (e) => {
+    let tapX = 0, tapY = 0, tapMoved = false;
+    canvas.addEventListener('pointerdown', (e) => {
+        tapX = e.clientX;
+        tapY = e.clientY;
+        tapMoved = false;
+    });
+    canvas.addEventListener('pointermove', (e) => {
+        if (Math.abs(e.clientX - tapX) > 10 || Math.abs(e.clientY - tapY) > 10) {
+            tapMoved = true;
+        }
+    });
+    canvas.addEventListener('pointerup', (e) => {
+        if (tapMoved) return;
         if (gameOver || isAnimating || isSpectator) return;
         if (isOnline && currentPlayer !== myColor) return;
 

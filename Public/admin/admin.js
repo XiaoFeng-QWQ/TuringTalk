@@ -1218,7 +1218,7 @@ function switchAdminTab(tab) {
         );
     }
 
-    const allMdKeys = ['posts', 'reports', 'restrictions', 'settings'];
+    const allMdKeys = ['mdv3_posts', 'mdv3_reports', 'mdv3_restrictions', 'mdv3_settings'];
     const isMdTab = allMdKeys.includes(tab);
 
     allTabs.forEach(t => {

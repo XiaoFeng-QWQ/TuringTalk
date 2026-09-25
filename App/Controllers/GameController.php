@@ -8,7 +8,7 @@ use App\Core\Sanitizer;
 use App\Services\Repository\PlayerStatsRepository;
 use App\Services\Repository\ChatHistoryRepository;
 use App\Services\Repository\MacroRepository;
-use App\Services\Repository\OAuthBindingRepository;
+use App\Services\Repository\StickerRepository;
 use App\Admin\Repository\AdminRepository;
 use App\Config\Config;
 use App\Services\Infrastructure\AvatarService;
@@ -32,8 +32,6 @@ class GameController
         '/admin/admin_mdv3.js'    => ['admin/admin_mdv3.js',           'application/javascript'],
         '/admin/admin.css'        => ['admin/admin.css',              'text/css'],
         '/admin/favicon.svg'      => ['admin/favicon.svg',      'image/svg+xml'],
-        '/whoisai/whoisai.css'    => ['whoisai/whoisai.css',            'text/css'],
-        '/whoisai/whoisai.js'     => ['whoisai/whoisai.js',             'application/javascript'],
         '/lobby/lobby.css'        => ['lobby/lobby.css',              'text/css'],
         '/lobby/lobby.js'         => ['lobby/lobby.js',               'application/javascript'],
         '/gomoku/gomoku.css'      => ['gomoku/gomoku.css',            'text/css'],
@@ -65,21 +63,6 @@ class GameController
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'weekly-report/index.html');
         $files = ['/style.css', '/weekly-report/weekly-report.css', '/shared.js', '/weekly-report/weekly-report.js'];
-        foreach ($files as $file) {
-            $html = str_replace(
-                $file . '?v=',
-                $file . '?v=' . $this->getFileVersionHash($file),
-                $html
-            );
-        }
-        $response->setContent($html);
-        $response->send();
-    }
-
-    public function WhoisAIIndex(Request $request, Response $response): void
-    {
-        $html = file_get_contents(self::PUBLIC_DIR . 'whoisai/index.html');
-        $files = ['/style.css', '/whoisai/whoisai.css', '/shared.js', '/whoisai/whoisai.js'];
         foreach ($files as $file) {
             $html = str_replace(
                 $file . '?v=',
@@ -593,7 +576,7 @@ class GameController
         }
         // 昵称回源（token 对应账号）
         $row = PlayerStatsRepository::findById($playerId);
-        $fromName = $fromName !== '' ? $fromName : ($row['nickname'] ?? '游客');
+        $fromName = $fromName !== '' ? $fromName : $row['nickname'];
 
         $res = $tempHandler->createInviteFromHttp($server, $playerId, $fromName, $targetPid);
         if (!$res['ok']) {
@@ -1155,7 +1138,7 @@ class GameController
         $allowedSorts = [
             'total_games', 'total_wins', 'win_rate',
             'turing_games', 'turing_guess_accuracy', 'turing_best_streak',
-            'whoisai_games', 'gomoku_games',
+            'gomoku_games',
         ];
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'total_games';
@@ -1319,6 +1302,61 @@ class GameController
         }
 
         StickerService::deleteForUser($playerId, $stickerId);
+        $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/sticker/add-to-mine
+     * Body: { sticker_id }
+     * 根据表情ID将默认/已审核表情添加到用户自己的列表，无需审核
+     */
+    public function addStickerToMine(Request $request, Response $response): void
+    {
+        $body = $request->getJsonBody();
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+        $stickerId = Sanitizer::identifier($body['sticker_id'] ?? '');
+
+        if (empty($stickerId)) {
+            $response->setContent(json_encode(['error' => '缺少表情ID'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 查表情是否存在（默认表或任何用户已审核的表情）
+        $sticker = StickerRepository::getById($stickerId, $playerId);
+        if (!$sticker) {
+            $response->setContent(json_encode(['error' => '表情不存在'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 查用户是否已添加
+        $userStickers = StickerRepository::getUserStickers($playerId);
+        foreach ($userStickers as $us) {
+            if ($us['id'] === $stickerId) {
+                $response->setContent(json_encode(['error' => '该表情已在你的列表中'], JSON_UNESCAPED_UNICODE));
+                $response->send();
+                return;
+            }
+        }
+
+        // 上限检查
+        if (count($userStickers) >= 100) {
+            $response->setContent(json_encode(['error' => '自定义表情已达上限（100个），请先删除旧表情'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 直接添加，无需审核
+        StickerRepository::addUserSticker($playerId, $stickerId, $sticker['name'] ?? '', $sticker['url']);
+        // 覆盖状态为 approved
+        $pdo = \App\Services\Infrastructure\Database::connect();
+        $stmt = $pdo->prepare("UPDATE user_stickers SET status = 'approved' WHERE user_id = ? AND id = ?");
+        $stmt->execute([$playerId, $stickerId]);
+
         $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
         $response->send();
     }

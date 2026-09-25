@@ -56,6 +56,7 @@
     const $lightbox = document.getElementById('lobby-sticker-lightbox');
     const $lightboxImg = document.getElementById('lobby-sticker-lightbox-img');
     const $lightboxClose = document.getElementById('lobby-sticker-lightbox-close');
+    const $lightboxAdd = document.getElementById('lobby-sticker-lightbox-add');
     const $searchInput = document.getElementById('temp-search-input');
     const $searchBtn = document.getElementById('temp-search-btn');
     const $searchResults = document.getElementById('temp-search-results');
@@ -63,8 +64,11 @@
     const $inviteText = document.getElementById('temp-invite-text');
     const $inviteYes = document.getElementById('temp-invite-yes');
     const $inviteNo = document.getElementById('temp-invite-no');
+    const $joinLoading = document.getElementById('temp-join-loading');
+    const $joinLoadingText = document.getElementById('temp-join-loading-text');
 
     // ==================== 状态 ====================
+    let joinLoadingTimer = null; // 加入加载遮罩的兜底超时定时器
     const state = {
         ws: null,
         phase: 'invite',        // invite | room
@@ -100,6 +104,7 @@
             let loginToken = '';
             try { loginToken = getUserToken() || ''; } catch (e) { }
             if (!loginToken) {
+                hideJoinLoading();
                 showToast('临时聊天需要登录账号');
                 state.intentionalClose = true;
                 try { ws.close(); } catch (e) { }
@@ -128,6 +133,7 @@
             if (state.pendingInviteId) {
                 setTimeout(function () {
                     ws.send(JSON.stringify({ type: 'temp_invite_resp', invite_id: state.pendingInviteId, accept: true }));
+                    showJoinLoading();
                 }, 300);
             }
             if (state.declineInviteId) {
@@ -142,6 +148,7 @@
                     let m = { type: 'temp_rejoin', room_id: state.rejoinRoomId, nickname: state.rejoinNickname };
                     try { if (getUserToken()) m.player_token = getUserToken(); } catch (e) { }
                     ws.send(JSON.stringify(m));
+                    showJoinLoading('正在重新加入房间…');
                 }, 400);
             }
         };
@@ -154,6 +161,11 @@
 
         ws.onclose = function () {
             if (state.intentionalClose) return;
+            // 正在加入房间时连接断开：收掉遮罩避免卡住
+            if ($joinLoading && $joinLoading.style.display !== 'none') {
+                hideJoinLoading();
+                showToast('连接已断开，请重试');
+            }
             if (state.phase === 'room' && !state.reconnectTimer) {
                 state.reconnectTimer = setTimeout(function () {
                     state.reconnectTimer = null;
@@ -173,6 +185,7 @@
                 state.phase = 'lobby';
                 break;
             case 'temp_error':
+                hideJoinLoading();
                 showToast(data.text || '操作失败');
                 if (String(data.text || '').indexOf('登录') >= 0) {
                     state.intentionalClose = true;
@@ -187,6 +200,7 @@
                 else showToast('邀请已发送，等待对方回应…');
                 break;
             case 'temp_invite_result':
+                hideJoinLoading();
                 showToast(data.ok ? '对方接受了邀请' : (data.error || '邀请失败'));
                 break;
             case 'temp_invite':
@@ -194,10 +208,12 @@
                 break;
             case 'temp_invite_expired':
                 hideInviteToast();
+                hideJoinLoading();
                 if (state.phase !== 'room') showToast(data.text || '邀请已过期');
                 break;
             case 'temp_invite_dismissed':
                 hideInviteToast();
+                hideJoinLoading();
                 break;
             case 'temp_room_created':
                 enterRoom(data);
@@ -302,12 +318,32 @@
         clearTimeout($inviteToast._t);
     }
 
+    // ==================== 加入房间加载遮罩 ====================
+    function showJoinLoading(text) {
+        if ($joinLoadingText && text) $joinLoadingText.textContent = text;
+        if ($joinLoading) $joinLoading.style.display = 'flex';
+        // 兜底：15s 内未进入房间（连接失败/服务端静默等）自动收起并提示
+        clearTimeout(joinLoadingTimer);
+        joinLoadingTimer = setTimeout(function () {
+            hideJoinLoading();
+            if (state.phase !== 'room') showToast('加入超时，请重试');
+        }, 15000);
+    }
+
+    function hideJoinLoading() {
+        clearTimeout(joinLoadingTimer);
+        if ($joinLoading) $joinLoading.style.display = 'none';
+    }
+
     function respondInvite(accept) {
         let inviteId = $inviteToast.dataset.inviteId || '';
         if (!inviteId || !state.ws) return;
         state.ws.send(JSON.stringify({ type: 'temp_invite_resp', invite_id: inviteId, accept: accept }));
         hideInviteToast();
-        if (accept) showToast('正在进入房间…');
+        if (accept) {
+            showToast('正在进入房间…');
+            showJoinLoading();
+        }
     }
 
     // ==================== 房间 ====================
@@ -320,6 +356,7 @@
         $lobbyMain.style.removeProperty('display');
         $hasIdentity.style.display = 'flex';
         $loading.style.display = 'none';
+        hideJoinLoading();
         $peerBar.style.display = 'flex';
         $reportBtn.style.display = 'inline-flex';
         $btnBack.style.display = 'none'; // 房间内隐藏返回按钮（由退出按钮代替）
@@ -353,6 +390,7 @@
     function leaveRoom(reason, closed) {
         state.phase = 'invite';
         state.roomId = '';
+        hideJoinLoading();
         $hasIdentity.style.display = 'none';
         $peerBar.style.display = 'none';
         $reportBtn.style.display = 'none';
@@ -439,7 +477,7 @@
                 img.className = 'sticker-img';
                 img.src = url;
                 img.alt = '表情';
-                img.addEventListener('click', function () { showStickerLightbox(url); });
+                img.addEventListener('click', function () { showStickerLightbox(data.sticker_id, url, data.sticker_name || ''); });
                 bubble.appendChild(img);
             } else {
                 bubble.innerHTML = '<span class="temp-sticker-placeholder">[表情]</span>';
@@ -723,9 +761,20 @@
         state.ws.send(JSON.stringify({ type: 'temp_chat', content: '', sticker_id: id, sticker_url: '' }));
     }
 
-    function showStickerLightbox(url) {
-        $lightboxImg.src = url;
+    function showStickerLightbox(stickerId, stickerUrl, stickerName) {
+        $lightboxImg.src = stickerUrl;
         $lightbox.style.display = 'flex';
+        if (stickerId) {
+            $lightboxAdd.style.display = 'inline-block';
+            $lightboxAdd.onclick = null;
+            $lightboxAdd.onclick = function () {
+                addStickerToMine(stickerId).then(function () {
+                    $lightboxAdd.style.display = 'none';
+                });
+            };
+        } else {
+            $lightboxAdd.style.display = 'none';
+        }
     }
 
     // ==================== 发送 / 举报 / 退出 ====================
@@ -873,6 +922,9 @@
         $matchPanel.style.display = '';
         $hasIdentity.style.display = 'none';
         bindEvents();
+        // 带邀请/房间参数直接进入：加载页就提示加入中，避免等待 WS 连接时无反馈
+        if (state.pendingInviteId) showJoinLoading();
+        else if (state.rejoinRoomId) showJoinLoading('正在重新加入房间…');
         connect();
     }
 

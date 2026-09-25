@@ -194,6 +194,14 @@ class TempChatWebSocketHandler extends BaseGameHandler
             $server->close($fd);
             return;
         }
+
+        // 昵称黑名单检查
+        if (\App\Services\Game\NicknameBanService::isBanned($nickname)) {
+            $this->sendToPlayer($server, $fd, ['type' => 'temp_error', 'text' => 'Token 无效或已过期，请重新登录']);
+            $server->close($fd);
+            return;
+        }
+
         if (mb_strlen($nickname) > 12) {
             $nickname = mb_substr($nickname, 0, 12);
         }
@@ -253,7 +261,7 @@ class TempChatWebSocketHandler extends BaseGameHandler
     private function handleInvite(Server $server, int $fd, array $data): void
     {
         $targetPid = Sanitizer::identifier($data['target_player_id'] ?? '');
-        $fromName = $this->fdNick[$fd] ?? '游客';
+        $fromName = $this->fdNick[$fd];
         $fromPid = $this->fdPid[$fd] ?? '';
 
         if ($targetPid === '') {
@@ -297,7 +305,7 @@ class TempChatWebSocketHandler extends BaseGameHandler
             return ['ok' => false, 'error' => '对方不在线'];
         }
         // 被邀请方昵称实时查 player_data（索引不存昵称，避免改名不同步）
-        $toName = PlayerStatsRepository::findNicknamesByIds([$targetPid])[$targetPid] ?? '游客';
+        $toName = PlayerStatsRepository::findNicknamesByIds([$targetPid])[$targetPid];
 
         // 创建邀请（60s 限时）
         $inviteId = 'iv' . bin2hex(random_bytes(6));
@@ -640,7 +648,7 @@ class TempChatWebSocketHandler extends BaseGameHandler
             }
         }
 
-        $sender = $this->fdNick[$fd] ?? '游客';
+        $sender = $this->fdNick[$fd];
         $playerId = $this->fdPid[$fd] ?? '';
         $msg = [
             'sender_name' => $sender,
@@ -780,7 +788,7 @@ class TempChatWebSocketHandler extends BaseGameHandler
 
         // 确定举报人与被举报人
         $reporterPid = $this->fdPid[$fd] ?? '';
-        $reporterName = $this->fdNick[$fd] ?? '游客';
+        $reporterName = $this->fdNick[$fd];
         $targetPid = '';
         $targetName = '';
         foreach (['a', 'b'] as $s) {

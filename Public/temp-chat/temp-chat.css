@@ -241,6 +241,38 @@
     border: 2px solid var(--ink-black);
 }
 
+/* ---- 加入房间加载遮罩 ---- */
+.temp-join-loading {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    background: var(--overlay-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.temp-join-loading-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 28px 44px;
+    background: var(--surface-white);
+    border: 2px solid var(--ink-black);
+    border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    box-shadow: 6px 8px 0 var(--shadow-md);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink-black);
+}
+
+.temp-join-loading-card .bili-spinner {
+    width: 36px;
+    height: 36px;
+    color: var(--ink-blue);
+}
+
 /* ---- 举报弹窗 ---- */
 .temp-report-overlay {
     position: fixed;

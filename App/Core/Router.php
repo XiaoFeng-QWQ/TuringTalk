@@ -25,7 +25,6 @@ class Router
         $this->routes = [
             'GET' => [
                 '/' => [GameController::class, 'index'],
-                '/WhoisAI' => [GameController::class, 'WhoisAIIndex'],
                 '/lobby' => [GameController::class, 'lobbyIndex'],
                 '/temp-chat' => [GameController::class, 'tempChatIndex'],
                 '/gomoku' => [GameController::class, 'gomokuIndex'],
@@ -68,6 +67,7 @@ class Router
                 '/api/collection/like' => [GameController::class, 'likeCollection'],
                 '/api/sticker/upload' => [GameController::class, 'uploadSticker'],
                 '/api/sticker/delete' => [GameController::class, 'deleteSticker'],
+                '/api/sticker/add-to-mine' => [GameController::class, 'addStickerToMine'],
                 '/api/macros' => [GameController::class, 'macrosSave'],
                 '/api/macros/delete' => [GameController::class, 'macrosDelete'],
                 '/api/temp/invite' => [GameController::class, 'tempInvite'],
