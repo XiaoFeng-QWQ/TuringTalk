@@ -376,6 +376,10 @@ class LobbyChatWebSocketHandler extends BaseGameHandler
                     $this->chatHandler->handleSticker($server, $fd, $data);
                     break;
 
+                case 'lobby_image':
+                    $this->chatHandler->handleImage($server, $fd, $data);
+                    break;
+
                 case 'lobby_song_search':
                     $this->songHandler->handleSongSearch($server, $fd, $data);
                     break;

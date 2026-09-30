@@ -114,16 +114,47 @@ class FateRecordRepository
     }
 
     /**
-     * 标记报告已官宣
+     * 判定某 player_id 是否为该报告的参与方之一。
+     *
+     * 官宣等写操作必须走这里鉴权：报告里两个 player 字段是落库时的身份快照，
+     * 只有其中一方本人才能操作这份报告（防止任意账号拿 record_id 越权）。
+     * 空 player_id / 报告中身份为空的脏数据一律视为非参与方。
      */
-    public static function markPublished(int $recordId): void
+    public static function isOwnedBy(array $record, string $playerId): bool
     {
+        if ($playerId === '') return false;
+        $a = (string)($record['player_a'] ?? '');
+        $b = (string)($record['player_b'] ?? '');
+        return ($a !== '' && $a === $playerId) || ($b !== '' && $b === $playerId);
+    }
+
+    /**
+     * 标记报告已官宣：仅限报告参与者本人，且只允许"未官宣 → 官宣"一次。
+     *
+     * 鉴权与幂等由同一条 UPDATE 原子完成，避免"先查后写"的 TOCTOU 竞态：
+     *   - `player_a = ? OR player_b = ?`：调用者必须是参与方，否则一行都不改（修 IDOR）
+     *   - `published = 0`：并发/重复请求里只有第一个能从 0 改成 1，
+     *     因此只有拿到 true 的调用方拥有广播权（修重复广播刷屏）
+     *
+     * @param string $playerId 调用者 player_data.id，空字符串直接拒绝（匿名连接不得改写状态）
+     * @return bool true = 本次真正完成官宣；false = 匿名/非参与方/报告不存在/已官宣过
+     */
+    public static function markPublished(int $recordId, string $playerId): bool
+    {
+        if ($recordId <= 0 || $playerId === '') {
+            return false;
+        }
         try {
             $pdo = Database::connect();
-            $stmt = $pdo->prepare('UPDATE fate_records SET published = 1 WHERE id = ?');
-            $stmt->execute([$recordId]);
+            $stmt = $pdo->prepare(
+                'UPDATE fate_records SET published = 1
+                 WHERE id = ? AND published = 0 AND (player_a = ? OR player_b = ?)'
+            );
+            $stmt->execute([$recordId, $playerId, $playerId]);
+            return $stmt->rowCount() > 0;
         } catch (\Throwable $e) {
             Logger::error('FateRecordRepository: markPublished failed', ['error' => $e->getMessage()]);
+            return false;
         }
     }
 

@@ -266,7 +266,13 @@ class FateWebSocketHandler extends BaseGameHandler
     }
 
     /**
-     * 官宣报告到聊天室：落库标记 + 向聊天室广播缘分卡片。
+     * 官宣报告到聊天室：确认调用者身份 + 报告归属后落库标记，并向聊天室广播缘分卡片。
+     *
+     * 安全要点（对应 fate.publish 越权/刷屏问题）：
+     *   1. 必须能解析出登录身份，匿名连接直接拒绝，不做任何写操作；
+     *   2. record_id 必须属于调用者本人（participant），否则不落库、不广播（修 IDOR）；
+     *   3. 官宣幂等：已官宣过的报告只回执不广播，重复发送不会重复刷屏。
+     * 广播权唯一由 markPublished 的原子更新（published = 0 → 1）裁决。
      */
     private function handlePublish(Server $server, int $fd, array $msg): void
     {
@@ -276,22 +282,52 @@ class FateWebSocketHandler extends BaseGameHandler
             return;
         }
 
-        FateRecordRepository::markPublished($recordId);
+        // 身份校验：匿名 / 未登录连接无权官宣，也无权改写报告状态
+        $playerId = $this->resolvePlayerId($fd);
+        if ($playerId === '') {
+            Logger::warning('Fate publish denied: anonymous connection', ['fd' => $fd, 'record_id' => $recordId]);
+            $this->sendError($server, $fd, '请先登录后再官宣');
+            return;
+        }
 
-        // 官宣广播缘分卡片到聊天室
         $record = FateRecordRepository::findById($recordId);
-        if ($record !== null) {
-            $gameService = new GameService();
-            $nickname = $this->nicknameOf($fd, $gameService);
-            $playerId = $this->getPlayerIdFromFd($fd) ?? '';
-            if ($this->lobbyHandler && $nickname !== '' && $playerId !== '') {
-                $this->lobbyHandler->publishFateCard($server, $record, $nickname, $playerId);
-            }
+        // 不区分"报告不存在"与"非参与方"，避免被用来枚举报告 ID
+        if ($record === null || !FateRecordRepository::isOwnedBy($record, $playerId)) {
+            Logger::warning('Fate publish denied: not record owner', [
+                'fd'        => $fd,
+                'record_id' => $recordId,
+                'player_id' => $playerId,
+            ]);
+            $this->sendError($server, $fd, '报告不存在或无权官宣');
+            return;
+        }
+
+        // 展示昵称：以报告内的昵称快照为准（此时已确认调用者是参与方其一）
+        $gameService = new GameService();
+        $nickname = $this->resolveAnnouncerNickname($record, $playerId, $fd, $gameService);
+        if ($nickname === '') {
+            $this->sendError($server, $fd, '身份信息异常，无法官宣');
+            return;
+        }
+
+        // 幂等 + 原子鉴权：重复请求或并发请求只有一个能拿到广播权
+        if ((int)($record['published'] ?? 0) === 1
+            || !FateRecordRepository::markPublished($recordId, $playerId)) {
+            $this->sendToPlayer($server, $fd, [
+                'type' => 'fate.published',
+                'data' => ['record_id' => $recordId, 'already_published' => true],
+            ]);
+            return;
+        }
+
+        // 官宣广播缘分卡片到聊天室（仅拿到广播权的这一次请求会执行）
+        if ($this->lobbyHandler !== null) {
+            $this->lobbyHandler->publishFateCard($server, $record, $nickname, $playerId);
         }
 
         $this->sendToPlayer($server, $fd, [
             'type' => 'fate.published',
-            'data' => ['record_id' => $recordId],
+            'data' => ['record_id' => $recordId, 'already_published' => false],
         ]);
     }
 
@@ -300,7 +336,7 @@ class FateWebSocketHandler extends BaseGameHandler
      */
     private function handleHistory(Server $server, int $fd): void
     {
-        $playerId = $this->getPlayerIdFromFd($fd) ?? '';
+        $playerId = $this->resolvePlayerId($fd);
         if ($playerId === '') {
             $this->sendToPlayer($server, $fd, [
                 'type' => 'fate.history_list',
@@ -419,5 +455,35 @@ class FateWebSocketHandler extends BaseGameHandler
         return (int)($session['player1_fd'] ?? 0) === $fd
             ? ($session['player1_nickname'] ?? '对方')
             : ($session['player2_nickname'] ?? '对方');
+    }
+
+    /**
+     * 解析调用者 player_id：优先连接上下文，缺失时用连接上的玩家 Token 兜底。
+     * 两者都取不到即视为匿名连接，返回空字符串。
+     */
+    private function resolvePlayerId(int $fd): string
+    {
+        $playerId = $this->getPlayerIdFromFd($fd) ?? '';
+        if ($playerId !== '') return $playerId;
+
+        $token = GameService::getPlayerCode($fd) ?? '';
+        if ($token === '') return '';
+
+        $payload = \App\Controllers\GameController::verifyPlayerToken($token);
+        return (string)($payload['player_id'] ?? '');
+    }
+
+    /**
+     * 官宣者展示昵称：以报告内的昵称快照为准（调用方已通过参与方校验，
+     * 快照能避免 fd 会话昵称被顶替/丢失），快照为空时回退对局会话昵称。
+     */
+    private function resolveAnnouncerNickname(array $record, string $playerId, int $fd, GameService $gameService): string
+    {
+        $isPlayerA = (string)($record['player_a'] ?? '') === $playerId;
+        $nick = trim((string)($isPlayerA ? ($record['nickname_a'] ?? '') : ($record['nickname_b'] ?? '')));
+        if ($nick !== '') return $nick;
+
+        $fallback = $this->nicknameOf($fd, $gameService);
+        return $fallback === '对方' ? '' : $fallback;
     }
 }

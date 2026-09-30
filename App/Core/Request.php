@@ -55,6 +55,16 @@ class Request
         return [];
     }
 
+    /**
+     * 获取 multipart/form-data 上传的文件信息。
+     * 返回 ['name' => 原始文件名, 'type' => MIME, 'tmp_name' => 临时文件, 'size' => 字节数, 'error' => 错误码]，无该字段时返回 null。
+     */
+    public function file(string $key): ?array
+    {
+        $file = $this->swooleRequest->files[$key] ?? null;
+        return is_array($file) ? $file : null;
+    }
+
     public function getRawContent(): string
     {
         return $this->swooleRequest->rawContent();

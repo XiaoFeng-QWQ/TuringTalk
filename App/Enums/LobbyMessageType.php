@@ -18,6 +18,9 @@ enum LobbyMessageType: string
     /** 表情消息 */
     case STICKER = 'sticker';
 
+    /** 图片消息（content 存图片 URL） */
+    case IMAGE = 'image';
+
     /** 战绩分享卡片 */
     case CARD_SHARE_RECORD = 'card.share.record';
 

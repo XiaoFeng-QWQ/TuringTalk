@@ -429,6 +429,104 @@ class ChatHandler
     }
 
     /**
+     * 发送图片：用 /api/image/upload 发放的一次性 key 换出图床 URL 后持久化并广播
+     */
+    public function handleImage(Server $server, int $fd, array $data): void
+    {
+        $clientInfo = $this->game->getClientInfo($fd) ?? [];
+        $nickname = $clientInfo['nickname'] ?? '';
+        $playerId = $clientInfo['player_id'] ?? '';
+        if ($nickname === '' || $playerId === '') {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '你还未加入聊天室',
+            ]);
+            return;
+        }
+
+        // 封禁复查：防止封禁后已建立的旧连接绕过
+        $banIp = $clientInfo['ip'] ?? '';
+        $banFp = $clientInfo['fingerprint'] ?? '';
+        if (BanRepository::isBanned($banIp, $banFp, (string)$playerId)) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_error',
+                'text' => '您已被管理员封禁',
+            ]);
+            $server->close($fd);
+            return;
+        }
+
+        // 禁言检查
+        if ($this->game->lobbyService()->isMuted($playerId)) {
+            $remaining = $this->game->lobbyService()->getMutedRemaining($playerId);
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '你已被禁言，剩余 ' . ceil($remaining / 60) . ' 分钟',
+            ]);
+            return;
+        }
+
+        // 发言频率检查（与文本消息共用限流）
+        $cooldown = $this->game->lobbyService()->checkRateLimit($playerId);
+        if ($cooldown > 0) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '发送太频繁，请等待 ' . $cooldown . ' 秒',
+            ]);
+            return;
+        }
+
+        // 只认 /api/image/upload 发放的一次性 key：图床 URL 不下发给客户端，因此无法伪造外链
+        $imgKey = Sanitizer::identifier((string)($data['key'] ?? ''), 32);
+        $url = $this->game->lobbyService()->consumeImageKey((string)$playerId, $imgKey);
+        if ($url === null) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type' => 'lobby_system',
+                'text' => '图片已过期，请重新上传',
+            ]);
+            return;
+        }
+
+        // 客户端生成的关联 id：原样回带，供前端把本地占位气泡对账成真实消息（不入库）
+        $clientId = Sanitizer::identifier((string)($data['client_id'] ?? ''), 32);
+
+        $titles        = PlayerStatsRepository::getWornTags($playerId);
+        $specialTitles = PlayerStatsRepository::getWornSpecialTags($playerId);
+
+        // 孤立状态：不持久化、不广播，仅回显给本人（被孤立者感知不到）
+        if ($this->game->lobbyService()->isIsolated($playerId)) {
+            $this->game->sendToPlayer($server, $fd, [
+                'type'        => 'image',
+                'content'     => $url,
+                'sender_name' => $nickname,
+                'sender_id'   => $playerId,
+                'sender_titles' => $titles,
+                'sender_special_titles' => $specialTitles,
+                'time'        => date('H:i:s'),
+                'created_at'  => date('Y-m-d H:i:s'),
+                'client_id'   => $clientId,
+            ]);
+            return;
+        }
+
+        $msg = $this->game->lobbyService()->sendImage(
+            $nickname,
+            $playerId,
+            $url,
+            $clientInfo['ip'] ?? '',
+            $clientInfo['fingerprint'] ?? '',
+            $titles,
+            $specialTitles
+        );
+
+        // 广播不下发 sender_ip/sender_fp（隐私 + 减流量）
+        unset($msg['sender_ip'], $msg['sender_fp']);
+        // 只随广播回带、不写历史：重连拉取的历史消息里不会出现 client_id
+        $msg['client_id'] = $clientId;
+        $this->game->broadcastLobby($server, 0, $msg);
+    }
+
+    /**
      * 拍一拍：双击头像触发，向目标玩家发送提醒并广播系统消息
      */
     public function handleNudge(Server $server, int $fd, array $data): void

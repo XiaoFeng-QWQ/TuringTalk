@@ -412,6 +412,31 @@
     box-shadow: 2px 3px 0 var(--shadow-sm);
 }
 
+/* 同用户连续重复消息 ×N 徽章：样式与 +1 完全一致 */
+.lobby-msg-xn {
+    display: inline-block;
+    background: transparent;
+    color: var(--ink-blue);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 16px 6px 16px 6px;
+    cursor: default;
+    border: 1.5px solid var(--ink-black);
+    box-shadow: 1px 2px 0 var(--shadow-sm);
+    transition: all 0.15s;
+    user-select: none;
+    width: fit-content;
+    line-height: 1.5;
+    opacity: 0.7;
+}
+
+.lobby-msg-xn:hover {
+    opacity: 1;
+    background: var(--note-yellow);
+    box-shadow: 2px 3px 0 var(--shadow-sm);
+}
+
 @keyframes msgPopIn {
     from {
         opacity: 0;
@@ -734,6 +759,69 @@
 
 .lobby-msg .sticker-img:hover {
     transform: scale(1.06);
+}
+
+/* 聊天室的图片消息 */
+.lobby-msg.lobby-msg-image {
+    padding: 6px;
+    position: relative;
+}
+
+.lobby-msg .chat-img {
+    max-width: 240px;
+    max-height: 240px;
+    border-radius: 8px;
+    display: block;
+    cursor: pointer;
+    transition: transform 0.15s;
+}
+
+.lobby-msg .chat-img:hover {
+    transform: scale(1.03);
+}
+
+/* 图片占位气泡：本地预览 + 右下角上传指示器 */
+.lobby-msg .chat-img-badge {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.2;
+    pointer-events: none;   /* 点击穿透到气泡，交给重试逻辑处理 */
+}
+
+.lobby-msg .chat-img-spinner {
+    width: 10px;
+    height: 10px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: chat-img-spin 0.7s linear infinite;
+}
+
+@keyframes chat-img-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 发送失败：气泡描红，点击可重试 */
+.lobby-msg.lobby-msg-image.img-failed {
+    cursor: pointer;
+}
+
+.lobby-msg.lobby-msg-image.img-failed .chat-img {
+    box-shadow: 0 0 0 2px var(--danger, #d32f2f);
+}
+
+.lobby-msg .chat-img-badge.failed {
+    background: var(--danger, #d32f2f);
+    padding: 3px 8px;
 }
 
 

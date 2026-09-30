@@ -46,6 +46,8 @@ class RedisService
     public const KP_LOBBY_REPORTED = self::LOBBY_PREFIX . 'reported:';   // reported:{messageId} → set 已举报该消息的玩家集合（TTL 自动过期）
     public const KP_LOBBY_RATE     = self::LOBBY_PREFIX . 'rate';        // rate      → int   发言间隔（秒），0=不限
     public const KP_LOBBY_LAST_SEND = self::LOBBY_PREFIX . 'last_send:';  // last_send:{playerId} → string 最后发言时间戳（TTL 自动过期）
+    public const KP_LOBBY_IMG_UPLOAD = self::LOBBY_PREFIX . 'img_upload:'; // img_upload:{playerId} → int 图片上传次数（TTL 自动过期）
+    public const KP_LOBBY_IMG_KEY  = self::LOBBY_PREFIX . 'img_key:';    // img_key:{playerId}:{随机key} → string 图床URL（一次性消费，TTL 自动过期）
     public const KP_LOBBY_BTN_CLICK = self::LOBBY_PREFIX . 'btn_click';  // btn_click → 按钮点击次数前缀
     public const KP_LOBBY_POLL_COUNTS = self::LOBBY_PREFIX . 'poll:counts:'; // poll:counts:{pollKey} → hash 选项票数
     public const KP_LOBBY_POLL_USERS  = self::LOBBY_PREFIX . 'poll:users:';  // poll:users:{pollKey}  → hash 用户已选选项

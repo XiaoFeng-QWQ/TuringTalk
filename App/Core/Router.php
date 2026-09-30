@@ -66,6 +66,7 @@ class Router
                 '/api/chat-history/collect' => [GameController::class, 'setCollection'],
                 '/api/collection/like' => [GameController::class, 'likeCollection'],
                 '/api/sticker/upload' => [GameController::class, 'uploadSticker'],
+                '/api/image/upload' => [GameController::class, 'uploadImage'],
                 '/api/sticker/delete' => [GameController::class, 'deleteSticker'],
                 '/api/sticker/add-to-mine' => [GameController::class, 'addStickerToMine'],
                 '/api/macros' => [GameController::class, 'macrosSave'],

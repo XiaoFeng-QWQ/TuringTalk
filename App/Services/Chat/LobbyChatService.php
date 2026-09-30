@@ -170,6 +170,47 @@ class LobbyChatService
     }
 
     /**
+     * 发送图片消息：写入 Redis 缓存 + 推送异步写入队列
+     * content 存图片 URL
+     */
+    public function sendImage(string $senderName, string $senderId, string $imageUrl, string $ip = '', string $fingerprint = '', array $titles = [], array $specialTitles = [], bool $isBot = false): array
+    {
+        $redis = RedisService::connect();
+        $this->syncMsgIdFromDb();
+        $id = (int)$redis->incr(RedisService::KP_LOBBY_MSG_ID);
+
+        $msg = [
+            'id'          => $id,
+            'type'        => LobbyMessageType::IMAGE->value,
+            'sender_name' => $senderName,
+            'sender_id'   => $senderId,
+            'sender_ip'   => $ip,
+            'sender_fp'   => $fingerprint,
+            'content'     => mb_substr($imageUrl, 0, 500),
+            'time'        => date('H:i:s'),
+            'created_at'  => date('Y-m-d H:i:s'),
+            'is_bot'      => $isBot,
+        ];
+
+        // 标签字段恒定返回（无标签为空数组）：BOT 端可稳定读取 sender_titles / sender_special_titles
+        $msg['sender_titles'] = array_values(array_slice($titles, 0, \App\Services\Repository\PlayerStatsRepository::MAX_WORN_TAGS));
+        $msg['sender_special_titles'] = array_values($specialTitles);
+
+        $json = json_encode($msg, JSON_UNESCAPED_UNICODE);
+
+        // 写入 Redis 缓存（保留最新 100 条）
+        $redis->lPush(RedisService::KP_LOBBY_MSGS, $json);
+        $redis->lTrim(RedisService::KP_LOBBY_MSGS, 0, self::MAX_REDIS_MSGS - 1);
+
+        // 推送异步写入队列
+        $redis->rPush(RedisService::KP_LOBBY_WRITE_Q, $json);
+
+        Logger::debug('Lobby image message sent', ['id' => $id, 'sender' => $senderName]);
+
+        return $msg;
+    }
+
+    /**
      * 发送卡片消息（如战绩分享）：写入 Redis 缓存 + 推送异步写入队列
      * type 使用 LobbyMessageType 枚举（card.share.record 等），卡片内容为 JSON 字符串
      */
@@ -741,5 +782,43 @@ class LobbyChatService
         $redis->setex($key, $rate + 5, $now);
 
         return 0;
+    }
+
+    // ==================== 图片一次性 key ====================
+
+    /** 图片 key 有效期（秒）：上传后需在此时间内发出，否则作废 */
+    public const IMAGE_KEY_TTL = 120;
+
+    /**
+     * 发放图片一次性 key：把图床 URL 存进 Redis，只把随机 key 回传给客户端。
+     * 客户端因此拿不到也无法伪造图片 URL。
+     */
+    public function issueImageKey(string $playerId, string $url): string
+    {
+        $key = bin2hex(random_bytes(16));
+        RedisService::connect()->setex(
+            RedisService::KP_LOBBY_IMG_KEY . $playerId . ':' . $key,
+            self::IMAGE_KEY_TTL,
+            $url
+        );
+        return $key;
+    }
+
+    /**
+     * 消费图片 key：原子地取出 URL 并删除，返回 null 表示 key 不存在/已用/已过期。
+     * key 与 playerId 绑定，其他玩家无法借用。用 Lua 保证 GET+DEL 是原子的。
+     */
+    public function consumeImageKey(string $playerId, string $key): ?string
+    {
+        if ($key === '') return null;
+
+        $script = "local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]) end; return v";
+        $url = RedisService::connect()->eval(
+            $script,
+            [RedisService::KP_LOBBY_IMG_KEY . $playerId . ':' . $key],
+            1
+        );
+
+        return (is_string($url) && $url !== '') ? $url : null;
     }
 }

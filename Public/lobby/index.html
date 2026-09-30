@@ -180,6 +180,13 @@
                             <div class="input-inner">
                                 <textarea id="lobby-chat-input" placeholder="说点什么..." rows="1" maxlength="4000"
                                     autocomplete="off"></textarea>
+                                <button class="sticker-btn" id="lobby-btn-image" title="发送图片">
+                                    <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
+                                        <rect x="3" y="3" width="18" height="18" rx="3" />
+                                        <circle cx="8.5" cy="8.5" r="1.5" />
+                                        <path d="M21 15l-5-5L5 21" />
+                                    </svg>
+                                </button>
                                 <button class="sticker-btn" id="lobby-btn-sticker" title="发送表情">
                                     <svg class="icon" viewBox="0 0 24 24" style="width:18px;height:18px;">
                                         <rect x="3" y="3" width="18" height="18" rx="3" />
@@ -263,6 +270,9 @@
         </div>
     </div>
 
+
+    <input type="file" id="lobby-image-input" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+        style="display:none;">
 
     <div id="lobby-sticker-lightbox" style="display:none;">
         <div class="sticker-lightbox-bg"></div>

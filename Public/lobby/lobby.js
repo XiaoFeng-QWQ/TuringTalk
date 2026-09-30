@@ -40,6 +40,8 @@
     const $chatInput = document.getElementById('lobby-chat-input');
     const $btnSend = document.getElementById('lobby-btn-send');
     const $btnSticker = document.getElementById('lobby-btn-sticker');
+    const $btnImage = document.getElementById('lobby-btn-image');
+    const $imageInput = document.getElementById('lobby-image-input');
     const $stickerPicker = document.getElementById('lobby-sticker-picker');
     const $stickerPickerBody = document.getElementById('lobby-sticker-picker-body');
     const $btnCloseStickerPicker = document.getElementById('lobby-btn-close-sticker-picker');
@@ -104,6 +106,7 @@
     let myWornTitles = [];        // 缓存的自己的标签（重连后补全用）
     let myWornSpecialTitles = []; // 缓存的自己的特殊标签
     let lastSentStickerId = '';   // 本地渲染去重，防止服务端广播回传导致重复
+    let pendingImageUploads = []; // 已插入消息流但尚未确认的图片占位气泡：{ cid, blob, blobUrl, name, ext, row }
     let replyTarget = null;      // { id, name, text }
     let pendingChat = null;      // 待确认的发送内容 { content, reply }，限流/断线失败时回退输入框
     let isLobbyAdmin = false;    // 管理员状态（lobby_admin_verify 验证通过后为 true）
@@ -449,11 +452,21 @@
                 let stickerSid = data.sticker_id || data.id || '';
                 if (lastSentStickerId && lastSentStickerId === stickerSid) {
                     let localBubble = document.querySelector('[data-local-sticker="' + lastSentStickerId + '"]');
-                    if (localBubble) localBubble.dataset.msgId = data.id;
+                    if (localBubble) {
+                        localBubble.dataset.msgId = data.id;
+                        // 清除本地标记：避免连续发同一表情时误匹配到更早的气泡
+                        delete localBubble.dataset.localSticker;
+                        updatePlusOneChain();
+                    }
                     lastSentStickerId = '';
                     break;
                 }
                 appendStickerMessage(data);
+                break;
+
+            case 'image':
+                // 自己刚发的图：先与本地占位气泡对账（换真实地址、去掉上传指示器）
+                if (!data.client_id || !resolvePendingImage(data)) appendImageMessage(data);
                 break;
 
             // ==================== 临时聊天邀请（被邀请时顶部弹出） ====================
@@ -497,6 +510,10 @@
                 // 发言/操作被限流拒绝：回退输入框内容
                 if (pendingChat && /太频繁|请等待/.test(data.text || '')) {
                     restorePendingChat();
+                }
+                // 图片被服务端拒绝（限流/已禁言/已封禁/上传凭证过期）不会有 image 回包，把占位气泡转为失败态
+                if (pendingImageUploads.length && /太频繁|请等待|图片已过期|禁言|封禁/.test(data.text || '')) {
+                    failPendingImage(pendingImageUploads.pop(), data.text);
                 }
                 break;
 
@@ -1023,14 +1040,16 @@
 
         // 气泡
         let bubble = document.createElement('div');
-        bubble.className = 'lobby-msg' + (isMine ? ' mine' : '');
+        bubble.className = 'lobby-msg' + (isMine ? ' mine' : '') + (data.type === 'image' ? ' lobby-msg-image' : '');
         bubble.dataset.msgId = data.id;
         bubble.dataset.createdAt = data.created_at || '';
         bubble.dataset.senderName = senderName;
         let markdownBlocks = (data.msg_type === 'markdown' || data.type === 'markdown') ? parseMarkdownBlocks(data.content) : null;
+        if (markdownBlocks) bubble.dataset.md = '1';
         bubble.dataset.msgContent = (data.type === 'sticker' && data.sticker_id)
             ? '[sticker:' + data.sticker_id + ']'
-            : (markdownBlocks ? blocksPlainText(markdownBlocks) : (data.content || ''));
+            : (data.type === 'image' ? '[image:' + (data.content || '') + ']'
+                : (markdownBlocks ? blocksPlainText(markdownBlocks) : (data.content || '')));
 
         // 已撤回的消息
         if (data.revoked) {
@@ -1089,6 +1108,16 @@
                         });
                     }
                 })(data.sticker_id, stickerUrl, data.sticker_name || '');
+            }
+        } else if (data.type === 'image') {
+            // 图片消息：渲染为图片
+            let imgUrl = data.content || data.url || '';
+            bubble.innerHTML = replyHtml + '<img class="chat-img" src="' + escapeHtmlAttr(imgUrl) + '" alt="图片" loading="lazy">';
+            let imgEl = bubble.querySelector('.chat-img');
+            if (imgEl) {
+                imgEl.addEventListener('click', function () {
+                    showStickerLightbox('', imgUrl, '图片');
+                });
             }
         } else if (data.msg_type === 'card.share.record' || data.type === 'card.share.record') {
             // 战绩分享卡片：直接渲染，不套气泡层
@@ -1270,8 +1299,217 @@
         updatePlusOneChain();
     }
 
+    /**
+     * 渲染图片消息（服务端广播与本地占位气泡共用）
+     * pending = { blobUrl, onRetry } 时渲染占位态：先用本地临时地址预览 + 右下角上传指示器，不写消息 ID
+     */
+    function appendImageMessage(data, pending) {
+        let senderName = data.sender_name || data.sender || '';
+        let imageUrl = pending ? pending.blobUrl : (data.content || data.url || '');
+        let isMine = senderName === myNickname;
+
+        let wrapper = document.createElement('div');
+        wrapper.className = 'lobby-msg-row';
+        if (isMine) wrapper.classList.add('mine');
+
+        let avatar = document.createElement('div');
+        avatar.className = 'lobby-avatar';
+        if (data.sender_id) {
+            renderAvatar(avatar, data.sender_id, senderName);
+        } else {
+            avatar.textContent = getAvatarChar(senderName);
+            avatar.style.background = isMine ? 'let(--note-blue)' : getAvatarColor(senderName);
+        }
+        addAvatarNudgeHandler(avatar, senderName);
+
+        let content = document.createElement('div');
+        content.className = 'lobby-msg-content';
+
+        let meta = document.createElement('div');
+        meta.className = 'lobby-msg-meta';
+        let nameSpan = document.createElement('span');
+        nameSpan.className = 'lobby-msg-sender';
+        nameSpan.textContent = senderName;
+        let timeSpan = document.createElement('span');
+        timeSpan.className = 'lobby-msg-time';
+        timeSpan.textContent = data.time || '';
+        meta.appendChild(nameSpan);
+        if (data.is_bot) {
+            let botTag = document.createElement('span');
+            botTag.className = 'lobby-msg-bot-tag';
+            botTag.innerHTML = '<svg viewBox="0 0 24 24" style="width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>BOT';
+            meta.appendChild(botTag);
+        }
+        meta.appendChild(timeSpan);
+        content.appendChild(meta);
+
+        // 佩戴标签（称号）徽章
+        let titleRow = null;
+        if (Array.isArray(data.sender_special_titles) && data.sender_special_titles.length) {
+            if (!titleRow) { titleRow = document.createElement('div'); titleRow.className = 'lobby-msg-title-row'; }
+            let spWrap = document.createElement('span');
+            spWrap.className = 'lobby-msg-titles special';
+            data.sender_special_titles.forEach(function (t) {
+                let b = document.createElement('span');
+                b.className = 'lobby-title-badge special';
+                b.textContent = t;
+                spWrap.appendChild(b);
+            });
+            titleRow.appendChild(spWrap);
+        }
+        if (Array.isArray(data.sender_titles) && data.sender_titles.length) {
+            if (!titleRow) { titleRow = document.createElement('div'); titleRow.className = 'lobby-msg-title-row'; }
+            let titlesWrap = document.createElement('span');
+            titlesWrap.className = 'lobby-msg-titles';
+            data.sender_titles.forEach(function (t) {
+                let b = document.createElement('span');
+                b.className = 'lobby-title-badge';
+                b.textContent = t;
+                titlesWrap.appendChild(b);
+            });
+            titleRow.appendChild(titlesWrap);
+        }
+        if (titleRow) content.appendChild(titleRow);
+
+        let bubble = document.createElement('div');
+        bubble.className = 'lobby-msg lobby-msg-image' + (isMine ? ' mine' : '');
+        if (pending) bubble.classList.add('img-pending');
+        // 占位气泡没有消息 ID：不参与引用/撤回/右键菜单，等回包对账后再补
+        if (!pending && data.id && /^[0-9]+$/.test(String(data.id))) {
+            bubble.dataset.msgId = data.id;
+        }
+        bubble.dataset.senderName = senderName;
+        bubble.dataset.createdAt = data.created_at || '';
+        bubble.dataset.msgContent = pending ? '' : '[image:' + imageUrl + ']';
+
+        bubble.innerHTML = '<img class="chat-img" src="' + escapeHtmlAttr(imageUrl) + '" alt="图片" loading="lazy">';
+        bubble.querySelector('.chat-img').addEventListener('click', function () {
+            // 对账后 src 会换成真实地址，这里实时读取，避免拿到已释放的临时地址
+            if (bubble.classList.contains('img-pending') || bubble.classList.contains('img-failed')) return;
+            showStickerLightbox('', this.src, '图片');
+        });
+
+        if (pending) {
+            let badge = document.createElement('span');
+            badge.className = 'chat-img-badge';
+            badge.innerHTML = '<span class="chat-img-spinner"></span>';
+            bubble.appendChild(badge);
+            bubble.addEventListener('click', function () {
+                if (bubble.classList.contains('img-failed')) pending.onRetry();
+            });
+        }
+
+        content.appendChild(bubble);
+        wrapper.appendChild(avatar);
+        wrapper.appendChild(content);
+        $messages.appendChild(wrapper);
+        scrollToBottom();
+        updatePlusOneChain();
+        return wrapper;
+    }
+
+    // ==================== 图片占位气泡（乐观渲染 + 对账） ====================
+
+    /** 取占位气泡本体 */
+    function pendingImageBubble(entry) {
+        return entry && entry.row ? entry.row.querySelector('.lobby-msg-image') : null;
+    }
+
+    /** 从待确认队列移除 */
+    function dropPendingImage(entry) {
+        let i = pendingImageUploads.indexOf(entry);
+        if (i >= 0) pendingImageUploads.splice(i, 1);
+    }
+
+    /** 服务端回包与本地占位气泡对账：命中则换成真实图片地址、去掉指示器、补上消息 ID */
+    function resolvePendingImage(data) {
+        for (let i = 0; i < pendingImageUploads.length; i++) {
+            let entry = pendingImageUploads[i];
+            if (!entry.cid || entry.cid !== data.client_id) continue;
+            pendingImageUploads.splice(i, 1);
+
+            let bubble = pendingImageBubble(entry);
+            if (bubble) {
+                bubble.classList.remove('img-pending', 'img-failed');
+                let img = bubble.querySelector('.chat-img');
+                if (img) img.src = data.content || '';
+                let badge = bubble.querySelector('.chat-img-badge');
+                if (badge) badge.remove();
+                bubble.dataset.msgId = data.id;
+                bubble.dataset.msgContent = '[image:' + (data.content || '') + ']';
+            }
+            URL.revokeObjectURL(entry.blobUrl);
+            updatePlusOneChain();
+            return true;
+        }
+        return false;
+    }
+
+    /** 占位气泡重置为「上传中」（点击重试时用） */
+    function resetPendingImage(entry) {
+        let bubble = pendingImageBubble(entry);
+        if (!bubble) return;
+        bubble.classList.remove('img-failed');
+        bubble.classList.add('img-pending');
+        bubble.removeAttribute('title');
+        let badge = bubble.querySelector('.chat-img-badge');
+        if (badge) {
+            badge.classList.remove('failed');
+            badge.innerHTML = '<span class="chat-img-spinner"></span>';
+        }
+    }
+
+    /** 占位气泡标记为失败态（点击可重试） */
+    function failPendingImage(entry, message) {
+        if (!entry) return;
+        dropPendingImage(entry);
+        let bubble = pendingImageBubble(entry);
+        if (!bubble) return;
+        bubble.classList.remove('img-pending');
+        bubble.classList.add('img-failed');
+        bubble.title = message || '上传失败，点击重试';
+        let badge = bubble.querySelector('.chat-img-badge');
+        if (badge) {
+            badge.classList.add('failed');
+            badge.textContent = '上传失败 · 重试';
+        }
+    }
+
+    /**
+     * 压缩完成后真正上传图床并发送 lobby_image；失败则占位气泡转失败态
+     * 上传接口只回一次性 key（图床地址不下发），client_id 用于服务端回包时对账
+     */
+    function uploadAndSendImage(entry) {
+        if (pendingImageUploads.indexOf(entry) < 0) pendingImageUploads.push(entry);
+
+        let form = new FormData();
+        form.append('file', entry.blob, entry.name);
+        form.append('file_ext', entry.ext);
+        form.append('fp', getFingerprint());
+
+        // 不手动设置 Content-Type，交给浏览器生成 multipart boundary
+        return fetch('/api/image/upload', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + getUserToken() },
+            body: form
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (!res || res.error || !res.key) throw new Error((res && res.error) || '图片上传失败');
+                send({ type: 'lobby_image', key: res.key, client_id: entry.cid });
+            })
+            .catch(function (err) {
+                let message = (err && err.message) || '图片上传失败';
+                failPendingImage(entry, message);
+                showTopToast(message, true);
+            });
+    }
+
     function renderHistory(messages) {
         $messages.innerHTML = '';
+        // 重连清屏：丢弃尚未确认的图片占位气泡并释放临时地址
+        pendingImageUploads.forEach(function (p) { URL.revokeObjectURL(p.blobUrl); });
+        pendingImageUploads = [];
         if (!messages || messages.length === 0) {
             appendSystem('欢迎来到公共聊天室', true);
             return;
@@ -1283,6 +1521,7 @@
             resolveBilibiliEmbeds(bubble);
         });
         scrollToBottom();
+        updatePlusOneChain();
     }
 
     function appendMessage(data) {
@@ -1300,9 +1539,54 @@
 
     // ==================== 消息 +1 跟队形 ====================
 
+    /** 该行是否参与"同用户连续重复合并"：仅纯文本与表情贴纸参与；图片/回复/md 特殊格式不参与 */
+    function mergeableBubble(row) {
+        let bubble = row.querySelector('.lobby-msg');
+        if (!bubble || !bubble.dataset.msgId || bubble.classList.contains('revoked')) return null;
+        if (bubble.dataset.md) return null;
+        if (bubble.classList.contains('lobby-msg-image')) return null;
+        if (bubble.querySelector('.lobby-msg-reply')) return null;
+        let content = bubble.dataset.msgContent;
+        if (!content || !String(content).trim()) return null;
+        return bubble;
+    }
+
+    /** 合并分组键：发送者 + 内容（纯文本用 msgContent，表情用 [sticker:id] 标记） */
+    function mergeKey(bubble) {
+        return (bubble.dataset.senderName || '') + '\u0000' + bubble.dataset.msgContent;
+    }
+
+    /** 在链尾消息旁加 ×N 徽章：样式与位置和 +1 一致（自己的消息在气泡左，对方在右） */
+    function addRepeatBadge(row, count) {
+        let bubble = row.querySelector('.lobby-msg');
+        if (!bubble) return;
+        let badge = document.createElement('span');
+        badge.className = 'lobby-msg-xn';
+        badge.textContent = '×' + count;
+        badge.title = '重复发送 ' + count + ' 次';
+
+        // 复用已有的 bubble-wrap（+1 可能也在同一行）
+        let wrap = bubble.parentNode && bubble.parentNode.classList && bubble.parentNode.classList.contains('lobby-msg-bubble-wrap')
+            ? bubble.parentNode : null;
+        if (!wrap) {
+            wrap = document.createElement('div');
+            wrap.className = 'lobby-msg-bubble-wrap';
+            bubble.parentNode.insertBefore(wrap, bubble);
+            wrap.appendChild(bubble);
+        }
+
+        if (row.classList.contains('mine')) {
+            wrap.insertBefore(badge, bubble);
+        } else {
+            wrap.appendChild(badge);
+        }
+    }
+
     function updatePlusOneChain() {
         // 清除所有已有 +1 徽章
         document.querySelectorAll('.lobby-msg-plusone').forEach((el) => { el.remove(); });
+        // 清除所有已有 ×N 合并徽章
+        document.querySelectorAll('.lobby-msg-xn').forEach((el) => { el.remove(); });
         // 解包旧的 bubble-wrap，还原 DOM 结构
         document.querySelectorAll('.lobby-msg-bubble-wrap').forEach((wrap) => {
             let parent = wrap.parentNode;
@@ -1311,8 +1595,42 @@
             }
             parent.removeChild(wrap);
         });
+        // 还原之前被合并隐藏的行（每次全量重算，保证幂等）
+        $messages.querySelectorAll('.lobby-msg-row.repeat-merged').forEach((r) => {
+            r.classList.remove('repeat-merged');
+            r.style.display = '';
+        });
 
-        let rows = $messages.querySelectorAll('.lobby-msg-row');
+        let allRows = Array.prototype.slice.call($messages.querySelectorAll('.lobby-msg-row'));
+
+        // ---- 同用户连续重复合并：合并成一条，消息前加 ×N（被不同发送者/内容打断则重新计数）----
+        let rows = []; // 合并后实际可见的行，供 +1 链扫描
+        for (let i = 0; i < allRows.length;) {
+            let head = mergeableBubble(allRows[i]);
+            if (!head) {
+                rows.push(allRows[i]);
+                i++;
+                continue;
+            }
+            let key = mergeKey(head);
+            let j = i + 1;
+            while (j < allRows.length) {
+                let b2 = mergeableBubble(allRows[j]);
+                if (!b2 || mergeKey(b2) !== key) break;
+                j++;
+            }
+            if (j - i >= 2) {
+                // 隐藏前面的重复行，只在最后一条上显示 ×N
+                for (let k = i; k < j - 1; k++) {
+                    allRows[k].classList.add('repeat-merged');
+                    allRows[k].style.display = 'none';
+                }
+                addRepeatBadge(allRows[j - 1], j - i);
+            }
+            rows.push(allRows[j - 1]);
+            i = j;
+        }
+
         if (rows.length < 2) return;
 
         // 从底部向上扫描，找出连续相同内容的消息链
@@ -1321,9 +1639,8 @@
 
         // 从最后一条消息开始（任何消息——含表情/无文本——都视为打断点）
         for (let i = rows.length - 1; i >= 0; i--) {
-            let row = rows[i];
-            let bubble = row.querySelector('.lobby-msg');
-            if (!bubble || !bubble.dataset.msgId || bubble.classList.contains('revoked')) continue;
+            let bubble = mergeableBubble(rows[i]);
+            if (!bubble) break;
             let textEl = bubble.querySelector('.lobby-msg-text');
             if (!textEl) break;
             let content = textEl.textContent.trim();
@@ -1339,9 +1656,8 @@
         // 向上扩展链，找到所有连续相同内容的行（任何消息——含表情/无文本——都打断链）
         let chainStart = chainEnd;
         for (let j = chainEnd - 1; j >= 0; j--) {
-            let row = rows[j];
-            let bubble = row.querySelector('.lobby-msg');
-            if (!bubble || !bubble.dataset.msgId || bubble.classList.contains('revoked')) break;
+            let bubble = mergeableBubble(rows[j]);
+            if (!bubble) break;
             let textEl = bubble.querySelector('.lobby-msg-text');
             if (!textEl) break;
             if (textEl.textContent.trim() === chainContent) {
@@ -1360,11 +1676,15 @@
         if (bubble && bubble.dataset.msgId && !bubble.classList.contains('revoked')) {
             let isMine = row.classList.contains('mine');
 
-            // 用横排容器包裹气泡，+1 徽章放在左或右
-            let wrap = document.createElement('div');
-            wrap.className = 'lobby-msg-bubble-wrap';
-            bubble.parentNode.insertBefore(wrap, bubble);
-            wrap.appendChild(bubble);
+            // 用横排容器包裹气泡，+1 徽章放在左或右（若已有 wrap（×N 徽章）则复用）
+            let parent = bubble.parentNode;
+            let wrap = parent && parent.classList && parent.classList.contains('lobby-msg-bubble-wrap') ? parent : null;
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.className = 'lobby-msg-bubble-wrap';
+                parent.insertBefore(wrap, bubble);
+                wrap.appendChild(bubble);
+            }
 
             let badge = document.createElement('span');
             badge.className = 'lobby-msg-plusone';
@@ -1617,6 +1937,9 @@
                 let contentStr = (typeof data.content === 'string') ? data.content : JSON.stringify(data.content || '');
                 if (data.type === 'sticker' && data.sticker_id) {
                     replyToText = '[sticker:' + data.sticker_id + ']';
+                } else if (data.type === 'image') {
+                    // 图片消息：引用预览显示占位文字
+                    replyToText = '[图片]';
                 } else if (data.msg_type === 'markdown' || contentStr.indexOf('"blocks"') >= 0 || contentStr.indexOf('"v":1') >= 0) {
                     // markdown 消息：引用显示"特殊格式不支持预览"（不解析内容）
                     replyToText = '特殊格式不支持预览';
@@ -4933,6 +5256,139 @@
             $stickerPicker.style.display = 'none';
         }
     });
+
+    // ==================== 图片上传 ====================
+
+    const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 与服务端限制一致：2MB
+    let imageUploading = false;
+
+    $btnImage.addEventListener('click', function () {
+        if (imageUploading) return;
+        $imageInput.click();
+    });
+
+    $imageInput.addEventListener('change', function () {
+        let file = $imageInput.files && $imageInput.files[0];
+        $imageInput.value = '';
+        if (file) handleImageFile(file);
+    });
+
+    function extFromName(name, fallback) {
+        let m = /\.([a-zA-Z0-9]+)$/.exec(name || '');
+        let ext = m ? m[1].toLowerCase() : '';
+        return /^(png|jpe?g|gif|webp|bmp)$/.test(ext) ? ext : fallback;
+    }
+
+    /** canvas 压缩到 2MB 以内：逐步降尺寸 + 降质量，全部不达标则失败。返回 { blob, ext, name } */
+    function compressToLimit(file) {
+        return new Promise(function (resolve, reject) {
+            let url = URL.createObjectURL(file);
+            let img = new Image();
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+                let attempts = [
+                    { maxSide: 1920, quality: 0.8 },
+                    { maxSide: 1440, quality: 0.7 },
+                    { maxSide: 1080, quality: 0.6 }
+                ];
+                let baseName = (file.name || 'image').replace(/\.[^.]*$/, '') || 'image';
+                function tryAt(i) {
+                    if (i >= attempts.length) {
+                        reject(new Error('图片压缩后仍超过 2MB，请更换更小的图片'));
+                        return;
+                    }
+                    let a = attempts[i];
+                    let scale = Math.min(1, a.maxSide / Math.max(img.width, img.height));
+                    let w = Math.max(1, Math.round(img.width * scale));
+                    let h = Math.max(1, Math.round(img.height * scale));
+                    let canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    canvas.toBlob(function (blob) {
+                        if (!blob) { reject(new Error('图片压缩失败')); return; }
+                        if (blob.size <= MAX_UPLOAD_BYTES) {
+                            resolve({ blob: blob, ext: 'jpg', name: baseName + '.jpg' });
+                        } else {
+                            tryAt(i + 1);
+                        }
+                    }, 'image/jpeg', a.quality);
+                }
+                tryAt(0);
+            };
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                reject(new Error('图片读取失败'));
+            };
+            img.src = url;
+        });
+    }
+
+    function handleImageFile(file) {
+        if (imageUploading) return;
+        if (!file.type || file.type.indexOf('image/') !== 0) {
+            showTopToast('请选择图片文件', true);
+            return;
+        }
+        if (file.size > MAX_UPLOAD_BYTES && file.type === 'image/gif') {
+            // GIF 压缩会丢失动画，直接拒绝
+            showTopToast('动图超过 2MB，请更换更小的图片', true);
+            return;
+        }
+
+        imageUploading = true;
+
+        // 选中即入流：先用原图临时地址插入占位气泡并显示上传指示器，压缩/上传期间不做等待
+        let entry = {
+            cid: 'img' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10),
+            blob: file,
+            blobUrl: URL.createObjectURL(file),
+            name: file.name,
+            ext: extFromName(file.name, 'png'),
+            row: null
+        };
+        entry.row = appendImageMessage({
+            content: entry.blobUrl,
+            sender_name: myNickname,
+            sender_id: myPlayerId,
+            sender_titles: myWornTitles,
+            sender_special_titles: myWornSpecialTitles
+        }, {
+            blobUrl: entry.blobUrl,
+            onRetry: function () {
+                resetPendingImage(entry);
+                uploadAndSendImage(entry);
+            }
+        });
+        pendingImageUploads.push(entry);
+
+        if (file.size <= MAX_UPLOAD_BYTES) {
+            // 未超限：原图直传，不做有损压缩
+            uploadAndSendImage(entry).then(function () { imageUploading = false; });
+            return;
+        }
+
+        // 超过 2MB：前端压缩后替换占位气泡里的预览图，再上传
+        compressToLimit(file)
+            .then(function (payload) {
+                let oldBlobUrl = entry.blobUrl;
+                entry.blob = payload.blob;
+                entry.blobUrl = URL.createObjectURL(payload.blob);
+                entry.name = payload.name;
+                entry.ext = payload.ext;
+                let img = pendingImageBubble(entry);
+                if (img) {
+                    let el = img.querySelector('.chat-img');
+                    if (el) el.src = entry.blobUrl;
+                }
+                URL.revokeObjectURL(oldBlobUrl);
+                return uploadAndSendImage(entry);
+            })
+            .catch(function (err) {
+                failPendingImage(entry, (err && err.message) || '图片处理失败');
+            })
+            .then(function () { imageUploading = false; });
+    }
 
     // ==================== 系统消息显示设置面板 ====================
 

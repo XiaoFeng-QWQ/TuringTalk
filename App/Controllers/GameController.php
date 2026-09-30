@@ -1284,6 +1284,71 @@ class GameController
     }
 
     /**
+     * POST /api/image/upload
+     * multipart/form-data: file=图片文件（必填）, file_ext=扩展名（可选，缺省取文件名后缀）
+     * 聊天室图片上传：代理上传图床后仅返回一次性 key（图床 URL 不下发），不入库
+     */
+    public function uploadImage(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        // 封禁检查：被封禁者不得继续消耗图床
+        $ip = $request->getClientIp();
+        $fp = Sanitizer::identifier($request->post('fp', ''));
+        if (\App\Services\Repository\BanRepository::isBanned($ip, $fp, (string)$playerId)) {
+            $response->setContent(json_encode(['error' => '您已被管理员封禁'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 上传频率限制：同玩家 60 秒内最多 10 次
+        $redis = \App\Services\Infrastructure\RedisService::connect();
+        $uploadKey = \App\Services\Infrastructure\RedisService::KP_LOBBY_IMG_UPLOAD . $playerId;
+        $uploadCount = (int)$redis->incr($uploadKey);
+        if ($uploadCount === 1) $redis->expire($uploadKey, 60);
+        if ($uploadCount > 10) {
+            $response->setContent(json_encode(['error' => '上传太频繁，请稍后再试'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        $file = $request->file('file');
+        if (!$file || ($file['error'] ?? 1) !== UPLOAD_ERR_OK || empty($file['tmp_name'])) {
+            $response->setContent(json_encode(['error' => '图片上传失败，请重试'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 扩展名优先取表单字段，缺省从原始文件名推断
+        $fileExt = Sanitizer::identifier($request->post('file_ext', ''));
+        if ($fileExt === '') {
+            $fileExt = Sanitizer::identifier(pathinfo((string)($file['name'] ?? ''), PATHINFO_EXTENSION));
+        }
+
+        $binaryData = @file_get_contents($file['tmp_name']);
+        if ($binaryData === false || $binaryData === '') {
+            $response->setContent(json_encode(['error' => '图片读取失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        try {
+            $url = StickerService::uploadImage($binaryData, $fileExt !== '' ? $fileExt : 'png');
+        } catch (\Throwable $e) {
+            $response->setContent(json_encode(['error' => $e->getMessage()], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+
+        // 图床 URL 不下发给客户端：换成一次性 key，由 lobby_image 内部取出，客户端无法伪造图片地址
+        $key = (new \App\Services\Chat\LobbyChatService())->issueImageKey((string)$playerId, $url);
+        $response->setContent(json_encode(['success' => true, 'key' => $key], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
      * POST /api/sticker/delete
      * Body: { player_id, sticker_id }
      */

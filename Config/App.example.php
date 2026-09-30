@@ -17,7 +17,11 @@ return [
             'heartbeat_idle_time' => 60, // 心跳检测：60 秒无消息则判定连接死亡
             'heartbeat_check_interval' => 15, // 心跳检测间隔：15 秒
             'max_wait_time' => 3, // Worker 退出前等待 3 秒，给客户端重连窗口
-            'max_connection' => 1024, // 允许的最大连接数
+            // 单 Worker + 128M 内存，连接数过高时并发大包会打爆 Worker
+            'max_connection' => 256, // 允许的最大连接数
+            // 业务图片上限 2MB，留一倍余量即可；设太大等于放开单请求的内存占用
+            // （默认 2MB 会导致 2MB 图片上传被 413 拒绝，勿改回默认）
+            'package_max_length' => 4 * 1024 * 1024, // 单包上限 4MB
         ]
     ],
     // WebSocket 配置请勿随意修改

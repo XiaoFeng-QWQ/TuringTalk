@@ -3429,7 +3429,9 @@ window.FateController = (function () {
                 renderReport(data);
                 break;
             case 'fate.published':
-                prompt('waiting', '已官宣到聊天室！');
+                prompt('waiting', (data.data && data.data.already_published)
+                    ? '这份报告已经官宣过啦'
+                    : '已官宣到聊天室！');
                 setTimeout(close, 1500);
                 break;
             case 'fate.timeout':

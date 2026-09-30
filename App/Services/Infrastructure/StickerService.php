@@ -15,6 +15,9 @@ use App\Config\Config;
  */
 class StickerService
 {
+    /** 图片最大像素数（宽×高）：聊天图只显示 240px，超过这个量级没有意义且会拖垮图片处理 */
+    private const MAX_IMAGE_PIXELS = 30000000;
+
     private static bool $started = false;
 
     public static function start(): void
@@ -67,7 +70,7 @@ class StickerService
      */
     public static function uploadDefault(string $name, string $imageData, string $fileExt = 'png'): array
     {
-        $url = self::uploadToImageHosting($imageData, $fileExt);
+        $url = self::uploadToImageHosting(self::decodeBase64($imageData), $fileExt);
 
         if (empty($url) || !preg_match('#^https?://.+#i', $url)) {
             throw new \RuntimeException('图床上传失败，未获取到有效URL');
@@ -98,7 +101,7 @@ class StickerService
             throw new \RuntimeException('图床未配置');
         }
 
-        $url = self::uploadToImageHosting($imageData, $fileExt, 'sticker_');
+        $url = self::uploadToImageHosting(self::decodeBase64($imageData), $fileExt, 'sticker_');
 
         if (empty($url) || !preg_match('#^https?://.+#i', $url)) {
             throw new \RuntimeException('图床上传失败，未获取到有效URL');
@@ -114,7 +117,42 @@ class StickerService
 
     // ==================== 图床上传代理 ====================
 
-    private static function uploadToImageHosting(string $imageData, string $fileExt, string $namePrefix = ''): string
+    /** base64 图片数据 → 二进制（严格模式解码，失败抛异常） */
+    private static function decodeBase64(string $imageData): string
+    {
+        $binary = base64_decode($imageData, true);
+        if ($binary === false) {
+            throw new \RuntimeException('图片数据 base64 解码失败');
+        }
+        return $binary;
+    }
+
+    /**
+     * 上传聊天图片到图床（不入库），返回图片 URL
+     * 复用表情上传的完整校验：格式白名单 / 2MB 限制 / 真实解码验证
+     *
+     * @param string $binaryData 图片二进制数据
+     * @param string $fileExt    文件扩展名（如 png、jpg、gif）
+     */
+    public static function uploadImage(string $binaryData, string $fileExt = 'png'): string
+    {
+        $uploadUrl = Config::get('ImageHosting.UploadUrl', '');
+        if (empty($uploadUrl)) {
+            throw new \RuntimeException('图床未配置');
+        }
+
+        $url = self::uploadToImageHosting($binaryData, $fileExt, 'chat_');
+
+        if (empty($url) || !preg_match('#^https?://.+#i', $url)) {
+            throw new \RuntimeException('图床上传失败，未获取到有效URL');
+        }
+
+        Logger::info('StickerService: chat image uploaded', ['url' => $url]);
+
+        return $url;
+    }
+
+    private static function uploadToImageHosting(string $binaryData, string $fileExt, string $namePrefix = ''): string
     {
         $uploadUrl = Config::get('ImageHosting.UploadUrl', '');
         $backstage  = Config::get('ImageHosting.Backstage', '');
@@ -135,26 +173,27 @@ class StickerService
             $ext = 'jpeg';
         }
 
-        // 解码 base64
-        $binaryData = base64_decode($imageData, true);
-        if ($binaryData === false) {
-            throw new \RuntimeException('图片数据 base64 解码失败');
-        }
-
-        // 文件大小校验：解码后最大 2MB
+        // 文件大小校验：最大 2MB
         $maxSize = 2 * 1024 * 1024;
         if (strlen($binaryData) > $maxSize) {
             throw new \RuntimeException('图片大小不能超过 2MB');
         }
 
-        // 校验图片内容：真正解码验证（非仅读文件头），同时剥离内嵌载荷
-        $img = @imagecreatefromstring($binaryData);
-        if ($img === false) {
+        // 校验图片内容：只解析文件头拿格式与尺寸，不做全图解码。
+        // 不能用 imagecreatefromstring —— 它会把图片解成 宽×高×4 字节的位图，
+        // 一张 2MB 的图可解出上百 MB（如 8000×6000 → 192MB），在 memory_limit 较小的
+        // 环境下直接 OOM，而内存耗尽是 fatal error 无法被 catch，会打死 Swoole worker 导致 502。
+        // 这里上传给图床的本来就是原始字节（不做转码），所以也无需真正解码。
+        $info = @getimagesizefromstring($binaryData);
+        if ($info === false || empty($info[0]) || empty($info[1])) {
             throw new \RuntimeException('文件不是有效的图片');
+        }
+        // 分辨率上限：PNG 纯色大图可以远小于 2MB，仍需拦掉，否则客户端渲染会卡死
+        if ((int)$info[0] * (int)$info[1] > self::MAX_IMAGE_PIXELS) {
+            throw new \RuntimeException('图片分辨率过大，请压缩后重试（最大 ' . (self::MAX_IMAGE_PIXELS / 10000) . ' 万像素）');
         }
 
         // 不转换格式，保留原始图片数据
-        unset($img);
         $mimeMap = [
             'jpeg' => 'image/jpeg', 'png' => 'image/png', 'gif' => 'image/gif',
             'webp' => 'image/webp', 'bmp' => 'image/bmp',
