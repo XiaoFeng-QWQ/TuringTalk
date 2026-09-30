@@ -321,7 +321,8 @@ class ActionHandler
         }
 
         $myInfo = $this->game->getClientInfo($fd) ?? [];
-        PlayerStatsRepository::updateNickname($playerId, $nickname, $myInfo['ip'] ?? '', $fp);
+        // 真正的改名：刷新 nickname_updated_at（用于每月限改一次判定）
+        PlayerStatsRepository::updateNickname($playerId, $nickname, $myInfo['ip'] ?? '', $fp, true);
         $this->game->sendToPlayer($server, $fd, [
             'type'      => 'update_nickname_result',
             'success'   => true,

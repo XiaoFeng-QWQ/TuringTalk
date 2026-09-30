@@ -1007,7 +1007,9 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
     const tok = getUserToken();
     if (tok) {
         try {
+            let timeoutId = null;
             const onResult = (e) => {
+                clearTimeout(timeoutId);
                 document.removeEventListener('nickname_update_result', onResult);
                 if (e.detail.error) {
                     showTopToast('昵称更新失败：' + e.detail.error);
@@ -1020,11 +1022,18 @@ document.getElementById('btn-edit-nickname').addEventListener('click', () => {
                 showTopToast('昵称已修改为：' + trimmed, false);
             };
             document.addEventListener('nickname_update_result', onResult);
+            // 5 秒未收到回执则判定超时：移除监听并明确提示，避免监听永久挂起、重复点击叠加
+            timeoutId = setTimeout(() => {
+                document.removeEventListener('nickname_update_result', onResult);
+                showTopToast('昵称修改超时，请检查网络后重试');
+            }, 5000);
             // 携带 player_token：设置页等未加入对局（连接未绑定 player_id）时服务端可凭 token 识别身份
             transport.send('update_nickname', { nickname: trimmed, fp: browserFingerprint, player_token: getUserToken() });
             return;
         } catch (e) {
-            // WS 未连接时静默降级，仅更新本地
+            // WS 未连接：不再静默降级为只改本地（会造成前后端不同步），明确提示失败
+            showTopToast('当前未连接服务器，昵称修改失败，请稍后重试');
+            return;
         }
     }
 

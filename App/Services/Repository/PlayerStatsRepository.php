@@ -469,15 +469,29 @@ class PlayerStatsRepository
     }
 
     /**
-     * 更新玩家昵称（每次游戏时更新）
+     * 同步玩家昵称 / IP / 指纹。
+     *
+     * @param string $playerId        玩家ID
+     * @param string $nickname        昵称
+     * @param string $ip              IP
+     * @param string $fp              指纹
+     * @param bool   $recordAsChange  是否为真正的改名（若为 true 才刷新 nickname_updated_at，
+     *                                 用于"每月限改一次"的判定；打局等场景同步资料不应占用改名次数）
      */
-    public static function updateNickname(string $playerId, string $nickname, string $ip, string $fp): void
+    public static function updateNickname(string $playerId, string $nickname, string $ip, string $fp, bool $recordAsChange = false): void
     {
         $pdo = Database::connect();
-        $stmt = $pdo->prepare(
-            'UPDATE player_data SET nickname = ?, ip = ?, fp = ?, nickname_updated_at = ? WHERE id = ?'
-        );
-        $stmt->execute([$nickname, $ip, $fp, time(), $playerId]);
+        if ($recordAsChange) {
+            $stmt = $pdo->prepare(
+                'UPDATE player_data SET nickname = ?, ip = ?, fp = ?, nickname_updated_at = ? WHERE id = ?'
+            );
+            $stmt->execute([$nickname, $ip, $fp, time(), $playerId]);
+        } else {
+            $stmt = $pdo->prepare(
+                'UPDATE player_data SET nickname = ?, ip = ?, fp = ? WHERE id = ?'
+            );
+            $stmt->execute([$nickname, $ip, $fp, $playerId]);
+        }
     }
 
     /**
