@@ -142,6 +142,18 @@ return [
             // ],
         ],
     ],
+    // 海龟汤（真人房）配置
+    'Soup' => [
+        'Enabled'           => true,                          // 是否启用海龟汤模式
+        'SeedFile'          => __DIR__ . '/SoupPuzzles.php',  // 官方种子题源
+        'MinPlayers'        => 2,     // 开局最少人数（含房主，1 房主 + 1 猜题人）
+        'MaxPlayers'        => 6,     // 房间人数上限（含房主）
+        'AskRateLimit'      => 3,     // 提问间隔（秒），0=不限
+        'MaxQuestions'      => 30,    // 每题提问上限
+        'MaxHints'          => 3,     // 逐级提示上限
+        'AiAssist'          => true,  // 出题人侧 AI 判定建议开关
+        'PublicMaxMyPuzzles'=> 100,   // 每玩家最大汤面数（防刷）
+    ],
     // 图床上传配置（管理后台添自定义表情时使用）
     // 通过 SuccessField/SuccessValue/UrlField 兼容不同 API 的返回格式：
     //   示例 A { code: 1, url: "..." }        → SuccessField=code, SuccessValue=1, UrlField=url

@@ -172,6 +172,12 @@ let panelSessions, panelReports, panelStickers;
 // 聊天室管理
 let tabLobby, panelLobby, btnLobbyRefresh, btnLobbyHistory, lobbySearchInput, lobbyPlayersList, lobbyMessagesList;
 let lobbyPlayersActions, lobbyPlayersSelectAll, btnLobbyBatchBan;
+
+// 海龟汤管理
+let tabSoup, panelSoup, btnSoupRoomsRefresh, soupRoomsList;
+let soupPuzzlesStatus, soupPuzzlesSource, soupPuzzlesKeyword;
+let btnSoupPuzzlesSearch, btnSoupPuzzlesRefresh, soupPuzzlesList, soupPuzzlesPagination;
+let soupPuzzlesPage = 1;
 let lobbyMessagesActions, lobbyMessagesSelectAll, btnLobbyBatchDelete;
 let lobbyAnnounceInput, btnLobbyAnnounce;
 let lobbyRateInput, btnLobbyRateSet, btnLobbyRateQuery, lobbyRateStatus;
@@ -1172,6 +1178,15 @@ function handleAdminMessage(data) {
             }
             break;
 
+        case 'admin_soup_rooms':
+            renderSoupRooms(data.rooms || []);
+            break;
+
+        case 'admin_soup_puzzles':
+            soupPuzzlesPage = data.page || 1;
+            renderSoupPuzzles(data.puzzles || [], data.total || 0);
+            break;
+
         default:
             break;
     }
@@ -1208,6 +1223,7 @@ function switchAdminTab(tab) {
         { btn: tabLobby, panel: panelLobby, name: 'lobby' },
         { btn: tabUsers, panel: panelUsers, name: 'users' },
         { btn: tabBot, panel: panelBot, name: 'bot' },
+        { btn: tabSoup, panel: panelSoup, name: 'soup' },
         { btn: tabAnnounce, panel: panelAnnounce, name: 'announce' },
     ];
 
@@ -1266,6 +1282,10 @@ function switchAdminTab(tab) {
     if (tab === 'lobby') {
         adminSend('admin_lobby_players');
         loadLobbyPage(1);
+    }
+    if (tab === 'soup') {
+        adminSend('admin_soup_rooms');
+        loadSoupPuzzles(1);
     }
     // MDv3 子面板切换后的自动加载（钩子：由 admin_mdv3.js 监听 window 事件自行实现）
     if (isMdTab) {
@@ -2877,6 +2897,120 @@ function repositionToasts() {}
 
 // ==================== 聊天室管理 ====================
 
+// ==================== 海龟汤管理 ====================
+
+function renderSoupRooms(rooms) {
+    if (!soupRoomsList) return;
+    if (!rooms.length) {
+        soupRoomsList.innerHTML = '<div class="list-empty">当前没有进行中的汤房</div>';
+        return;
+    }
+    let html = '';
+    rooms.forEach(r => {
+        const stateText = { lobby: '等待中', picking: '选题中', playing: '推理中', revealed: '已揭示' }[r.state] || r.state;
+        const stateColor = {
+            lobby: 'var(--badge-finished-text)', picking: 'var(--warn)',
+            playing: 'var(--badge-chatting-text)', revealed: 'var(--text-muted)'
+        }[r.state] || 'inherit';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border-light);font-size:12px;flex-wrap:wrap;">' +
+            '<span><strong>' + escapeHtml(r.name || '未命名汤房') + '</strong> <span style="color:var(--text-muted);">(' + escapeHtml(r.id) + ')</span></span>' +
+            '<span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' +
+            '<span>出题人:' + escapeHtml(r.host_nickname || '???') + '</span>' +
+            '<span>' + (r.count || 0) + '/' + (r.max || 0) + '人</span>' +
+            '<span>' + (r.questions || 0) + ' 问</span>' +
+            '<span style="color:' + stateColor + ';font-weight:bold;">' + stateText + '</span>' +
+            '<button class="doodle-btn btn-danger-ghost" style="font-size:10px;padding:1px 6px;" data-soup-dissolve="' + escapeHtmlAttr(r.id) + '">解散</button>' +
+            '</span></div>';
+    });
+    soupRoomsList.innerHTML = html;
+
+    soupRoomsList.querySelectorAll('[data-soup-dissolve]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const roomId = btn.getAttribute('data-soup-dissolve');
+            if (!confirm('确定解散汤房 ' + roomId + '？')) return;
+            adminSend('admin_soup_dissolve', { room_id: roomId });
+        });
+    });
+}
+
+function loadSoupPuzzles(page) {
+    if (!panelSoup) return;
+    adminSend('admin_soup_puzzles', {
+        page: page || 1,
+        status: soupPuzzlesStatus ? soupPuzzlesStatus.value : '',
+        source: soupPuzzlesSource ? soupPuzzlesSource.value : '',
+        keyword: soupPuzzlesKeyword ? soupPuzzlesKeyword.value.trim() : '',
+    });
+}
+
+function renderSoupPuzzles(puzzles, total) {
+    if (!soupPuzzlesList) return;
+    if (!puzzles.length) {
+        soupPuzzlesList.innerHTML = '<div class="list-empty">没有符合条件的汤面</div>';
+        if (soupPuzzlesPagination) soupPuzzlesPagination.textContent = '';
+        return;
+    }
+    let html = '';
+    puzzles.forEach(p => {
+        const isOfficial = p.source === 'official';
+        const statusChip = p.status === 'banned'
+            ? '<span style="color:var(--danger);font-weight:bold;">已下架</span>'
+            : '<span style="color:var(--success-color,var(--success));">上架中</span>';
+        const scopeChip = (isOfficial || p.scope === 'public')
+            ? '<span style="color:var(--ink-blue);">公开</span>'
+            : '<span style="color:var(--text-muted);">私有</span>';
+        html += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px;border-bottom:1px solid var(--border-light);font-size:12px;flex-wrap:wrap;">' +
+            '<span style="flex:1;min-width:220px;">' +
+            '<strong>#' + p.id + '</strong> ' + escapeHtml(p.title || '未命名') +
+            ' <span style="color:var(--text-muted);">★' + (p.difficulty || 1) + '</span>' +
+            (p.tags ? ' <span style="color:var(--text-muted);">[' + escapeHtml(p.tags) + ']</span>' : '') +
+            '<div style="color:var(--text-secondary);margin-top:2px;white-space:pre-wrap;">' + escapeHtml((p.surface || '').slice(0, 120)) + ((p.surface || '').length > 120 ? '…' : '') + '</div>' +
+            '<div style="color:var(--text-muted);margin-top:2px;">来源:' + (isOfficial ? '官方' : '玩家') +
+            ' · ' + scopeChip + ' · ' + statusChip + ' · 被选 ' + (p.used_count || 0) + ' 次</div>' +
+            '</span>' +
+            '<span style="display:flex;gap:4px;flex-shrink:0;">' +
+            (p.status === 'banned'
+                ? '<button class="doodle-btn" style="font-size:10px;padding:1px 6px;" data-soup-puzzle-status="' + p.id + '" data-status="active">恢复</button>'
+                : '<button class="doodle-btn btn-danger-ghost" style="font-size:10px;padding:1px 6px;" data-soup-puzzle-status="' + p.id + '" data-status="banned">下架</button>') +
+            '<button class="doodle-btn btn-danger-solid" style="font-size:10px;padding:1px 6px;" data-soup-puzzle-delete="' + p.id + '">删除</button>' +
+            '</span></div>';
+    });
+    soupPuzzlesList.innerHTML = html;
+
+    // 分页
+    if (soupPuzzlesPagination) {
+        const pageSize = 20;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        let phtml = '';
+        for (let i = 1; i <= totalPages; i++) {
+            phtml += '<button class="doodle-btn" style="font-size:10px;padding:1px 8px;margin:2px;' +
+                (i === soupPuzzlesPage ? 'border-color:var(--ink-blue);color:var(--ink-blue);font-weight:bold;' : '') +
+                '" data-soup-page="' + i + '">' + i + '</button>';
+        }
+        soupPuzzlesPagination.innerHTML = phtml;
+        soupPuzzlesPagination.querySelectorAll('[data-soup-page]').forEach(btn => {
+            btn.addEventListener('click', () => loadSoupPuzzles(parseInt(btn.getAttribute('data-soup-page'), 10)));
+        });
+    }
+
+    // 状态切换 / 删除
+    soupPuzzlesList.querySelectorAll('[data-soup-puzzle-status]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-soup-puzzle-status');
+            const status = btn.getAttribute('data-status');
+            if (!confirm((status === 'banned' ? '下架' : '恢复') + '汤面 #' + id + '？')) return;
+            adminSend('admin_soup_puzzle_status', { puzzle_id: parseInt(id, 10), status });
+        });
+    });
+    soupPuzzlesList.querySelectorAll('[data-soup-puzzle-delete]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-soup-puzzle-delete');
+            if (!confirm('永久删除汤面 #' + id + '？不可恢复！')) return;
+            adminSend('admin_soup_puzzle_delete', { puzzle_id: parseInt(id, 10) });
+        });
+    });
+}
+
 function renderLobbyPlayers(players) {
     if (!lobbyPlayersList) return;
     if (!players.length) {
@@ -3229,6 +3363,17 @@ function initAdminDOMRefs() {
     panelUsers = document.getElementById('panel-users');
     tabBot = document.getElementById('tab-bot');
     panelBot = document.getElementById('panel-bot');
+    tabSoup = document.getElementById('tab-soup');
+    panelSoup = document.getElementById('panel-soup');
+    btnSoupRoomsRefresh = document.getElementById('btn-soup-rooms-refresh');
+    soupRoomsList = document.getElementById('soup-rooms-list');
+    soupPuzzlesStatus = document.getElementById('soup-puzzles-status');
+    soupPuzzlesSource = document.getElementById('soup-puzzles-source');
+    soupPuzzlesKeyword = document.getElementById('soup-puzzles-keyword');
+    btnSoupPuzzlesSearch = document.getElementById('btn-soup-puzzles-search');
+    btnSoupPuzzlesRefresh = document.getElementById('btn-soup-puzzles-refresh');
+    soupPuzzlesList = document.getElementById('soup-puzzles-list');
+    soupPuzzlesPagination = document.getElementById('soup-puzzles-pagination');
     tabAnnounce = document.getElementById('tab-announce');
     panelAnnounce = document.getElementById('panel-announce');
     tabAdmin = document.getElementById('tab-admin');
@@ -3381,6 +3526,19 @@ function initAdminEvents() {
     }
     if (tabBot) {
         tabBot.addEventListener('click', () => switchAdminTab('bot'));
+        if (tabSoup) {
+            tabSoup.addEventListener('click', () => switchAdminTab('soup'));
+            if (btnSoupRoomsRefresh) btnSoupRoomsRefresh.addEventListener('click', () => adminSend('admin_soup_rooms'));
+            if (btnSoupPuzzlesSearch) btnSoupPuzzlesSearch.addEventListener('click', () => loadSoupPuzzles(1));
+            if (btnSoupPuzzlesRefresh) btnSoupPuzzlesRefresh.addEventListener('click', () => loadSoupPuzzles(1));
+            if (soupPuzzlesStatus) soupPuzzlesStatus.addEventListener('change', () => loadSoupPuzzles(1));
+            if (soupPuzzlesSource) soupPuzzlesSource.addEventListener('change', () => loadSoupPuzzles(1));
+            if (soupPuzzlesKeyword) {
+                soupPuzzlesKeyword.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') loadSoupPuzzles(1);
+                });
+            }
+        }
         if (btnBotAdd) btnBotAdd.addEventListener('click', openBotAddModal);
         if (btnBotRefresh) btnBotRefresh.addEventListener('click', () => loadBotList(_botPage));
         const btnConfirm = document.getElementById('btn-bot-add-confirm');

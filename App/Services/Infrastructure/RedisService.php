@@ -81,6 +81,9 @@ class RedisService
 
     // ==================== 缘分系统 ====================
     public const KP_FATE           = self::PREFIX . 'fate:';                       // fate:room:{sessionId} → hash 默契房数据
+
+    // ==================== 海龟汤 ====================
+    public const KP_SOUP           = self::PREFIX . 'soup:';                       // soup:room:{id} → hash / soup:client:{fd} → hash / soup:rooms → set
     public const STICKER_CACHE_TTL  = 3600;
 
     /**
@@ -223,7 +226,8 @@ class RedisService
             self::KP_LOBBY_MUTED,             // tg:lobby:muted:*（重启后旧禁言全失效）
             self::KP_LOBBY_ISOLATED,          // tg:lobby:isolated:*（重启后旧孤立全失效）
             self::KP_LOBBY_REPORTED,          // tg:lobby:reported:*（重启后旧举报去重失效）
-            self::KP_FATE,                    // fg:fate:room:*（重启后旧默契房全失效）
+            self::KP_FATE,                    // fate:room:*（重启后旧默契房全失效）
+            self::KP_SOUP,                    // soup:*（重启后旧海龟汤房间全失效）
         ];
 
         $totalScanned = 0;

@@ -28,6 +28,7 @@ class Router
                 '/lobby' => [GameController::class, 'lobbyIndex'],
                 '/temp-chat' => [GameController::class, 'tempChatIndex'],
                 '/gomoku' => [GameController::class, 'gomokuIndex'],
+                '/soup' => [GameController::class, 'soupIndex'],
                 '/weekly-report' => [GameController::class, 'weeklyReportIndex'],
                 '/bot-panel' => [GameController::class, 'botPanelPage'],
                 '/api/bot/panel' => [GameController::class, 'botPanel'],
@@ -44,6 +45,8 @@ class Router
                 '/api/macros' => [GameController::class, 'macrosList'],
                 '/api/temp/users' => [GameController::class, 'tempUsers'],
                 '/api/sticker/list' => [GameController::class, 'listStickers'],
+                '/api/soup/my-puzzles' => [GameController::class, 'soupMyPuzzlesList'],
+                '/api/soup/public-puzzles' => [GameController::class, 'soupPublicPuzzles'],
                 '/api/bot/stickers' => [GameController::class, 'botStickers'],
                 '/api/weekly-report' => [GameController::class, 'weeklyReport'],
                 '/player/{nickname}' => [GameController::class, 'index'],
@@ -70,6 +73,8 @@ class Router
                 '/api/sticker/delete' => [GameController::class, 'deleteSticker'],
                 '/api/sticker/add-to-mine' => [GameController::class, 'addStickerToMine'],
                 '/api/macros' => [GameController::class, 'macrosSave'],
+                '/api/soup/my-puzzles' => [GameController::class, 'soupPuzzleCreate'],
+                '/api/soup/my-puzzles/{id}/share' => [GameController::class, 'soupPuzzleShare'],
                 '/api/macros/delete' => [GameController::class, 'macrosDelete'],
                 '/api/temp/invite' => [GameController::class, 'tempInvite'],
                 '/api/temp/invite/decline' => [GameController::class, 'tempInviteDecline'],
@@ -83,6 +88,12 @@ class Router
                 '/api/oauth/sync-avatar' => [OAuthController::class, 'syncAvatarNow'],
                 '/api/oauth/confirm-create' => [OAuthController::class, 'confirmCreate'],
                 '/api/oauth/cancel' => [OAuthController::class, 'cancel'],
+            ],
+            'PUT' => [
+                '/api/soup/my-puzzles/{id}' => [GameController::class, 'soupPuzzleUpdate'],
+            ],
+            'DELETE' => [
+                '/api/soup/my-puzzles/{id}' => [GameController::class, 'soupPuzzleDelete'],
             ],
         ];
 

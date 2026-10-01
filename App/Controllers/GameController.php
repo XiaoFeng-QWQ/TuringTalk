@@ -13,6 +13,7 @@ use App\Admin\Repository\AdminRepository;
 use App\Config\Config;
 use App\Services\Infrastructure\AvatarService;
 use App\Services\Infrastructure\StickerService;
+use App\Services\Soup\SoupPuzzleService;
 
 /**
  * 游戏控制器
@@ -42,6 +43,9 @@ class GameController
         '/temp-chat/temp-chat.js'  => ['temp-chat/temp-chat.js',  'application/javascript'],
         '/temp-invite.js'          => ['temp-invite.js',          'application/javascript'],
         '/bot-panel/bot-panel.js'  => ['bot-panel/bot-panel.js',  'application/javascript'],
+        '/soup/soup.css'           => ['soup/soup.css',           'text/css'],
+        '/soup/soup.js'            => ['soup/soup.js',            'application/javascript'],
+        '/soup/index.html'         => ['soup/index.html',         'text/html'],
     ];
 
     public function index(Request $request, Response $response): void
@@ -108,6 +112,21 @@ class GameController
     {
         $html = file_get_contents(self::PUBLIC_DIR . 'gomoku/index.html');
         $files = ['/style.css', '/gomoku/gomoku.css', '/shared.js', '/gomoku/gomoku.js'];
+        foreach ($files as $file) {
+            $html = str_replace(
+                $file . '?v=',
+                $file . '?v=' . $this->getFileVersionHash($file),
+                $html
+            );
+        }
+        $response->setContent($html);
+        $response->send();
+    }
+
+    public function soupIndex(Request $request, Response $response): void
+    {
+        $html = file_get_contents(self::PUBLIC_DIR . 'soup/index.html');
+        $files = ['/style.css', '/soup/soup.css', '/shared.js', '/soup/soup.js'];
         foreach ($files as $file) {
             $html = str_replace(
                 $file . '?v=',
@@ -516,6 +535,137 @@ class GameController
         }
         $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
         $response->send();
+    }
+
+    // ==================== 海龟汤汤面库（我的汤面 / 公开汤池） ====================
+
+    /**
+     * GET /api/soup/my-puzzles
+     * 我的汤面列表（含汤底，仅本人可见）
+     */
+    public function soupMyPuzzlesList(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $service = new SoupPuzzleService();
+        $response->setContent(json_encode([
+            'success' => true,
+            'puzzles' => $service->listMine($playerId),
+        ], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/soup/my-puzzles
+     * 新建汤面（surface, truth, key_points?, hints?, tags?, difficulty?, is_public）
+     */
+    public function soupPuzzleCreate(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $service = new SoupPuzzleService();
+        $result = $service->create($playerId, $request->getJsonBody());
+        if (empty($result['success'])) {
+            $response->setContent(json_encode(['error' => $result['error'] ?? '创建失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true, 'id' => $result['id']], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * PUT /api/soup/my-puzzles/{id}
+     * 编辑我的汤面
+     */
+    public function soupPuzzleUpdate(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $service = new SoupPuzzleService();
+        $result = $service->update($playerId, $this->extractSoupPuzzleId($request->getPath()), $request->getJsonBody());
+        if (empty($result['success'])) {
+            $response->setContent(json_encode(['error' => $result['error'] ?? '保存失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * DELETE /api/soup/my-puzzles/{id}
+     * 删除我的汤面
+     */
+    public function soupPuzzleDelete(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $service = new SoupPuzzleService();
+        $result = $service->delete($playerId, $this->extractSoupPuzzleId($request->getPath()));
+        if (empty($result['success'])) {
+            $response->setContent(json_encode(['error' => $result['error'] ?? '删除失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * POST /api/soup/my-puzzles/{id}/share
+     * 切换共享（公开/私有）
+     */
+    public function soupPuzzleShare(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+        $playerId = $this->requirePlayerId($request, $response);
+        if ($playerId === null) return;
+
+        $service = new SoupPuzzleService();
+        $result = $service->toggleShare($playerId, $this->extractSoupPuzzleId($request->getPath()));
+        if (empty($result['success'])) {
+            $response->setContent(json_encode(['error' => $result['error'] ?? '操作失败'], JSON_UNESCAPED_UNICODE));
+            $response->send();
+            return;
+        }
+        $response->setContent(json_encode(['success' => true, 'scope' => $result['scope']], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * GET /api/soup/public-puzzles
+     * 公开汤池（官方题 + 玩家公开题，隐藏汤底）
+     */
+    public function soupPublicPuzzles(Request $request, Response $response): void
+    {
+        $response->setHeader('Content-Type', 'application/json');
+
+        $service = new SoupPuzzleService();
+        $response->setContent(json_encode([
+            'success' => true,
+            'puzzles' => $service->listPublic(),
+        ], JSON_UNESCAPED_UNICODE));
+        $response->send();
+    }
+
+    /**
+     * 从 /api/soup/my-puzzles/{id}[...] 路径中提取汤面 id
+     */
+    private function extractSoupPuzzleId(string $path): int
+    {
+        if (preg_match('#/api/soup/my-puzzles/(\d+)#', $path, $m)) {
+            return (int)$m[1];
+        }
+        return 0;
     }
 
     // ==================== 临时聊天邀请（全站 HTTP API：首页/聊天室等任意页面发起邀请） ====================

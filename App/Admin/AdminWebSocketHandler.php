@@ -16,11 +16,13 @@ use App\Admin\Handlers\UserHandler;
 use App\Admin\Handlers\BotHandler;
 use App\Admin\Handlers\BotApplyHandler;
 use App\Admin\Handlers\AnnounceHandler;
+use App\Admin\Handlers\SoupHandler;
 use App\Admin\Repository\AdminRepository;
 use App\Core\WebSocket\BaseGameHandler;
 use App\Core\WebSocket\GameWebSocketHandler;
 use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\WebSocket\GomokuWebSocketHandler;
+use App\Core\WebSocket\Soup\SoupWebSocketHandler;
 use App\Controllers\GameController;
 use App\Services\Infrastructure\Logger;
 
@@ -32,6 +34,7 @@ class AdminWebSocketHandler
     private GameWebSocketHandler $gameHandler;
     private LobbyChatWebSocketHandler $lobbyHandler;
     private GomokuWebSocketHandler $gomokuHandler;
+    private ?SoupWebSocketHandler $soupGameHandler = null;
     private Tracker $tracker;
 
     /** @var array<string, string> fd => ip，onOpen 暂存，handleConnect 消费后清除 */
@@ -49,6 +52,7 @@ class AdminWebSocketHandler
     private BotHandler       $botHandler;
     private BotApplyHandler  $botApplyHandler;
     private AnnounceHandler  $announceHandler;
+    private ?SoupHandler     $soupHandlerInstance = null;
 
     /**
      * @param BaseGameHandler[] $gameHandlers 所有游戏模式 Handler
@@ -60,6 +64,7 @@ class AdminWebSocketHandler
             if ($h::routePrefix() === '') $this->gameHandler = $h;
             if ($h::routePrefix() === 'lobby_') $this->lobbyHandler = $h;
             if ($h::routePrefix() === 'gomoku_') $this->gomokuHandler = $h;
+            if ($h::routePrefix() === 'soup_') $this->soupGameHandler = $h;
         }
 
         $this->tracker = new Tracker();
@@ -79,6 +84,9 @@ class AdminWebSocketHandler
         $this->botHandler          = new BotHandler($this->gameHandler, $this->tracker);
         $this->botApplyHandler     = new BotApplyHandler($this->gameHandler, $this->tracker);
         $this->announceHandler     = new AnnounceHandler($this->gameHandler, $this->tracker);
+        if ($this->soupGameHandler !== null) {
+            $this->soupHandlerInstance = new SoupHandler($this->soupGameHandler, $this->tracker);
+        }
     }
 
     public function getTracker(): Tracker
@@ -343,6 +351,24 @@ class AdminWebSocketHandler
             case 'admin_bot_apply_review':
                 $this->withOp($server, $fd, "正在审核 BOT 申请", fn() =>
                 $this->botApplyHandler->handleReview($server, $fd, $data));
+                break;
+            case 'admin_soup_rooms':
+                if ($this->soupHandlerInstance) $this->soupHandlerInstance->handleRooms($server, $fd);
+                break;
+            case 'admin_soup_dissolve':
+                if ($this->soupHandlerInstance) $this->withOp($server, $fd, "正在解散海龟汤房间", fn() =>
+                $this->soupHandlerInstance->handleDissolve($server, $fd, $data));
+                break;
+            case 'admin_soup_puzzles':
+                if ($this->soupHandlerInstance) $this->soupHandlerInstance->handlePuzzles($server, $fd, $data);
+                break;
+            case 'admin_soup_puzzle_status':
+                if ($this->soupHandlerInstance) $this->withOp($server, $fd, "正在更新汤面状态", fn() =>
+                $this->soupHandlerInstance->handleSetStatus($server, $fd, $data));
+                break;
+            case 'admin_soup_puzzle_delete':
+                if ($this->soupHandlerInstance) $this->withOp($server, $fd, "正在删除汤面", fn() =>
+                $this->soupHandlerInstance->handleDelete($server, $fd, $data));
                 break;
             default:
                 $this->sendErr($server, $fd, '未知的管理消息类型: ' . $data['type']);

@@ -9,6 +9,7 @@ use App\Core\WebSocket\LobbyChatWebSocketHandler;
 use App\Core\WebSocket\GomokuWebSocketHandler;
 use App\Core\WebSocket\TempChatWebSocketHandler;
 use App\Core\WebSocket\Fate\FateWebSocketHandler;
+use App\Core\WebSocket\Soup\SoupWebSocketHandler;
 use App\Admin\AdminWebSocketHandler;
 use App\Admin\Repository\BotRepository;
 use App\Admin\Repository\BotApplicationRepository;
@@ -65,6 +66,10 @@ class WebSocketHandler
         // 缘分（默契测试）系统：由 Fate.Enabled 总开关控制是否启用
         if (Config::get('Fate.Enabled', true)) {
             $this->gameHandlers[] = new FateWebSocketHandler();
+        }
+        // 海龟汤（真人房）模式：由 Soup.Enabled 总开关控制是否启用
+        if (Config::get('Soup.Enabled', true)) {
+            $this->gameHandlers[] = new SoupWebSocketHandler();
         }
 
         // 自动构建路由表
@@ -251,6 +256,11 @@ class WebSocketHandler
     public function getFateHandler(): ?FateWebSocketHandler
     {
         return $this->routeByPath['/ws/fate'] ?? null;
+    }
+
+    public function getSoupHandler(): ?SoupWebSocketHandler
+    {
+        return $this->routeByPath['/ws/soup'] ?? null;
     }
 
     // ==================== 在线人数广播 ====================

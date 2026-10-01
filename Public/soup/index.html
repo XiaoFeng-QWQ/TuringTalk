@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#2c3e50">
+    <title>海龟汤</title>
+    <link rel="shortcut icon" href="/favicon.ico">
+    <link rel="icon" type="image/png" href="/favicon.png">
+    <meta name="description" content="汤面之下，真相只有一个。真人出题的横向思维推理游戏。">
+    <meta property="og:title" content="海龟汤 - 更好的图灵测试">
+    <meta property="og:description" content="汤面之下，真相只有一个。">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/favicon.png">
+    <meta name="twitter:card" content="summary">
+    <link rel="preconnect" href="https://s4.zstatic.net" crossorigin>
+
+    <link rel="stylesheet" href="/style.css?v=">
+    <link rel="stylesheet" href="/soup/soup.css?v=">
+</head>
+
+<body>
+
+    <div id="announcement-area"></div>
+
+    <header>
+        <button class="doodle-btn" id="btn-back" style="border-radius: 50%; padding: 10px;" title="返回">
+            <svg class="icon" viewBox="0 0 24 24">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+        </button>
+        <div class="logo-text">
+            <svg class="icon" viewBox="0 0 24 24">
+                <path d="M3 12h18a9 9 0 0 1-9 9 9 9 0 0 1-9-9z" />
+                <path d="M8 8c0-1.5 1-2 1-3.5" />
+                <path d="M12 8c0-1.5 1-2 1-3.5" />
+                <path d="M16 8c0-1.5 1-2 1-3.5" />
+            </svg>
+            海龟汤
+        </div>
+        <div class="header-actions">
+            <button class="doodle-btn" id="btn-theme" title="主题切换" style="padding:8px 8px;">
+                <svg class="icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="5" />
+                    <path d="M12 1v2" />
+                    <path d="M12 21v2" />
+                    <path d="M4.22 4.22l1.42 1.42" />
+                    <path d="M18.36 18.36l1.42 1.42" />
+                    <path d="M1 12h2" />
+                    <path d="M21 12h2" />
+                    <path d="M4.22 19.78l1.42-1.42" />
+                    <path d="M18.36 5.64l1.42-1.42" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+
+        <!-- ==================== 大厅 ==================== -->
+        <section id="page-lobby">
+            <div class="sticky-hero">
+                <div style="color:var(--ink-blue);font-size:16px;margin-bottom:8px;"># 在线实验 04</div>
+                <h1 class="hero-title">汤面之下</h1>
+                <p class="hero-subtitle">一段离奇的汤面，无数个是与否，逼近唯一的真相。</p>
+            </div>
+
+            <div id="identity-card" class="lobby-identity-card" style="display:none;">
+                <div class="id-card-inner">
+                    <div class="id-icon">?</div>
+                    <h2>未检测到身份</h2>
+                    <p>请先前往首页创建或恢复您的账号</p>
+                    <button id="identity-btn-go-home" class="doodle-btn btn-full"
+                        style="margin-top:16px;font-size:16px;">
+                        前往首页
+                    </button>
+                    <button id="identity-btn-guest" class="doodle-btn btn-full"
+                        style="margin-top:8px;font-size:15px;border-style:dashed;">
+                        先逛逛大厅
+                    </button>
+                </div>
+            </div>
+
+            <div class="soup-actions">
+                <button class="doodle-btn soup-action-btn" id="btn-create-room">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M3 12h18a9 9 0 0 1-9 9 9 9 0 0 1-9-9z" />
+                        <path d="M12 8V2M9 5h6" />
+                    </svg>
+                    创建房间（当出题人）
+                </button>
+                <button class="doodle-btn soup-action-btn" id="btn-my-puzzles">
+                    <svg class="icon" viewBox="0 0 24 24">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <path d="M14 2v6h6" />
+                        <line x1="8" y1="13" x2="16" y2="13" />
+                        <line x1="8" y1="17" x2="13" y2="17" />
+                    </svg>
+                    我的汤面
+                </button>
+            </div>
+
+            <div class="soup-lobby-title">可加入的汤房</div>
+            <div id="room-list" class="soup-room-list">
+                <div class="soup-room-empty">正在连接大厅…</div>
+            </div>
+        </section>
+
+        <!-- ==================== 等待开汤 ==================== -->
+        <section id="page-wait" style="display:none;">
+            <div class="doodle-border wait-card">
+                <h2 id="wait-title">汤房就绪</h2>
+                <p>房间号：</p>
+                <div class="room-code" id="wait-code">------</div>
+                <p class="hint">把房间号发给好友，或让他们在海龟汤大厅直接加入。</p>
+
+                <div id="wait-puzzle" class="wait-puzzle"></div>
+
+                <div id="pick-panel" class="pick-panel" style="display:none;">
+                    <div class="pick-label">选择一锅汤</div>
+                    <div class="pick-tabs">
+                        <button class="pick-tab active" data-source="random">随机一汤</button>
+                        <button class="pick-tab" data-source="official">官方题库</button>
+                        <button class="pick-tab" data-source="public">公开汤池</button>
+                        <button class="pick-tab" data-source="mine">我的汤面</button>
+                    </div>
+                    <div id="pick-list" class="pick-list">
+                        <div class="pick-empty">选择一种来源</div>
+                    </div>
+                </div>
+
+                <div id="wait-members" class="wait-members"></div>
+                <div id="wait-log" class="event-log"></div>
+
+                <div class="setting-actions">
+                    <button class="doodle-btn" id="btn-wait-leave"
+                        style="color:var(--danger);border-color:var(--danger);">离开</button>
+                    <button class="doodle-btn" id="btn-ready">开 汤</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 对局 ==================== -->
+        <section id="page-game" style="display:none;">
+            <div class="soup-game-layout">
+                <div class="soup-info-bar">
+                    <div class="soup-info-title" id="game-title">—</div>
+                    <span class="soup-state-badge" id="game-state">推理中</span>
+                    <span class="soup-q-count" id="game-qcount">0/30 问</span>
+                    <span class="soup-hint-count" id="game-hcount">提示 0/3</span>
+                </div>
+
+                <div class="soup-members" id="game-members"></div>
+
+                <div class="soup-surface-card" id="surface-card">
+                    <div class="surface-label">汤面</div>
+                    <div class="surface-text" id="surface-text">—</div>
+                    <div id="host-truth" style="display:none;">
+                        <button class="doodle-btn host-truth-toggle" id="btn-truth-toggle">查看汤底（仅出题人可见）</button>
+                        <div id="host-truth-body" style="display:none;">
+                            <div class="surface-label">汤底</div>
+                            <div class="surface-text truth-text" id="truth-text"></div>
+                            <div class="surface-label" style="margin-top:10px;">关键点</div>
+                            <div class="key-points" id="key-points"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="soup-qa-list" id="qa-list">
+                    <div class="qa-empty" id="qa-empty">还没有提问，大胆猜！</div>
+                </div>
+
+                <div class="soup-input-area" id="input-area"></div>
+                <div class="soup-game-actions" id="game-actions"></div>
+            </div>
+        </section>
+
+        <!-- ==================== 我的汤面 ==================== -->
+        <section id="page-puzzles" style="display:none;">
+            <div class="puzzle-toolbar">
+                <button class="doodle-btn" id="btn-puzzles-back">返回大厅</button>
+                <select class="doodle-input" id="puzzle-filter">
+                    <option value="all">全部</option>
+                    <option value="private">私有</option>
+                    <option value="public">已共享</option>
+                </select>
+                <button class="doodle-btn" id="btn-new-puzzle"
+                    style="color:var(--ink-blue);border-color:var(--ink-blue);">＋ 新建汤面</button>
+            </div>
+            <div id="my-puzzle-grid" class="puzzle-grid"></div>
+        </section>
+    </main>
+
+    <!-- ==================== 汤面编辑浮层 ==================== -->
+    <div id="puzzle-editor" class="soup-overlay" style="display:none;">
+        <div class="editor-card doodle-border">
+            <h2 id="editor-heading">新建汤面</h2>
+            <label class="field-label">标题（选填，100 字内）</label>
+            <input class="doodle-input" id="editor-title" maxlength="100" placeholder="例：午夜的海龟汤">
+            <label class="field-label">汤面（谜面，1000 字内）</label>
+            <textarea class="doodle-input" id="editor-surface" maxlength="1000" rows="4"
+                placeholder="讲一个看似矛盾的场景……"></textarea>
+            <label class="field-label">汤底（真相，2000 字内，永远只在你手里）</label>
+            <textarea class="doodle-input" id="editor-truth" maxlength="2000" rows="4"
+                placeholder="完整的真相……"></textarea>
+            <label class="field-label">关键点（逗号分隔，选填，辅助 AI 建议）</label>
+            <input class="doodle-input" id="editor-key-points" placeholder="跳海, 同伴, 篝火">
+            <label class="field-label">提示（每行一条，选填，对局中逐步公布）</label>
+            <textarea class="doodle-input" id="editor-hints" rows="2" placeholder="每行一条提示"></textarea>
+            <div class="editor-row">
+                <div>
+                    <label class="field-label">难度</label>
+                    <select class="doodle-input" id="editor-difficulty">
+                        <option value="1">★ 入门</option>
+                        <option value="2" selected>★★ 进阶</option>
+                        <option value="3">★★★ 硬核</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="field-label">标签（逗号分隔）</label>
+                    <input class="doodle-input" id="editor-tags" placeholder="经典, 惊悚">
+                </div>
+            </div>
+            <label class="editor-share-row">
+                <input type="checkbox" id="editor-share">
+                <span>共享到公开汤池（所有人可选用这锅汤）</span>
+            </label>
+            <div class="setting-actions">
+                <button class="doodle-btn" id="btn-editor-cancel">取消</button>
+                <button class="doodle-btn" id="btn-editor-save"
+                    style="color:var(--success);border-color:var(--success);">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 汤底揭示浮层 ==================== -->
+    <div id="reveal-overlay" class="soup-overlay dark" style="display:none;">
+        <div class="reveal-card">
+            <div class="reveal-winner" id="reveal-winner"></div>
+            <div class="reveal-label">— 汤 底 —</div>
+            <div class="reveal-solution" id="reveal-solution"></div>
+            <div class="reveal-stats" id="reveal-stats"></div>
+            <div class="setting-actions">
+                <button class="doodle-btn" id="btn-reveal-leave"
+                    style="color:#fff;border-color:rgba(255,255,255,.6);">回大厅</button>
+                <button class="doodle-btn" id="btn-reveal-stay" style="display:none;color:#fff;">留在房间等下一题</button>
+                <button class="doodle-btn" id="btn-reveal-next" style="display:none;color:#fff;">下一题</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="soup-loading" class="soup-loading" style="display:none;">
+        <svg class="soup-spinner" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-dasharray="31.4 31.4" stroke-linecap="round">
+                <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s"
+                    repeatCount="indefinite" />
+            </circle>
+        </svg>
+        <span id="soup-loading-text">处理中…</span>
+    </div>
+
+    <div style="text-align:center;padding:12px 20px 20px;font-size:12px;color:var(--text-subtle);">
+        <a href="https://fakeicp.top" target="_blank" title="点击查看 假ICP备 访问量统计">
+            <img src="https://fakeicp.top/api/analytics/badge?site=https://game.xfcode.top/" alt="访问量统计 | fakeicp.top" />
+        </a>
+        <a href="http://wapmz.com/in/292"><img src="http://wapmz.com/cn/big/292" alt="wapmz.com"></a><br>
+        <a href="https://icp.gov.moe/?keyword=20269944" target="_blank">萌ICP备20269944号</a>
+        <a href="https://fakeicp.top/query.html?number=1202612" target="_blank">假ICP备1202612号</a>
+        <br>
+        本项目基于 AGPL 协议开源，欢迎部署或学习：<a href="https://github.com/XiaoFeng-QWQ/TuringTalk" target="_blank" rel="noopener"
+            style="color:var(--ink-blue);text-decoration:underline;">github.com/XiaoFeng-QWQ/TuringTalk</a>
+    </div>
+
+    <script src="/shared.js?v="></script>
+    <script src="/soup/soup.js?v="></script>
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="caab6c43-2fba-4eb5-9654-e1fe179ce0f2"></script>
+</body>
+
+</html>

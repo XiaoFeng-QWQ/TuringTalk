@@ -20,6 +20,9 @@ use App\Services\Repository\OnlineCountRepository;
 use App\Admin\Repository\AdminRepository;
 use App\Services\Repository\OAuthBindingRepository;
 use App\Services\Repository\FateRecordRepository;
+use App\Services\Repository\SoupPuzzleRepository;
+use App\Services\Repository\SoupRecordRepository;
+use App\Services\Soup\SoupQuestionBankService;
 
 /**
  * 应用程序入口
@@ -59,6 +62,9 @@ class Application
         MacroRepository::ensureTable();
         \App\Services\TempChat\TempChatReportRepository::ensureTable();
         FateRecordRepository::ensureTable();
+        SoupPuzzleRepository::ensureTable();
+        SoupRecordRepository::ensureTable();
+        SoupQuestionBankService::seed();
         AdminRepository::initialize();
         OAuthBindingRepository::initialize();
 
