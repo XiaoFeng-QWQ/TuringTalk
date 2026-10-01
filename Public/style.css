@@ -3740,3 +3740,139 @@ main {
     background: var(--bg-input);
     border-top: 1px dashed var(--border-light);
 }
+
+
+/* ===== ND-ACTIVITY-BEGIN 国庆氛围（活动结束删除本段即可完全回滚）===== */
+/* 设计取向：不叠装饰，只做两件事——配色转暖、便签纸上盖一枚印章。
+   延续站点既有纸张墨水语言（虚线边框 / 波浪下划线 / 便签纸 / 硬偏移阴影），
+   避免渐变横幅、飘落 emoji、发光描边这类与手绘风相斥的"节日模板"。 */
+
+/* ---- 1. 配色：红纸金墨。只改颜色变量，不动尺寸间距，版式零位移 ---- */
+html[data-event="nd"] {
+    --nd-red: #b93a32;
+    --nd-red-deep: #8c2a24;
+    --nd-gold: #b08a3e;
+    --nd-gold-light: #d8b56a;
+    --nd-gold-deep: #8a6a2a;
+
+    --ink-blue: #b93a32;
+    --paper-bg: #fdf6f2;
+    --dot-color: #eadcd4;
+    --note-yellow: #faeec4;
+    --note-pink: #f8e0dc;
+    --note-blue: #f6e8dc;
+    --note-green: #f6e9d2;
+    --highlighter: rgba(185, 58, 50, 0.15);
+    --surface-white: #fffcf9;
+    --surface-header: rgba(255, 250, 246, 0.8);
+    --text-secondary: #6d5049;
+    --text-muted: #7d615a;
+    --text-subtle: #96726a;
+    --text-aa: #bda39b;
+    --border-light: #e3cbc2;
+    --border-lighter: #f3e4dc;
+    --bg-clipboard: #e5cda4;
+    --bg-input: #fffcf9;
+    --chat-grid: #f1e0d8;
+    --shadow-sm: rgba(120, 45, 38, 0.06);
+    --shadow-md: rgba(120, 45, 38, 0.12);
+    --shadow-lg: rgba(120, 45, 38, 0.18);
+    --overlay-bg: rgba(255, 250, 246, 0.45);
+    --badge-chatting-bg: #f6e9d2;
+    --badge-chatting-text: #8a6a2a;
+    --badge-judging-bg: #faeec4;
+    --badge-judging-text: #b93a32;
+    --badge-finished-bg: #ece0d8;
+    --badge-finished-text: #7d615a;
+    --room-warn-bg: #fbf0ec;
+    --cover-bg: rgba(185, 58, 50, 0.05);
+}
+
+/* ---- 2. 暗色 · 夜红纸（特异性更高，暗色模式下正确接管）---- */
+html[data-theme="dark"][data-event="nd"] {
+    --ink-blue: #e07a6b;
+    --paper-bg: #1b1210;
+    --dot-color: #34241f;
+    --note-yellow: #3a2c16;
+    --note-pink: #3a2320;
+    --note-blue: #31241f;
+    --note-green: #332a1a;
+    --highlighter: rgba(224, 122, 107, 0.18);
+    --surface-white: #271b17;
+    --surface-header: rgba(39, 27, 23, 0.85);
+    --text-secondary: #d2b3aa;
+    --text-muted: #bb9c93;
+    --text-subtle: #96726a;
+    --text-aa: #7c615a;
+    --border-light: #4b342d;
+    --border-lighter: #3a2a24;
+    --bg-clipboard: #3b2c21;
+    --bg-input: #271b17;
+    --chat-grid: #33241f;
+    --shadow-sm: rgba(0, 0, 0, 0.25);
+    --shadow-md: rgba(0, 0, 0, 0.35);
+    --shadow-lg: rgba(0, 0, 0, 0.45);
+    --overlay-bg: rgba(0, 0, 0, 0.55);
+    --badge-chatting-bg: #332a1a;
+    --badge-chatting-text: #d8b56a;
+    --badge-judging-bg: #3a2c16;
+    --badge-judging-text: #e0a050;
+    --badge-finished-bg: #2c211d;
+    --badge-finished-text: #96726a;
+    --room-warn-bg: #3b2320;
+    --cover-bg: rgba(224, 122, 107, 0.07);
+}
+
+/* ---- 3. 印章：盖在首页那张歪着的便签纸上 ----
+   .sticky-hero 本身是 rotate(-2deg) 的便签 + 顶部胶带(::before)，
+   印章绝对定位于纸内，随纸一起歪，视觉上就是"盖上去的"。 */
+html[data-event="nd"] .sticky-hero::after {
+    content: '国庆限定';
+    position: absolute;
+    right: 14px;
+    bottom: 12px;
+    padding: 3px 7px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1.2;
+    writing-mode: vertical-rl;              /* 竖排，仿印章自右向左 */
+    color: var(--nd-red);
+    border: 2px solid var(--nd-red);
+    border-radius: 4px;
+    opacity: 0.82;
+    transform: rotate(-6deg);
+    pointer-events: none;
+    /* 印泥的洇墨感：不是发光，是颜色往纸里沉一点 */
+    box-shadow: inset 0 0 0 1px rgba(185, 58, 50, 0.25);
+}
+
+/* 印章做得比正文字色更"干"一点，像真印泥而非贴纸 */
+html[data-event="nd"] .sticky-hero::after {
+    mix-blend-mode: multiply;
+}
+
+html[data-theme="dark"][data-event="nd"] .sticky-hero::after {
+    mix-blend-mode: screen;
+    color: var(--nd-gold-light);
+    border-color: var(--nd-gold-light);
+    opacity: 0.75;
+    box-shadow: none;
+}
+
+/* ---- 4. 官方特殊称号：原本就有金色描边，节日里仅加一层纸纹底，不加光 ---- */
+html[data-event="nd"] .lobby-title-badge.special {
+    background: linear-gradient(180deg, rgba(216, 181, 106, 0.30), rgba(216, 181, 106, 0.12));
+    color: var(--nd-gold-deep);
+}
+
+html[data-theme="dark"][data-event="nd"] .lobby-title-badge.special {
+    color: var(--nd-gold-light);
+}
+
+/* ---- 5. 暗色下 logo 描金波浪线（亮色保持默认墨色，不加戏）---- */
+html[data-theme="dark"][data-event="nd"] .logo-text {
+    text-decoration: underline wavy var(--nd-gold);
+}
+
+/* ===== ND-ACTIVITY-END ===== */
